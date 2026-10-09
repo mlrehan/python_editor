@@ -134,7 +134,7 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
     if (diagnosticLayerRef.current) {
       diagnosticLayerRef.current.scrollTop = e.currentTarget.scrollTop;
     }
-    if (isDropdownOpen && textareaRef.current) {
+    if ((isDropdownOpen || activeSignature) && textareaRef.current) {
       updatePopupPositions(textareaRef.current.selectionStart);
     }
   };
@@ -184,11 +184,19 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
   const [completions, setCompletions] = useState<CompletionItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; placement: 'above' | 'below' }>({
+    top: 0,
+    left: 0,
+    placement: 'below',
+  });
 
   // Signature help state
   const [activeSignature, setActiveSignature] = useState<SignatureItem | null>(null);
-  const [signaturePos, setSignaturePos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [signaturePos, setSignaturePos] = useState<{ top: number; left: number; placement: 'above' | 'below' }>({
+    top: 0,
+    left: 0,
+    placement: 'above',
+  });
 
   // Diagnostics (real Python syntax errors and missing imports)
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
@@ -220,7 +228,68 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
     };
   }, [code, contextKey, sessionId]);
 
-  // Dynamically compute caret coordinates and popup positioning
+  // Helper to render signature with active parameter highlighted
+  const renderSignatureHelp = useCallback((sig: SignatureItem) => {
+    if (!sig.signature) return null;
+    if (!sig.params || sig.params.length === 0 || sig.index === undefined || sig.index < 0 || sig.index >= sig.params.length) {
+      return <div style={{ color: 'var(--border-accent)', fontWeight: 600 }}>{sig.signature}</div>;
+    }
+
+    const activeParam = sig.params[sig.index];
+    if (!activeParam) {
+      return <div style={{ color: 'var(--border-accent)', fontWeight: 600 }}>{sig.signature}</div>;
+    }
+
+    const regex = new RegExp(`(\\b\\*?${activeParam}\\b(?:=[^,)]*)?)`, 'g');
+    const parts = sig.signature.split(regex);
+
+    if (parts.length <= 1) {
+      return <div style={{ color: 'var(--border-accent)', fontWeight: 600 }}>{sig.signature}</div>;
+    }
+
+    return (
+      <div style={{ color: 'var(--border-accent)', fontWeight: 600 }}>
+        {parts.map((part, i) => {
+          const isParamMatch = part.replace(/^\*/, '').startsWith(activeParam);
+          if (isParamMatch) {
+            return (
+              <span
+                key={i}
+                style={{
+                  textDecoration: 'underline',
+                  textDecorationThickness: '2px',
+                  color: '#38bdf8',
+                  fontWeight: 700,
+                  backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                  padding: '1px 3px',
+                  borderRadius: '3px',
+                }}
+              >
+                {part}
+              </span>
+            );
+          }
+          return <span key={i}>{part}</span>;
+        })}
+      </div>
+    );
+  }, []);
+
+  // Priority popup dismissal: closes autocomplete first, signature second
+  const dismissTopmostPopup = useCallback((): boolean => {
+    autocompleteReqIdRef.current++;
+    if (isDropdownOpen) {
+      setIsDropdownOpen(false);
+      return true;
+    }
+    if (activeSignature) {
+      setActiveSignature(null);
+      return true;
+    }
+    return false;
+  }, [isDropdownOpen, activeSignature]);
+
+  // Dynamically compute caret coordinates and non-overlapping popup positioning
   const updatePopupPositions = useCallback((cursorIndex: number) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -234,39 +303,65 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
       // Line number gutter width is 44px
       const cursorXInContainer = coords.left + 44 - scrollLeft;
       const cursorYInContainer = coords.top - scrollTop;
+      const lineHeight = coords.lineHeight || 21;
+      const lineTop = cursorYInContainer;
+      const lineBottom = cursorYInContainer + lineHeight;
 
       // Viewport checks for vertical placement (above vs below cursor)
       const cursorViewportY = textareaRect.top + coords.top - scrollTop;
       const viewportHeight = window.innerHeight;
       const dropdownHeight = 260; // Max height of autocomplete dropdown
-      const spaceBelow = viewportHeight - (cursorViewportY + coords.lineHeight + 10);
+      const spaceBelow = viewportHeight - (cursorViewportY + lineHeight + 10);
       const spaceAbove = cursorViewportY - 10;
 
-      let top: number;
-      let sigTop: number;
+      // 1. Dropdown positioning (Google Colab style: below cursor if space permits, above if tight below)
+      let dropTop: number;
+      let dropPlacement: 'above' | 'below';
 
       if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
-        // Open dropdown ABOVE cursor
-        top = Math.max(10, cursorYInContainer - dropdownHeight - 6);
-        // Put signature help below cursor
-        sigTop = cursorYInContainer + coords.lineHeight + 6;
+        // Open dropdown ABOVE cursor line
+        dropTop = lineTop - 6;
+        dropPlacement = 'above';
       } else {
-        // Open dropdown BELOW cursor
-        top = cursorYInContainer + coords.lineHeight + 6;
-        // Put signature help above cursor
-        sigTop = Math.max(0, cursorYInContainer - 40);
+        // Open dropdown BELOW cursor line
+        dropTop = lineBottom + 6;
+        dropPlacement = 'below';
+      }
+
+      // 2. Signature Help positioning (Google Colab style: opposite side of dropdown so they never collide)
+      let sigTop: number;
+      let sigPlacement: 'above' | 'below';
+
+      if (dropPlacement === 'below') {
+        // Dropdown is below -> place signature help ABOVE the cursor line
+        // If space above in viewport is very tight (< 60px) and dropdown is NOT open, place signature help below
+        if (!isDropdownOpen && spaceAbove < 60 && spaceBelow > spaceAbove) {
+          sigTop = lineBottom + 6;
+          sigPlacement = 'below';
+        } else {
+          sigTop = lineTop - 6;
+          sigPlacement = 'above';
+        }
+      } else {
+        // Dropdown is above -> place signature help BELOW the cursor line
+        sigTop = lineBottom + 6;
+        sigPlacement = 'below';
       }
 
       const containerWidth = containerRef.current?.clientWidth || 600;
       const dropdownWidth = 320;
-      let left = Math.max(10, Math.min(cursorXInContainer + 8, containerWidth - dropdownWidth - 16));
+      const sigWidth = 480;
 
-      setDropdownPos({ top, left });
-      setSignaturePos({ top: sigTop, left });
+      // Clamp horizontal positions within container bounds
+      const dropLeft = Math.max(10, Math.min(cursorXInContainer + 8, containerWidth - dropdownWidth - 16));
+      const sigLeft = Math.max(10, Math.min(cursorXInContainer + 8, containerWidth - sigWidth - 16));
+
+      setDropdownPos({ top: dropTop, left: dropLeft, placement: dropPlacement });
+      setSignaturePos({ top: sigTop, left: sigLeft, placement: sigPlacement });
     } catch {
       // Fallback
     }
-  }, []);
+  }, [isDropdownOpen]);
 
   // Synchronize active selection with visible scroll area
   useEffect(() => {
@@ -314,17 +409,19 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
     };
   }, [isDropdownOpen, activeSignature]);
 
-  // Global Escape handler to ensure dropdown and signature tooltip close reliably
+  // Global Escape handler to ensure dropdown and signature tooltip close with proper priority
   useEffect(() => {
     if (!isDropdownOpen && !activeSignature) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        autocompleteReqIdRef.current++;
-        setIsDropdownOpen(false);
-        setActiveSignature(null);
+        if ((e as any).__pcsHandledEscape) return;
+        (e as any).__pcsHandledEscape = true;
+        if (dismissTopmostPopup()) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+        }
       }
     };
 
@@ -332,18 +429,18 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown, true);
     };
-  }, [isDropdownOpen, activeSignature]);
+  }, [isDropdownOpen, activeSignature, dismissTopmostPopup]);
 
   // Reposition on window resize
   useEffect(() => {
     const handleWindowResize = () => {
-      if (isDropdownOpen && textareaRef.current) {
+      if ((isDropdownOpen || activeSignature) && textareaRef.current) {
         updatePopupPositions(textareaRef.current.selectionStart);
       }
     };
     window.addEventListener('resize', handleWindowResize);
     return () => window.removeEventListener('resize', handleWindowResize);
-  }, [isDropdownOpen, updatePopupPositions]);
+  }, [isDropdownOpen, activeSignature, updatePopupPositions]);
 
   // 2. Trigger Autocomplete when cursor moves or code changes
   const triggerAutocomplete = useCallback(
@@ -361,12 +458,19 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
       const match = currentLineText.match(/([a-zA-Z0-9_\.]+)$/);
       const token = match ? match[1] : '';
 
-      // Determine if we should trigger:
-      const isParenTrigger = currentLineText.endsWith('(') || currentLineText.includes('(');
-      const isDotTrigger = currentLineText.endsWith('.');
-      const isWordTrigger = token.length >= 1 && (token.includes('.') || explicit || token.length >= 2);
+      // Check if cursor is inside unclosed function call parentheses
+      let openParenCount = 0;
+      for (let i = 0; i < textBeforeCursor.length; i++) {
+        const ch = textBeforeCursor[i];
+        if (ch === '(') openParenCount++;
+        else if (ch === ')') openParenCount = Math.max(0, openParenCount - 1);
+      }
+      const isInsideParens = openParenCount > 0;
 
-      if (!explicit && !isDotTrigger && !isWordTrigger && !isParenTrigger) {
+      const isDotTrigger = currentLineText.endsWith('.');
+      const isWordTrigger = token.length >= 1 && (token.includes('.') || explicit || token.length >= 2 || (isInsideParens && token.length >= 1));
+
+      if (!explicit && !isDotTrigger && !isWordTrigger && !isInsideParens) {
         autocompleteReqIdRef.current++;
         setIsDropdownOpen(false);
         setActiveSignature(null);
@@ -404,7 +508,11 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
           });
         }
 
-        if (items.length > 0) {
+        // Dropdown should ONLY open if explicit (Ctrl+Space), dot trigger, or a non-empty word token
+        // NOT on empty paren trigger like print(
+        const shouldShowDropdown = items.length > 0 && (explicit || isDotTrigger || (token.length >= 1 && !currentLineText.endsWith('(')));
+
+        if (shouldShowDropdown) {
           setCompletions(items);
           setSelectedIndex(0);
           if (listRef.current) {
@@ -415,14 +523,15 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
           setIsDropdownOpen(false);
         }
 
-        // Signature help
-        if (res.signatures && res.signatures.length > 0) {
+        // Signature help (only when inside parentheses)
+        if (isInsideParens && res.signatures && res.signatures.length > 0) {
           setActiveSignature(res.signatures[0]);
         } else {
           setActiveSignature(null);
         }
       } catch (err) {
         setIsDropdownOpen(false);
+        setActiveSignature(null);
       }
     },
     [code, notebookContext, sessionId, readOnly, updatePopupPositions]
@@ -542,23 +651,17 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
         acceptCompletion(completions[selectedIndex]);
         return;
       }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        autocompleteReqIdRef.current++;
-        setIsDropdownOpen(false);
-        setActiveSignature(null);
-        return;
-      }
     }
 
-    // Dismiss signature help on Escape
+    // Dismiss popups on Escape with single-key priority
     if (e.key === 'Escape') {
-      if (activeSignature) {
+      if ((e.nativeEvent as any)?.__pcsHandledEscape) {
+        return;
+      }
+      (e.nativeEvent as any).__pcsHandledEscape = true;
+      if (dismissTopmostPopup()) {
         e.preventDefault();
         e.stopPropagation();
-        autocompleteReqIdRef.current++;
-        setActiveSignature(null);
         return;
       }
     }
@@ -597,7 +700,8 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
         onChange(newCode);
         setTimeout(() => {
           el.selectionStart = el.selectionEnd = start + 1;
-        }, 0);
+          triggerAutocomplete(start + 1, false);
+        }, 10);
         return;
       }
     }
@@ -634,8 +738,9 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
     }, 10);
   };
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent<HTMLTextAreaElement>) => {
     if (isDropdownOpen) setIsDropdownOpen(false);
+    triggerAutocomplete(e.currentTarget.selectionStart, false);
   };
 
   // Icon mapping for completion item types
@@ -897,6 +1002,7 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
             position: 'absolute',
             top: `${signaturePos.top}px`,
             left: `${signaturePos.left}px`,
+            transform: signaturePos.placement === 'above' ? 'translateY(-100%)' : 'none',
             backgroundColor: 'var(--bg-card)',
             border: '1px solid var(--border-accent)',
             borderRadius: '6px',
@@ -910,7 +1016,7 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
             pointerEvents: 'none',
           }}
         >
-          <div style={{ color: 'var(--border-accent)', fontWeight: 600 }}>{activeSignature.signature}</div>
+          {renderSignatureHelp(activeSignature)}
           {activeSignature.docstring && (
             <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>
               {activeSignature.docstring}
@@ -930,6 +1036,7 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
             position: 'absolute',
             top: `${dropdownPos.top}px`,
             left: `${dropdownPos.left}px`,
+            transform: dropdownPos.placement === 'above' ? 'translateY(-100%)' : 'none',
             width: '320px',
             maxHeight: '260px',
             backgroundColor: 'var(--dropdown-bg)',

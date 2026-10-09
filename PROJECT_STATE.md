@@ -1,8 +1,8 @@
 # Project State: Enterprise Python Cloud Studio
 
 ## Current Status Overview
-- **Active Phase**: PHASE 7 COMPLETE & FULLY VERIFIED — Google Colab–Grade Autocomplete Engine, IntelliSense Text Replacement, Active Dropdown Keyboard Scrolling, Popover Viewport Positioning, Function Signature Help, Universal Theme Engine (System/Dark/Light), and Vertically Resizable Code Cells with Scroll Sync & Metadata Persistence.
-- **Current Milestone**: Milestone 3.2 (100% Passing Tests Across Full Test Suites: 14/14 E2E & Integration IntelliSense/Theme Tests, Production Vite Frontend Built with 0 Errors, Zero Regressions Across All Baseline Systems).
+- **Active Phase**: PHASE 8 COMPLETE & FULLY VERIFIED — Google Colab–Grade Non-Overlapping Autocomplete & Function Signature Popups, Active Parameter Highlighting, Single-Key Escape Priority Dismissal, and Comprehensive E2E Verification.
+- **Current Milestone**: Milestone 3.3 (100% Passing Tests Across Full Test Suites: 15/15 E2E & Integration IntelliSense/Theme Tests, Production Vite Frontend Built with 0 Errors, Zero Regressions Across All Baseline Systems).
 - **Environment**: Windows 11 x64, Python 3.14.0, Node.js 24.16.0, npm 11.13.0, Git 2.54.0.
 - **Dedicated Service Ports (Strictly Preserved)**:
   - Web Dashboard & API: `http://localhost:8765/` (Swagger docs: `http://localhost:8765/docs`)
@@ -47,12 +47,23 @@
   - **Keyboard Auto-Scrolling**: `listRef` synchronizes active suggestion index with DOM `scrollTop` so the highlighted item is always visible.
   - **Viewport-Aware Positioning**: Dynamically calculates space below; flips above the cursor if space below is <260px; clamps horizontally to prevent overflowing editor boundaries.
   - **Dismissal Lifecycle & Async Request Guards**: Global `pointerdown` outside click listener and window `Escape` listener dismiss popups. Uses monotonic `autocompleteReqIdRef` to discard in-flight completions arriving after dismissal.
+- **TDR-023**: Non-Overlapping Dual Popups & Single-Key Escape Priority:
+  - **Disjoint Geometry Invariant**: Signature help tooltip is positioned above cursor line (`top: lineTop - 6px`, `transform: translateY(-100%)`) while autocomplete dropdown is positioned below cursor line (`top: lineBottom + 6px`). Vertical separation is at least `lineHeight + 12px` (~33px), guaranteeing 0px overlap and unobstructed visibility of the line being written.
+  - **Colab Trigger Differentiation**: Typing `print(` opens signature help only without popping open the 100+ completions dropdown. Autocomplete only opens when an identifier token is typed (e.g. `print(s`), a dot is typed (`np.`), or explicitly triggered (`Ctrl+Space`).
+  - **Single-Key Escape Dismissal Priority**: Window capture-phase and textarea handlers use `__pcsHandledEscape` guard and `dismissTopmostPopup` helper. 1st `Escape` press closes *only* the autocomplete dropdown, leaving signature help visible. 2nd `Escape` press closes signature help.
+  - **Active Parameter Highlighting**: Active parameter from language server is highlighted in the signature tooltip with an accent underline and background badge.
 
 ---
 
 ## Verified Acceptance Test Results (100% Passing)
 
-### IntelliSense, Autocomplete & Theme Verification Suite (14 Tests)
+### IntelliSense, Autocomplete & Theme Verification Suite (15 Tests)
+- [x] `tests/e2e/test_signature_autocomplete_overlap_e2e.py::test_signature_and_autocomplete_overlap_and_escape_priority` (PASSED)
+  - Typing `print(` shows signature help only (autocomplete closed)
+  - Typing `print(s` shows both popups with disjoint vertical geometry (`sig_bottom <= drop_top`, difference +33px)
+  - First Escape dismisses autocomplete only; signature help stays visible
+  - Second Escape dismisses signature help
+  - Typing `pri` + Enter inserts `print` without executing cell
 - [x] `tests/e2e/test_autocomplete_full_e2e.py::test_autocomplete_exact_text_insertion_and_modes` (PASSED)
   - `pd.re` + Enter $\rightarrow$ `pd.read_csv` (Zero corruption: no `pd.ad_csv` or `pd._csv`)
   - `pd.re` + Tab $\rightarrow$ `pd.read_csv`
