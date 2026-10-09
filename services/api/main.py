@@ -45,7 +45,7 @@ app.include_router(execution.router, prefix="/api/v1")
 app.include_router(files.router, prefix="/api/v1")
 app.include_router(classrooms.router, prefix="/api/v1")
 
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 # Register WebSockets router
@@ -53,18 +53,29 @@ app.include_router(websockets.router)
 
 # Mount static frontend build if present
 dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "apps", "web-dashboard", "dist"))
-if os.path.exists(dist_path):
-    app.mount("/app", StaticFiles(directory=dist_path, html=True), name="dashboard")
+assets_path = os.path.join(dist_path, "assets")
+index_html = os.path.join(dist_path, "index.html")
 
+if os.path.exists(assets_path):
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+    app.mount("/app/assets", StaticFiles(directory=assets_path), name="app_assets")
 
-@app.get("/")
-async def root():
-    if os.path.exists(dist_path):
-        return RedirectResponse(url="/app/")
-    return {
-        "platform": settings.APP_NAME,
-        "version": "1.0.0",
-        "docs_url": "/docs",
-        "api_v1_prefix": "/api/v1",
-    }
+if os.path.exists(dist_path) and os.path.exists(index_html):
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(index_html)
+
+    @app.get("/app")
+    @app.get("/app/")
+    async def serve_app():
+        return FileResponse(index_html)
+else:
+    @app.get("/")
+    async def root():
+        return {
+            "platform": settings.APP_NAME,
+            "version": "1.0.0",
+            "docs_url": "/docs",
+            "api_v1_prefix": "/api/v1",
+        }
 

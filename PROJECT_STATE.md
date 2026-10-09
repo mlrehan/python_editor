@@ -37,6 +37,7 @@
 - [x] TEST 48-51: Classroom and assignment workflow (`test_48_to_51_classroom_and_assignment_workflow` PASSED)
 - [x] TEST API EXECUTION: Execute code via REST endpoint (`test_api_code_execution_endpoint` PASSED)
 - [x] TEST API HEALTH: Verify health endpoint (`test_api_health` PASSED)
+- [x] TEST E2E BROWSER: Real Playwright Chromium end-to-end studio render (`test_browser_ui.py` PASSED)
 
 ---
 
