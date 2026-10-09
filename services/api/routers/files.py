@@ -3,7 +3,7 @@ import shutil
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from ..models import User
-from ..schemas import FileItemResponse, FileWriteRequest
+from ..schemas import FileItemResponse, FileWriteRequest, FolderCreateRequest, FileRenameRequest
 from ..auth import get_current_user
 from ..kernel_bridge import kernel_pool
 
@@ -86,7 +86,7 @@ async def write_file(
     """Writes content to a file in the user's workspace."""
     target_file = get_safe_user_path(current_user.id, req.path)
     os.makedirs(os.path.dirname(target_file), exist_ok=True)
-    with open(target_file, "w", encoding="utf-8") as f:
+    with open(target_file, "w", encoding="utf-8", newline="") as f:
         f.write(req.content)
     return {"status": "ok", "path": req.path}
 
@@ -95,10 +95,12 @@ async def write_file(
 async def upload_file(
     file: UploadFile = File(...),
     directory: str = Query("", description="Target subdirectory"),
+    folder: str = Query("", description="Target subdirectory (alias)"),
     current_user: User = Depends(get_current_user),
 ):
     """Uploads a file (CSV, XLSX, IPYNB, etc.) to the user's workspace."""
-    target_dir = get_safe_user_path(current_user.id, directory)
+    subpath = folder or directory
+    target_dir = get_safe_user_path(current_user.id, subpath)
     os.makedirs(target_dir, exist_ok=True)
     destination = os.path.join(target_dir, os.path.basename(file.filename or "upload.dat"))
 
@@ -132,4 +134,55 @@ async def delete_file(
     else:
         os.remove(target_path)
     return {"status": "ok", "deleted": path}
+
+
+@router.post("/folder")
+async def create_folder(
+    req: FolderCreateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Creates a new folder within the user's workspace."""
+    target_dir = get_safe_user_path(current_user.id, req.path)
+    os.makedirs(target_dir, exist_ok=True)
+    return {"status": "ok", "path": req.path}
+
+
+@router.post("/rename")
+async def rename_file(
+    req: FileRenameRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Renames or moves a file or folder within the workspace."""
+    old_target = get_safe_user_path(current_user.id, req.old_path)
+    new_target = get_safe_user_path(current_user.id, req.new_path)
+
+    if not os.path.exists(old_target):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source file not found")
+
+    if os.path.exists(new_target):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Target name already exists")
+
+    os.makedirs(os.path.dirname(new_target), exist_ok=True)
+    shutil.move(old_target, new_target)
+    return {"status": "ok", "old_path": req.old_path, "new_path": req.new_path}
+
+
+@router.get("/download")
+async def download_file(
+    path: str = Query(..., description="Relative file path"),
+    current_user: User = Depends(get_current_user),
+):
+    """Downloads a file directly from the user's workspace."""
+    target_file = get_safe_user_path(current_user.id, path)
+    if not os.path.isfile(target_file):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    from fastapi.responses import FileResponse
+    filename = os.path.basename(target_file)
+    return FileResponse(
+        target_file,
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
 

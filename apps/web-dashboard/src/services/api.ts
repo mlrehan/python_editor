@@ -144,9 +144,73 @@ export class ApiClient {
     });
   }
 
+  async deleteNotebook(notebookId: string): Promise<void> {
+    await this.request(`/notebooks/${notebookId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Files
   async listFiles(directory = ''): Promise<FileItem[]> {
     return this.request<FileItem[]>(`/files?directory=${encodeURIComponent(directory)}`);
+  }
+
+  async readFile(path: string): Promise<{ path: string; content: string }> {
+    return this.request<{ path: string; content: string }>(`/files/read?path=${encodeURIComponent(path)}`);
+  }
+
+  async writeFile(path: string, content: string): Promise<{ status: string; path: string }> {
+    return this.request<{ status: string; path: string }>('/files/write', {
+      method: 'POST',
+      body: JSON.stringify({ path, content }),
+    });
+  }
+
+  async createFolder(path: string): Promise<{ status: string; path: string }> {
+    return this.request<{ status: string; path: string }>('/files/folder', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  }
+
+  async renameFile(oldPath: string, newPath: string): Promise<{ status: string; old_path: string; new_path: string }> {
+    return this.request<{ status: string; old_path: string; new_path: string }>('/files/rename', {
+      method: 'POST',
+      body: JSON.stringify({ old_path: oldPath, new_path: newPath }),
+    });
+  }
+
+  async deleteFile(path: string): Promise<{ status: string; deleted: string }> {
+    return this.request<{ status: string; deleted: string }>(`/files?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async uploadFile(file: File, directory = ''): Promise<{ status: string; filename: string; size: number }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const res = await fetch(`/api/v1/files/upload?directory=${encodeURIComponent(directory)}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    return res.json();
+  }
+
+  getDownloadUrl(path: string): string {
+    const tokenParam = this.token ? `&token=${encodeURIComponent(this.token)}` : '';
+    return `/api/v1/files/download?path=${encodeURIComponent(path)}${tokenParam}`;
   }
 
   // Execution REST fallback

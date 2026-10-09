@@ -1,3 +1,4 @@
+import os
 import json
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Response
@@ -14,6 +15,7 @@ from ..schemas import (
     NotebookDetailResponse,
 )
 from ..auth import get_current_user
+from ..kernel_bridge import kernel_pool
 
 router = APIRouter(prefix="/notebooks", tags=["Notebooks"])
 
@@ -47,6 +49,14 @@ async def create_notebook(
     db.add(notebook)
     await db.commit()
     await db.refresh(notebook)
+
+    try:
+        ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
+        fname = notebook.title if notebook.title.endswith(".ipynb") else f"{notebook.title}.ipynb"
+        with open(os.path.join(ws_dir, fname), "w", encoding="utf-8") as f:
+            f.write(notebook.content_json)
+    except Exception:
+        pass
 
     return NotebookDetailResponse(
         id=notebook.id,
@@ -131,6 +141,14 @@ async def update_notebook(
     await db.commit()
     await db.refresh(notebook)
 
+    try:
+        ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
+        fname = notebook.title if notebook.title.endswith(".ipynb") else f"{notebook.title}.ipynb"
+        with open(os.path.join(ws_dir, fname), "w", encoding="utf-8") as f:
+            f.write(notebook.content_json)
+    except Exception:
+        pass
+
     content = json.loads(notebook.content_json)
     return NotebookDetailResponse(
         id=notebook.id,
@@ -158,8 +176,18 @@ async def delete_notebook(
     if not notebook:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notebook not found")
 
+    title = notebook.title
     await db.delete(notebook)
     await db.commit()
+
+    try:
+        ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
+        fname = title if title.endswith(".ipynb") else f"{title}.ipynb"
+        fpath = os.path.join(ws_dir, fname)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+    except Exception:
+        pass
     return None
 
 

@@ -128,6 +128,16 @@ class FileWriteRequest(BaseModel):
     content: str
 
 
+class FileRenameRequest(BaseModel):
+    old_path: str
+    new_path: str
+
+
+class FolderCreateRequest(BaseModel):
+    path: str
+
+
+
 # ==========================================
 # CLASSROOM SCHEMAS
 # ==========================================

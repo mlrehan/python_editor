@@ -247,3 +247,83 @@ async def test_api_code_execution_endpoint(client):
     assert data["execution_count"] is not None
     stdout_text = "".join(o["text"] for o in data["outputs"] if o["output_type"] == "stream")
     assert "Calculated: 84" in stdout_text
+
+
+async def test_comprehensive_file_management_crud(client):
+    """Verifies file creation, folder creation, read, write, rename, download, upload, and deletion."""
+    uid = uuid.uuid4().hex[:8]
+    res = await client.post("/api/v1/auth/register", json={
+        "email": f"file_user_{uid}@example.com",
+        "password": "Password123!",
+        "full_name": "File Manager Tester",
+        "role": "student"
+    })
+    assert res.status_code == 200
+    token = res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Create a folder
+    folder_res = await client.post("/api/v1/files/folder", json={"path": "datasets"}, headers=headers)
+    assert folder_res.status_code == 200
+    assert folder_res.json()["status"] == "ok"
+
+    # 2. Write a CSV file inside the folder
+    csv_content = "id,name,score\n1,Alice,95\n2,Bob,88"
+    write_res = await client.post("/api/v1/files/write", json={
+        "path": "datasets/students.csv",
+        "content": csv_content
+    }, headers=headers)
+    assert write_res.status_code == 200
+    assert write_res.json()["status"] == "ok"
+
+    # 3. Read the file
+    read_res = await client.get("/api/v1/files/read?path=datasets/students.csv", headers=headers)
+    assert read_res.status_code == 200
+    assert read_res.json()["content"] == csv_content
+
+    # 4. Rename the file
+    rename_res = await client.post("/api/v1/files/rename", json={
+        "old_path": "datasets/students.csv",
+        "new_path": "datasets/final_grades.csv"
+    }, headers=headers)
+    assert rename_res.status_code == 200
+    assert rename_res.json()["status"] == "ok"
+
+    # Verify old path is gone, new path exists
+    assert (await client.get("/api/v1/files/read?path=datasets/students.csv", headers=headers)).status_code == 404
+    new_read = await client.get("/api/v1/files/read?path=datasets/final_grades.csv", headers=headers)
+    assert new_read.status_code == 200
+    assert new_read.json()["content"] == csv_content
+
+    # 5. Download the file
+    download_res = await client.get("/api/v1/files/download?path=datasets/final_grades.csv", headers=headers)
+    assert download_res.status_code == 200
+    assert "attachment" in download_res.headers.get("content-disposition", "")
+    assert download_res.text == csv_content
+
+    # 6. Upload a file
+    upload_file_content = b"print('Uploaded script ready!')\n"
+    upload_res = await client.post(
+        "/api/v1/files/upload?folder=datasets",
+        files={"file": ("analysis.py", upload_file_content, "text/x-python")},
+        headers=headers
+    )
+    assert upload_res.status_code == 200
+    assert upload_res.json()["status"] == "ok"
+
+    # Verify uploaded file exists
+    up_read = await client.get("/api/v1/files/read?path=datasets/analysis.py", headers=headers)
+    assert up_read.status_code == 200
+    assert "Uploaded script ready!" in up_read.json()["content"]
+
+    # 7. Delete the files
+    del_res1 = await client.delete("/api/v1/files?path=datasets/final_grades.csv", headers=headers)
+    assert del_res1.status_code == 200
+    assert del_res1.json()["status"] == "ok"
+
+    del_res2 = await client.delete("/api/v1/files?path=datasets/analysis.py", headers=headers)
+    assert del_res2.status_code == 200
+
+    del_folder = await client.delete("/api/v1/files?path=datasets", headers=headers)
+    assert del_folder.status_code == 200
+

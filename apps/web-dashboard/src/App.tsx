@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { NotebookEditor } from './components/NotebookEditor';
+import { FileEditorPanel, OpenFileInfo } from './components/FileEditorPanel';
 import { RightPanel } from './components/RightPanel';
-import { NotebookDocument, NotebookCell, KernelStatus, UserProfile } from './types';
+import { NotebookDocument, NotebookCell, KernelStatus, UserProfile, FileItem } from './types';
 import { api } from './services/api';
 import { KernelWebSocketClient } from './services/websocket';
 
@@ -15,12 +16,36 @@ export const App: React.FC = () => {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [authError, setAuthError] = useState('');
 
+  // Notebook State
   const [notebook, setNotebook] = useState<NotebookDocument | null>(null);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
   const [kernelStatus, setKernelStatus] = useState<KernelStatus>('disconnected');
   const [isSaving, setIsSaving] = useState(false);
 
+  // Sidebar Layout State (Right sidebar COLLAPSED by default)
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(() => {
+    return localStorage.getItem('pcs_left_sidebar') !== 'false';
+  });
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
+
+  // Right Sidebar Active File & Tab State
+  const [openFile, setOpenFile] = useState<OpenFileInfo | null>(null);
+  const [rightSidebarTab, setRightSidebarTab] = useState<'editor' | 'tools'>('editor');
+
   const wsClientRef = useRef<KernelWebSocketClient | null>(null);
+
+  // Save left sidebar preference
+  const toggleLeftSidebar = () => {
+    setIsLeftSidebarOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem('pcs_left_sidebar', String(next));
+      return next;
+    });
+  };
+
+  const toggleRightSidebar = () => {
+    setIsRightSidebarOpen((prev) => !prev);
+  };
 
   // Initialize or check auth on mount
   useEffect(() => {
@@ -80,11 +105,11 @@ export const App: React.FC = () => {
       token,
       // onOutput
       (cellId, output) => {
-        setNotebook(prev => {
+        setNotebook((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
-            cells: prev.cells.map(c => {
+            cells: prev.cells.map((c) => {
               if (c.id === cellId) {
                 return {
                   ...c,
@@ -102,11 +127,11 @@ export const App: React.FC = () => {
       },
       // onComplete
       (cellId, reply) => {
-        setNotebook(prev => {
+        setNotebook((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
-            cells: prev.cells.map(c => {
+            cells: prev.cells.map((c) => {
               if (c.id === cellId) {
                 return {
                   ...c,
@@ -129,6 +154,91 @@ export const App: React.FC = () => {
     };
   }, [notebook?.id, user?.id]);
 
+  // Open file in right sidebar (called on double-click from File Explorer)
+  const handleOpenFile = async (fileItem: FileItem) => {
+    // Check if current open file has unsaved changes
+    if (openFile && openFile.isDirty && openFile.path !== fileItem.path) {
+      const confirmSwitch = window.confirm(
+        `"${openFile.name}" has unsaved modifications. Discard changes and open "${fileItem.name}"?`
+      );
+      if (!confirmSwitch) return;
+    }
+
+    try {
+      const res = await api.readFile(fileItem.path);
+      setOpenFile({
+        path: res.path,
+        name: fileItem.name,
+        content: res.content,
+        isDirty: false,
+      });
+      setRightSidebarTab('editor');
+      // Automatically expand right sidebar on double-click!
+      setIsRightSidebarOpen(true);
+    } catch (err) {
+      // If binary or special file
+      setOpenFile({
+        path: fileItem.path,
+        name: fileItem.name,
+        content: '',
+        isDirty: false,
+      });
+      setRightSidebarTab('editor');
+      setIsRightSidebarOpen(true);
+    }
+  };
+
+  // Open .ipynb notebook file directly in workspace
+  const handleOpenNotebookFile = async (path: string) => {
+    try {
+      const res = await api.readFile(path);
+      const parsed = JSON.parse(res.content);
+      const fname = path.split('/').pop()?.replace('.ipynb', '') || 'Notebook';
+
+      // Load cells from valid .ipynb JSON
+      const cells: NotebookCell[] = (parsed.cells || []).map((c: any, idx: number) => ({
+        id: `cell-${idx}-${Date.now()}`,
+        cell_type: c.cell_type || 'code',
+        source: Array.isArray(c.source) ? c.source.join('') : c.source || '',
+        outputs: c.outputs || [],
+        execution_count: c.execution_count ?? null,
+      }));
+
+      // Find or create notebook in DB
+      const existingList = await api.listNotebooks();
+      const match = existingList.find((n) => n.title === fname);
+      if (match) {
+        const loaded = await api.getNotebook(match.id);
+        setNotebook(loaded);
+      } else {
+        const created = await api.createNotebook(fname, parsed.metadata?.kernelspec?.name || 'python3');
+        created.cells = cells;
+        setNotebook(created);
+        await api.saveNotebook(created);
+      }
+    } catch (err) {
+      console.error('Failed to open notebook file:', err);
+    }
+  };
+
+  // Create new notebook
+  const handleCreateNewNotebook = async () => {
+    try {
+      const title = `Notebook_${Date.now().toString().slice(-4)}`;
+      const created = await api.createNotebook(title);
+      setNotebook(created);
+      if (created.cells.length > 0) setActiveCellId(created.cells[0].id);
+    } catch (err) {
+      console.error('Failed to create notebook:', err);
+    }
+  };
+
+  // File save handler in right sidebar
+  const handleSaveOpenFile = async (path: string, newContent: string) => {
+    await api.writeFile(path, newContent);
+    setOpenFile((prev) => (prev ? { ...prev, content: newContent, isDirty: false } : null));
+  };
+
   const handleUpdateTitle = (newTitle: string) => {
     if (!notebook) return;
     setNotebook({ ...notebook, title: newTitle });
@@ -138,21 +248,21 @@ export const App: React.FC = () => {
     if (!notebook) return;
     setNotebook({
       ...notebook,
-      cells: notebook.cells.map(c => (c.id === cellId ? { ...c, source: newSource } : c)),
+      cells: notebook.cells.map((c) => (c.id === cellId ? { ...c, source: newSource } : c)),
     });
   };
 
   const handleRunCell = (cellId: string) => {
     if (!notebook || !wsClientRef.current) return;
-    const targetCell = notebook.cells.find(c => c.id === cellId);
+    const targetCell = notebook.cells.find((c) => c.id === cellId);
     if (!targetCell || targetCell.cell_type !== 'code') return;
 
     // Reset cell output and mark running
-    setNotebook(prev => {
+    setNotebook((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
-        cells: prev.cells.map(c => (c.id === cellId ? { ...c, outputs: [], is_running: true } : c)),
+        cells: prev.cells.map((c) => (c.id === cellId ? { ...c, outputs: [], is_running: true } : c)),
       };
     });
 
@@ -161,11 +271,11 @@ export const App: React.FC = () => {
     } catch {
       // Fallback to REST execution if websocket disconnected
       api.runCode(`session-${notebook.id}`, targetCell.source).then((res) => {
-        setNotebook(prev => {
+        setNotebook((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
-            cells: prev.cells.map(c =>
+            cells: prev.cells.map((c) =>
               c.id === cellId
                 ? {
                     ...c,
@@ -183,7 +293,7 @@ export const App: React.FC = () => {
 
   const handleRunAll = () => {
     if (!notebook) return;
-    const codeCells = notebook.cells.filter(c => c.cell_type === 'code');
+    const codeCells = notebook.cells.filter((c) => c.cell_type === 'code');
     for (const cell of codeCells) {
       handleRunCell(cell.id);
     }
@@ -201,7 +311,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
+  const handleSaveNotebook = async () => {
     if (!notebook) return;
     setIsSaving(true);
     try {
@@ -229,13 +339,13 @@ export const App: React.FC = () => {
 
   const handleDeleteCell = (cellId: string) => {
     if (!notebook) return;
-    const updated = notebook.cells.filter(c => c.id !== cellId);
+    const updated = notebook.cells.filter((c) => c.id !== cellId);
     setNotebook({ ...notebook, cells: updated });
   };
 
   const handleMoveCell = (cellId: string, direction: 'up' | 'down') => {
     if (!notebook) return;
-    const idx = notebook.cells.findIndex(c => c.id === cellId);
+    const idx = notebook.cells.findIndex((c) => c.id === cellId);
     if (idx < 0) return;
     if (direction === 'up' && idx === 0) return;
     if (direction === 'down' && idx === notebook.cells.length - 1) return;
@@ -251,12 +361,12 @@ export const App: React.FC = () => {
     if (!notebook) return;
     handleAddCell(notebook.cells.length, 'code');
     setTimeout(() => {
-      setNotebook(prev => {
+      setNotebook((prev) => {
         if (!prev) return prev;
         const last = prev.cells[prev.cells.length - 1];
         return {
           ...prev,
-          cells: prev.cells.map(c => (c.id === last.id ? { ...c, source: code } : c)),
+          cells: prev.cells.map((c) => (c.id === last.id ? { ...c, source: code } : c)),
         };
       });
     }, 50);
@@ -287,22 +397,26 @@ export const App: React.FC = () => {
 
   if (!user) {
     return (
-      <div style={{
-        height: '100vh',
-        width: '100vw',
-        backgroundColor: '#090d16',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-      }}>
-        <div style={{
-          width: '380px',
-          padding: '32px',
-          backgroundColor: '#0f172a',
-          borderRadius: '12px',
-          border: '1px solid #1e293b',
-          boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
-        }}>
+      <div
+        style={{
+          height: '100vh',
+          width: '100vw',
+          backgroundColor: '#090d16',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <div
+          style={{
+            width: '380px',
+            padding: '32px',
+            backgroundColor: '#0f172a',
+            borderRadius: '12px',
+            border: '1px solid #1e293b',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+          }}
+        >
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#f8fafc', marginBottom: '8px' }}>
             Enterprise Python Cloud Studio
           </h2>
@@ -311,7 +425,17 @@ export const App: React.FC = () => {
           </p>
 
           {authError && (
-            <div style={{ padding: '8px 12px', backgroundColor: '#450a0a', border: '1px solid #ef4444', borderRadius: '6px', color: '#fca5a5', fontSize: '12px', marginBottom: '16px' }}>
+            <div
+              style={{
+                padding: '8px 12px',
+                backgroundColor: '#450a0a',
+                border: '1px solid #ef4444',
+                borderRadius: '6px',
+                color: '#fca5a5',
+                fontSize: '12px',
+                marginBottom: '16px',
+              }}
+            >
               {authError}
             </div>
           )}
@@ -319,34 +443,64 @@ export const App: React.FC = () => {
           <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {isRegisterMode && (
               <div>
-                <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>Full Name</label>
+                <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
+                  Full Name
+                </label>
                 <input
                   type="text"
                   required
                   value={authName}
                   onChange={(e) => setAuthName(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#ffffff', outline: 'none' }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    backgroundColor: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    outline: 'none',
+                  }}
                 />
               </div>
             )}
             <div>
-              <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>Email Address</label>
+              <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
+                Email Address
+              </label>
               <input
                 type="email"
                 required
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#ffffff', outline: 'none' }}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  outline: 'none',
+                }}
               />
             </div>
             <div>
-              <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>Password</label>
+              <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
+                Password
+              </label>
               <input
                 type="password"
                 required
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#ffffff', outline: 'none' }}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  outline: 'none',
+                }}
               />
             </div>
 
@@ -361,7 +515,7 @@ export const App: React.FC = () => {
                 color: '#ffffff',
                 fontWeight: 600,
                 fontSize: '13px',
-                cursor: 'pointer'
+                cursor: 'pointer',
               }}
             >
               {isRegisterMode ? 'Register Account' : 'Sign In'}
@@ -370,9 +524,19 @@ export const App: React.FC = () => {
 
           <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
             {isRegisterMode ? (
-              <span>Already have an account? <a href="#" onClick={() => setIsRegisterMode(false)} style={{ color: '#3b82f6', textDecoration: 'none' }}>Sign In</a></span>
+              <span>
+                Already have an account?{' '}
+                <a href="#" onClick={() => setIsRegisterMode(false)} style={{ color: '#3b82f6', textDecoration: 'none' }}>
+                  Sign In
+                </a>
+              </span>
             ) : (
-              <span>New to Cloud Studio? <a href="#" onClick={() => setIsRegisterMode(true)} style={{ color: '#3b82f6', textDecoration: 'none' }}>Create Account</a></span>
+              <span>
+                New to Cloud Studio?{' '}
+                <a href="#" onClick={() => setIsRegisterMode(true)} style={{ color: '#3b82f6', textDecoration: 'none' }}>
+                  Create Account
+                </a>
+              </span>
             )}
           </div>
         </div>
@@ -381,7 +545,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Navbar
         title={notebook?.title || 'Untitled Notebook'}
         onTitleChange={handleUpdateTitle}
@@ -391,25 +555,26 @@ export const App: React.FC = () => {
         onRunAll={handleRunAll}
         onRestartKernel={handleRestartKernel}
         onInterruptKernel={handleInterruptKernel}
-        onSave={handleSave}
+        onSave={handleSaveNotebook}
         onLogout={handleLogout}
+        isLeftSidebarOpen={isLeftSidebarOpen}
+        onToggleLeftSidebar={toggleLeftSidebar}
+        isRightSidebarOpen={isRightSidebarOpen}
+        onToggleRightSidebar={toggleRightSidebar}
       />
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <Sidebar
-          currentNotebookId={notebook?.id || ''}
-          onSelectNotebook={async (id) => {
-            const loaded = await api.getNotebook(id);
-            setNotebook(loaded);
-            if (loaded.cells.length > 0) setActiveCellId(loaded.cells[0].id);
-          }}
-          onCreateNotebook={async () => {
-            const created = await api.createNotebook('New Notebook');
-            setNotebook(created);
-            if (created.cells.length > 0) setActiveCellId(created.cells[0].id);
-          }}
-        />
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+        {/* Collapsible Left Sidebar (Files only, streamlined) */}
+        {isLeftSidebarOpen && (
+          <Sidebar
+            onOpenFile={handleOpenFile}
+            onOpenNotebookFile={handleOpenNotebookFile}
+            onCreateNewNotebook={handleCreateNewNotebook}
+            activeFilePath={openFile?.path}
+          />
+        )}
 
+        {/* Center Workspace (Jupyter Notebook Editor) */}
         {notebook && (
           <NotebookEditor
             cells={notebook.cells}
@@ -423,9 +588,27 @@ export const App: React.FC = () => {
           />
         )}
 
-        <RightPanel onInsertCodeSnippet={handleInsertCodeSnippet} />
+        {/* Collapsible Right Sidebar (File Preview & Code Editor by default; toggleable to AI/Tools) */}
+        {isRightSidebarOpen && (
+          <div style={{ display: 'flex', height: '100%' }}>
+            {/* If openFile exists or tab is 'editor', render FileEditorPanel */}
+            {rightSidebarTab === 'editor' && openFile ? (
+              <FileEditorPanel
+                file={openFile}
+                isOpen={isRightSidebarOpen}
+                onClose={() => setIsRightSidebarOpen(false)}
+                onSave={handleSaveOpenFile}
+                onContentChange={(newContent) =>
+                  setOpenFile((prev) => (prev ? { ...prev, content: newContent, isDirty: true } : null))
+                }
+                onOpenAsNotebook={handleOpenNotebookFile}
+              />
+            ) : (
+              <RightPanel onInsertCodeSnippet={handleInsertCodeSnippet} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 };
-

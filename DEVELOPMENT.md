@@ -78,9 +78,32 @@ tests/integration/test_kernel_execution.py::test_15_stdout_and_stderr_behavior P
 
 ## 💻 Manual Verification in the Web UI: What to Try
 
-Once you open **[http://localhost:8000/](http://localhost:8000/)** in your browser, try these workflows:
+## 💻 Manual Verification in the Web UI: What to Try
 
-### 1. Basic Python Execution
+Once you open **[http://localhost:8765/](http://localhost:8765/)** in your browser, try these workflows:
+
+### 1. Google Colab-Style File Manager & Sidebars
+- **Collapsible Sidebars**:
+  - Click the **Left Sidebar Toggle** in the top navigation bar (or press `Ctrl+B`) to expand or collapse the file explorer.
+  - Click the **Right Sidebar Toggle** to expand or collapse the preview/editor panel at any time.
+- **Double-Click File Opening**:
+  - The right sidebar is **collapsed by default**.
+  - In the left **FILES** explorer, double-click `sample_data.csv`: The right sidebar smoothly auto-expands with a **formatted table view** of the dataset!
+  - Click **<> Raw Text** to switch between tabular view and raw text editing.
+  - Double-click `main.py`: The code editor opens with line numbers, syntax highlighting, and an editable code area.
+  - Double-click `README.md`: View formatted Markdown or toggle between live preview and text edit mode.
+  - Double-click `Getting_Started.ipynb`: The notebook loads directly into your interactive cell workspace.
+- **File & Folder Operations**:
+  - Click **+ File** to create new Python scripts, CSV datasets, or Markdown files.
+  - Click **+ Folder** to create directory structures.
+  - Click **Upload** to upload files from your local computer into the workspace.
+  - Click the **⋮** menu next to any file to **Download**, **Rename**, or **Delete** with confirmation.
+- **Unsaved Changes Protection**:
+  - When editing a file, a golden **Unsaved** badge appears.
+  - Press `Ctrl + S` or click **Save** to persist modifications.
+  - If you attempt to switch files or close with unsaved edits, a confirmation dialog protects your changes.
+
+### 2. Basic Python Execution
 Type in the first cell:
 ```python
 print("Hello World from Enterprise Python Cloud Studio!")
@@ -88,7 +111,7 @@ print("Hello World from Enterprise Python Cloud Studio!")
 Click **Run** (or press `Shift + Enter`).  
 *Result:* Output displays immediately below the cell, and the execution counter updates to `[1]`.
 
-### 2. Cross-Cell Variable Persistence
+### 3. Cross-Cell Variable Persistence
 In Cell 1:
 ```python
 x = 100
@@ -99,7 +122,7 @@ print(f"Computed total: {x * 5}")
 ```
 *Result:* Displays `Computed total: 500`. Variables persist across cells in the same kernel session!
 
-### 3. Data Science & Chart Rendering (Matplotlib)
+### 4. Data Science & Chart Rendering (Matplotlib)
 Add a code cell and run:
 ```python
 import matplotlib.pyplot as plt
@@ -113,7 +136,7 @@ plt.show()
 ```
 *Result:* A crisp Matplotlib chart renders right inside your notebook!
 
-### 4. Pandas DataFrames
+### 5. Pandas DataFrames
 Add a code cell and run:
 ```python
 import pandas as pd
@@ -125,19 +148,19 @@ print(df)
 ```
 *Result:* Displays the formatted tabular output cleanly.
 
-### 5. Exception & Traceback Handling
+### 6. Exception & Traceback Handling
 Add a cell with:
 ```python
 1 / 0
 ```
 *Result:* Displays a formatted, easy-to-read error box with `ZeroDivisionError` and the exact line traceback.
 
-### 6. Kernel Lifecycle Controls
+### 7. Kernel Lifecycle Controls
 - Click **Restart** in the top navigation bar: The kernel restarts in seconds, clearing in-memory variables.
 - Click **Run All**: Executes every code cell in sequence from top to bottom.
 - Click **Save**: Persists the updated notebook to cloud storage.
 
-### 7. AI Assistant
+### 8. AI Assistant
 - In the right sidebar, switch to the **AI Assistant** tab.
 - Type: `How do I create a bar plot in matplotlib?`
 - Click **Send**: The assistant suggests formatted Python code with a **Insert in Notebook** button that pastes it directly into your active workspace!

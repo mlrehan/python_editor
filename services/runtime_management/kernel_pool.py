@@ -30,7 +30,64 @@ class KernelPoolManager:
         else:
             path = os.path.join(self.workspaces_root, f"user_{user_id}", "default")
         os.makedirs(path, exist_ok=True)
+        self._seed_default_workspace(path)
         return path
+
+    def _seed_default_workspace(self, path: str):
+        """Seeds initial tutorial and sample files if workspace is completely empty."""
+        try:
+            if os.path.exists(path) and len(os.listdir(path)) == 0:
+                # 1. README.md
+                readme_path = os.path.join(path, "README.md")
+                with open(readme_path, "w", encoding="utf-8", newline="") as f:
+                    f.write("# Enterprise Python Cloud Studio\n\nWelcome to your cloud workspace!\n\n- Double-click any file in the left sidebar to preview and edit in the right panel.\n- Double-click `.ipynb` files to open as interactive notebooks.\n- Run Python code using the Run button or Shift+Enter.\n")
+
+                # 2. main.py
+                main_py_path = os.path.join(path, "main.py")
+                with open(main_py_path, "w", encoding="utf-8", newline="") as f:
+                    f.write("# Quickstart Python Script\nimport sys\nimport math\n\ndef summary(nums):\n    return {'count': len(nums), 'sum': sum(nums), 'avg': sum(nums)/len(nums)}\n\nif __name__ == '__main__':\n    print('Python version:', sys.version.split()[0])\n    print('Sample calculation:', summary([10, 20, 30, 40, 50]))\n")
+
+                # 3. sample_data.csv
+                csv_path = os.path.join(path, "sample_data.csv")
+                with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                    f.write("id,name,department,salary\n1,Alice,Engineering,105000\n2,Bob,Data Science,115000\n3,Charlie,Product,95000\n4,Diana,Design,90000\n")
+
+                # 4. Getting_Started.ipynb
+                import json
+                nb_path = os.path.join(path, "Getting_Started.ipynb")
+                nb_content = {
+                    "cells": [
+                        {
+                            "cell_type": "markdown",
+                            "metadata": {},
+                            "source": ["# Welcome to Python Cloud Studio\n", "Interactive notebook environment with real ipykernel backend."]
+                        },
+                        {
+                            "cell_type": "code",
+                            "execution_count": None,
+                            "metadata": {},
+                            "outputs": [],
+                            "source": ["import numpy as np\n", "import pandas as pd\n\n", "df = pd.read_csv('sample_data.csv')\n", "print(df.head())"]
+                        }
+                    ],
+                    "metadata": {
+                        "kernelspec": {
+                            "display_name": "Python 3",
+                            "language": "python",
+                            "name": "python3"
+                        },
+                        "language_info": {
+                            "name": "python",
+                            "version": "3.14.0"
+                        }
+                    },
+                    "nbformat": 4,
+                    "nbformat_minor": 5
+                }
+                with open(nb_path, "w", encoding="utf-8", newline="") as f:
+                    json.dump(nb_content, f, indent=2)
+        except Exception:
+            pass
 
     async def get_or_create_session(
         self,

@@ -1,8 +1,8 @@
 # Project State: Enterprise Python Cloud Studio
 
 ## Current Status Overview
-- **Active Phase**: PHASE 3 & 4 IN PROGRESS — Web Dashboard & Debugger Integration Verified
-- **Current Milestone**: Milestone 2.0 (Verified Local Foundation, Real IPyKernel Execution Engine, Full-Stack React Web Dashboard, and 18 Automated Integration Tests Passing)
+- **Active Phase**: PHASE 3 & 4 IN PROGRESS — Web Dashboard, Debugger & Google Colab-style File Management Verified
+- **Current Milestone**: Milestone 2.5 (Verified Local Foundation, Real IPyKernel Execution Engine, Full-Stack React Web Dashboard, Google Colab-style Collapsible File Manager & Preview Panel, and 19 Automated Integration Tests + Chromium E2E Tests Passing)
 - **Environment**: Windows 11 x64, Python 3.14.0, Node.js 24.16.0, npm 11.13.0, Git 2.54.0.
 - **Independence Status**: 100% verified independent standalone repository `python-cloud-studio`. Zero links to any external LMS.
 
@@ -15,10 +15,12 @@
 - **TDR-004**: Database tier using SQLAlchemy 2.0 with asynchronous engine (`aiosqlite` for local dev, `asyncpg` for PostgreSQL production).
 - **TDR-005**: Real-time communication for interactive notebook execution, outputs, and debugging using standard Jupyter Wire Protocol over WebSockets.
 - **TDR-006**: React 19 + TypeScript frontend with unified static serving via FastAPI `/app` for zero-configuration developer onboarding.
+- **TDR-007**: Google Colab-Style File Management with independently collapsible sidebars, auto-expanding right preview/editor panel on double-click, and multi-format support (`.py`, `.csv` tabular viewer, `.md` preview, `.ipynb`).
+- **TDR-008**: Custom port allocation (API `8765`, Dev `3765`, Postgres `5476`, Redis `6395`) to prevent collisions with user's existing background systems.
 
 ---
 
-## Verified Acceptance Test Results (18/18 Passing)
+## Verified Acceptance Test Results (19/19 Integration + E2E Passing)
 - [x] TEST 01: Execute Hello World (`test_01_execute_hello_world` PASSED)
 - [x] TEST 02: Perform arithmetic (`test_02_perform_arithmetic` PASSED)
 - [x] TEST 03: Persist variables across notebook cells (`test_03_persist_variables_across_cells` PASSED)
@@ -37,7 +39,8 @@
 - [x] TEST 48-51: Classroom and assignment workflow (`test_48_to_51_classroom_and_assignment_workflow` PASSED)
 - [x] TEST API EXECUTION: Execute code via REST endpoint (`test_api_code_execution_endpoint` PASSED)
 - [x] TEST API HEALTH: Verify health endpoint (`test_api_health` PASSED)
-- [x] TEST E2E BROWSER: Real Playwright Chromium end-to-end studio render (`test_browser_ui.py` PASSED)
+- [x] TEST FILE CRUD: Comprehensive file manager CRUD operations (`test_comprehensive_file_management_crud` PASSED)
+- [x] TEST E2E BROWSER: Real Playwright Chromium end-to-end studio render, double-click CSV table preview, and sidebar toggle verification (`test_browser_ui.py` PASSED)
 
 ---
 

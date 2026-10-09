@@ -1,5 +1,17 @@
 import React from 'react';
-import { Play, RotateCcw, Square, Save, Terminal, User, CheckCircle2 } from 'lucide-react';
+import {
+  Play,
+  RotateCcw,
+  Square,
+  Save,
+  Terminal,
+  User,
+  CheckCircle2,
+  PanelLeftClose,
+  PanelLeft,
+  PanelRightClose,
+  PanelRight,
+} from 'lucide-react';
 import { KernelStatus, UserProfile } from '../types';
 
 interface NavbarProps {
@@ -13,6 +25,10 @@ interface NavbarProps {
   onInterruptKernel: () => void;
   onSave: () => void;
   onLogout: () => void;
+  isLeftSidebarOpen: boolean;
+  onToggleLeftSidebar: () => void;
+  isRightSidebarOpen: boolean;
+  onToggleRightSidebar: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -26,39 +42,84 @@ export const Navbar: React.FC<NavbarProps> = ({
   onInterruptKernel,
   onSave,
   onLogout,
+  isLeftSidebarOpen,
+  onToggleLeftSidebar,
+  isRightSidebarOpen,
+  onToggleRightSidebar,
 }) => {
   return (
-    <header style={{
-      height: '56px',
-      backgroundColor: '#0f172a',
-      borderBottom: '1px solid #1e293b',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '0 16px',
-      gap: '16px'
-    }}>
-      {/* Brand & Notebook Title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div style={{
-          width: '32px',
-          height: '32px',
-          borderRadius: '8px',
-          backgroundColor: '#2563eb',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 2px 8px rgba(37,99,235,0.4)'
-        }}>
+    <header
+      style={{
+        height: '56px',
+        backgroundColor: '#0f172a',
+        borderBottom: '1px solid #1e293b',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 16px',
+        gap: '12px',
+        zIndex: 30,
+      }}
+    >
+      {/* Brand & Left Toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {/* Toggle Left Sidebar */}
+        <button
+          onClick={onToggleLeftSidebar}
+          style={{
+            backgroundColor: isLeftSidebarOpen ? '#1e293b' : 'transparent',
+            border: '1px solid #334155',
+            color: isLeftSidebarOpen ? '#38bdf8' : '#94a3b8',
+            borderRadius: '6px',
+            padding: '6px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title={isLeftSidebarOpen ? 'Collapse Left Sidebar' : 'Expand Left Sidebar'}
+        >
+          {isLeftSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
+        </button>
+
+        <div
+          style={{
+            width: '32px',
+            height: '32px',
+            borderRadius: '8px',
+            backgroundColor: '#2563eb',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(37,99,235,0.4)',
+          }}
+        >
           <Terminal size={18} color="#ffffff" />
         </div>
+
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#3b82f6',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
               Cloud Studio
             </span>
             <span style={{ fontSize: '11px', color: '#64748b' }}>•</span>
-            <span style={{ fontSize: '11px', color: isSaving ? '#f59e0b' : '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span
+              style={{
+                fontSize: '11px',
+                color: isSaving ? '#f59e0b' : '#10b981',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
               {isSaving ? 'Saving...' : <><CheckCircle2 size={12} /> Saved</>}
             </span>
           </div>
@@ -75,7 +136,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               fontWeight: 600,
               padding: '2px 0',
               cursor: 'text',
-              width: '260px'
+              width: '240px',
             }}
           />
         </div>
@@ -96,7 +157,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: 500,
-            cursor: 'pointer'
+            cursor: 'pointer',
           }}
           title="Run All Cells"
         >
@@ -117,7 +178,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: 500,
-            cursor: 'pointer'
+            cursor: 'pointer',
           }}
           title="Restart Python Kernel"
         >
@@ -138,7 +199,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: 500,
-            cursor: 'pointer'
+            cursor: 'pointer',
           }}
           title="Interrupt Execution"
         >
@@ -158,7 +219,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: 500,
-            cursor: 'pointer'
+            cursor: 'pointer',
           }}
           title="Save Notebook"
         >
@@ -167,30 +228,34 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
       </div>
 
-      {/* Right Kernel Status & User Profile */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+      {/* Right Controls: Kernel Status, User Profile, Right Toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         {/* Kernel Status Badge */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '4px 10px',
-          backgroundColor: '#1e293b',
-          borderRadius: '999px',
-          border: '1px solid #334155',
-          fontSize: '12px'
-        }}>
-          <span style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor:
-              kernelStatus === 'idle'
-                ? '#10b981'
-                : kernelStatus === 'busy'
-                ? '#f59e0b'
-                : '#ef4444'
-          }} />
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '4px 10px',
+            backgroundColor: '#1e293b',
+            borderRadius: '999px',
+            border: '1px solid #334155',
+            fontSize: '12px',
+          }}
+        >
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor:
+                kernelStatus === 'idle'
+                  ? '#10b981'
+                  : kernelStatus === 'busy'
+                  ? '#f59e0b'
+                  : '#ef4444',
+            }}
+          />
           <span style={{ color: '#94a3b8', textTransform: 'capitalize' }}>
             Python 3 ({kernelStatus})
           </span>
@@ -199,23 +264,27 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* User Info & Logout */}
         {user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              color: '#e2e8f0',
-              fontSize: '13px'
-            }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#e2e8f0',
+                fontSize: '13px',
+              }}
+            >
               <User size={15} color="#94a3b8" />
               <span>{user.full_name}</span>
-              <span style={{
-                fontSize: '10px',
-                padding: '2px 6px',
-                backgroundColor: '#334155',
-                borderRadius: '4px',
-                color: '#cbd5e1',
-                textTransform: 'uppercase'
-              }}>
+              <span
+                style={{
+                  fontSize: '10px',
+                  padding: '2px 6px',
+                  backgroundColor: '#334155',
+                  borderRadius: '4px',
+                  color: '#cbd5e1',
+                  textTransform: 'uppercase',
+                }}
+              >
                 {user.role}
               </span>
             </div>
@@ -227,13 +296,32 @@ export const Navbar: React.FC<NavbarProps> = ({
                 color: '#ef4444',
                 fontSize: '12px',
                 cursor: 'pointer',
-                padding: '4px 8px'
+                padding: '4px 6px',
               }}
             >
               Sign out
             </button>
           </div>
         ) : null}
+
+        {/* Toggle Right Sidebar */}
+        <button
+          onClick={onToggleRightSidebar}
+          style={{
+            backgroundColor: isRightSidebarOpen ? '#1e293b' : 'transparent',
+            border: '1px solid #334155',
+            color: isRightSidebarOpen ? '#38bdf8' : '#94a3b8',
+            borderRadius: '6px',
+            padding: '6px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          title={isRightSidebarOpen ? 'Collapse File Editor' : 'Expand File Editor'}
+        >
+          {isRightSidebarOpen ? <PanelRightClose size={17} /> : <PanelRight size={17} />}
+        </button>
       </div>
     </header>
   );
