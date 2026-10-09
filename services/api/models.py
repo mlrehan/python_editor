@@ -16,9 +16,11 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
-    role = Column(String(50), default="student", nullable=False)  # student, instructor, org_admin, platform_admin
+    role = Column(String(50), default="student", nullable=False)  # super_admin, admin, instructor, student
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    can_manage_packages = Column(Boolean, default=False, nullable=False)
+    theme_preference = Column(String(20), default="system", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

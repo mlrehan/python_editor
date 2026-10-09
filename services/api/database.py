@@ -35,7 +35,71 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Creates database tables if they do not exist."""
+    """Creates database tables if they do not exist, runs column migrations, and bootstraps Super Admin."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Safe SQLite column migration for existing database files
+        if settings.DATABASE_URL.startswith("sqlite"):
+            from sqlalchemy import text
+            res = await conn.execute(text("PRAGMA table_info(users)"))
+            cols = [row[1] for row in res.fetchall()]
+            if "can_manage_packages" not in cols:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN can_manage_packages BOOLEAN DEFAULT 0 NOT NULL"))
+            if "theme_preference" not in cols:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN theme_preference VARCHAR(20) DEFAULT 'system' NOT NULL"))
+
+    # Ensure system public_guest user and Super Admin exist
+    async with AsyncSessionLocal() as session:
+        from .models import User
+        from .auth import hash_password
+        from sqlalchemy import select
+
+        # 1. Ensure public_guest user
+        res_guest = await session.execute(select(User).where(User.id == "public_guest"))
+        if not res_guest.scalar_one_or_none():
+            guest = User(
+                id="public_guest",
+                email="guest@cloudstudio.internal",
+                hashed_password="not-a-usable-password-hash",
+                full_name="Guest Visitor",
+                role="student",
+                is_active=True,
+                can_manage_packages=False,
+                theme_preference="system",
+            )
+            session.add(guest)
+
+        # 2. Super Admin Bootstrap Check:
+        # Check if ANY user with role == 'super_admin' exists in the database
+        res_super = await session.execute(select(User).where(User.role == "super_admin"))
+        existing_super = res_super.scalar_one_or_none()
+
+        if not existing_super:
+            # Check if bootstrap email already exists
+            res_email = await session.execute(select(User).where(User.email == settings.ADMIN_BOOTSTRAP_EMAIL))
+            user_by_email = res_email.scalar_one_or_none()
+            if user_by_email:
+                # Promote to super_admin
+                user_by_email.role = "super_admin"
+                user_by_email.can_manage_packages = True
+            else:
+                # Create initial Super Admin from .env credentials
+                super_admin = User(
+                    id="admin_super",
+                    email=settings.ADMIN_BOOTSTRAP_EMAIL,
+                    hashed_password=hash_password(settings.ADMIN_BOOTSTRAP_PASSWORD),
+                    full_name="Super Administrator",
+                    role="super_admin",
+                    is_active=True,
+                    can_manage_packages=True,
+                    theme_preference="system",
+                )
+                session.add(super_admin)
+
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+
 

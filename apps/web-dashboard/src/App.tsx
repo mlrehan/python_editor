@@ -3,13 +3,20 @@ import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { NotebookEditor } from './components/NotebookEditor';
 import { FileEditorPanel, OpenFileInfo } from './components/FileEditorPanel';
+import { AdminDashboard } from './components/AdminDashboard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { RightPanel } from './components/RightPanel';
 import { NotebookDocument, NotebookCell, KernelStatus, UserProfile, FileItem } from './types';
 import { api } from './services/api';
 import { KernelWebSocketClient } from './services/websocket';
+import { Globe, X, Lock, LogIn } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [showGuestBanner, setShowGuestBanner] = useState<boolean>(() => {
+    return sessionStorage.getItem('pcs_guest_banner_dismissed') !== 'true';
+  });
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authName, setAuthName] = useState('');
@@ -28,11 +35,71 @@ export const App: React.FC = () => {
   });
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
 
-  // Right Sidebar Active File & Tab State
-  const [openFile, setOpenFile] = useState<OpenFileInfo | null>(null);
+  // Panel Resizing State (min 200/max 600 for left, min 280/max 800 for right)
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('pcs_left_sidebar_width');
+    return saved ? Math.max(200, Math.min(600, parseInt(saved, 10))) : 280;
+  });
+  const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('pcs_right_sidebar_width');
+    return saved ? Math.max(280, Math.min(800, parseInt(saved, 10))) : 420;
+  });
+  const [isDraggingLeft, setIsDraggingLeft] = useState(false);
+  const [isDraggingRight, setIsDraggingRight] = useState(false);
+
+  // Right Sidebar Active Files & Multi-Tab State
+  const [openFiles, setOpenFiles] = useState<OpenFileInfo[]>([]);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [rightSidebarTab, setRightSidebarTab] = useState<'editor' | 'tools'>('editor');
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
 
   const wsClientRef = useRef<KernelWebSocketClient | null>(null);
+
+  // Mouse drag handler for vertical resizers
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingLeft) {
+        e.preventDefault();
+        const newWidth = Math.max(200, Math.min(600, e.clientX));
+        setLeftSidebarWidth(newWidth);
+        localStorage.setItem('pcs_left_sidebar_width', String(newWidth));
+      } else if (isDraggingRight) {
+        e.preventDefault();
+        const newWidth = Math.max(280, Math.min(800, window.innerWidth - e.clientX));
+        setRightSidebarWidth(newWidth);
+        localStorage.setItem('pcs_right_sidebar_width', String(newWidth));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingLeft(false);
+      setIsDraggingRight(false);
+    };
+
+    if (isDraggingLeft || isDraggingRight) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isDraggingLeft, isDraggingRight]);
+
+  const handleMouseDownLeft = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingLeft(true);
+  };
+
+  const handleMouseDownRight = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingRight(true);
+  };
 
   // Save left sidebar preference
   const toggleLeftSidebar = () => {
@@ -47,7 +114,12 @@ export const App: React.FC = () => {
     setIsRightSidebarOpen((prev) => !prev);
   };
 
-  // Initialize or check auth on mount
+  const dismissGuestBanner = () => {
+    setShowGuestBanner(false);
+    sessionStorage.setItem('pcs_guest_banner_dismissed', 'true');
+  };
+
+  // Initialize auth or enter Guest Mode on mount (Zero Login Wall)
   useEffect(() => {
     const initAuth = async () => {
       const token = api.getToken();
@@ -55,22 +127,19 @@ export const App: React.FC = () => {
         try {
           const profile = await api.getMe();
           setUser(profile);
-          loadOrCreateInitialNotebook();
+          await loadOrCreateInitialNotebook();
           return;
         } catch {
           api.clearToken();
         }
       }
-      // Auto-register developer session for immediate out-of-the-box usage
+      // Zero Login Wall: Initialize Guest session in Public Workspace
       try {
-        const devEmail = `developer_${Date.now()}@cloudstudio.internal`;
-        await api.register(devEmail, 'DevPassword123!', 'Lead Developer', 'instructor');
-        const profile = await api.getMe();
-        setUser(profile);
-        loadOrCreateInitialNotebook();
+        await api.initGuestSession();
       } catch (e) {
-        console.warn('Auto registration failed, manual login required:', e);
+        console.warn('Guest session init error:', e);
       }
+      await loadOrCreateInitialNotebook();
     };
     initAuth();
   }, []);
@@ -92,13 +161,11 @@ export const App: React.FC = () => {
     }
   };
 
-  // Connect WebSocket when notebook & user are ready
+  // Connect WebSocket when notebook is ready (works for both guests and authenticated users)
   useEffect(() => {
-    if (!notebook || !user) return;
+    if (!notebook) return;
 
-    const token = api.getToken();
-    if (!token) return;
-
+    const token = api.getToken() || api.getGuestToken();
     const sessionId = `session-${notebook.id}`;
     const wsClient = new KernelWebSocketClient(
       sessionId,
@@ -156,36 +223,59 @@ export const App: React.FC = () => {
 
   // Open file in right sidebar (called on double-click from File Explorer)
   const handleOpenFile = async (fileItem: FileItem) => {
-    // Check if current open file has unsaved changes
-    if (openFile && openFile.isDirty && openFile.path !== fileItem.path) {
-      const confirmSwitch = window.confirm(
-        `"${openFile.name}" has unsaved modifications. Discard changes and open "${fileItem.name}"?`
-      );
-      if (!confirmSwitch) return;
+    // If file is already open in tabs, select its tab
+    const existing = openFiles.find((f) => f.path === fileItem.path);
+    if (existing) {
+      setActiveFilePath(fileItem.path);
+      setRightSidebarTab('editor');
+      setIsRightSidebarOpen(true);
+      return;
     }
 
     try {
       const res = await api.readFile(fileItem.path);
-      setOpenFile({
+      const newFile: OpenFileInfo = {
         path: res.path,
         name: fileItem.name,
         content: res.content,
         isDirty: false,
-      });
+      };
+      setOpenFiles((prev) => [...prev, newFile]);
+      setActiveFilePath(fileItem.path);
       setRightSidebarTab('editor');
       // Automatically expand right sidebar on double-click!
       setIsRightSidebarOpen(true);
     } catch (err) {
       // If binary or special file
-      setOpenFile({
+      const newFile: OpenFileInfo = {
         path: fileItem.path,
         name: fileItem.name,
         content: '',
         isDirty: false,
-      });
+      };
+      setOpenFiles((prev) => [...prev, newFile]);
+      setActiveFilePath(fileItem.path);
       setRightSidebarTab('editor');
       setIsRightSidebarOpen(true);
     }
+  };
+
+  const handleSelectTab = (path: string) => {
+    setActiveFilePath(path);
+  };
+
+  const handleCloseTab = (path: string) => {
+    setOpenFiles((prev) => {
+      const remaining = prev.filter((f) => f.path !== path);
+      if (activeFilePath === path) {
+        const nextActive = remaining.length > 0 ? remaining[remaining.length - 1].path : null;
+        setActiveFilePath(nextActive);
+        if (!nextActive) {
+          setIsRightSidebarOpen(false);
+        }
+      }
+      return remaining;
+    });
   };
 
   // Open .ipynb notebook file directly in workspace
@@ -236,7 +326,17 @@ export const App: React.FC = () => {
   // File save handler in right sidebar
   const handleSaveOpenFile = async (path: string, newContent: string) => {
     await api.writeFile(path, newContent);
-    setOpenFile((prev) => (prev ? { ...prev, content: newContent, isDirty: false } : null));
+    setOpenFiles((prev) =>
+      prev.map((f) => (f.path === path ? { ...f, content: newContent, isDirty: false } : f))
+    );
+  };
+
+  const handleContentChange = (newContent: string, path?: string) => {
+    const targetPath = path || activeFilePath;
+    if (!targetPath) return;
+    setOpenFiles((prev) =>
+      prev.map((f) => (f.path === targetPath ? { ...f, content: newContent, isDirty: true } : f))
+    );
   };
 
   const handleUpdateTitle = (newTitle: string) => {
@@ -252,25 +352,47 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleRunCell = (cellId: string) => {
-    if (!notebook || !wsClientRef.current) return;
+  const handleRunCell = (cellId: string, sourceOverride?: string) => {
+    if (!notebook) return;
     const targetCell = notebook.cells.find((c) => c.id === cellId);
     if (!targetCell || targetCell.cell_type !== 'code') return;
 
-    // Reset cell output and mark running
+    const codeToExecute =
+      sourceOverride !== undefined && sourceOverride.trim().length > 0
+        ? sourceOverride
+        : targetCell.source;
+
+    // Reset cell output and mark running, updating source if override provided
     setNotebook((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
-        cells: prev.cells.map((c) => (c.id === cellId ? { ...c, outputs: [], is_running: true } : c)),
+        cells: prev.cells.map((c) =>
+          c.id === cellId
+            ? {
+                ...c,
+                source: codeToExecute,
+                outputs: [],
+                is_running: true,
+              }
+            : c
+        ),
       };
     });
 
-    try {
-      wsClientRef.current.execute(cellId, targetCell.source);
-    } catch {
-      // Fallback to REST execution if websocket disconnected
-      api.runCode(`session-${notebook.id}`, targetCell.source).then((res) => {
+    if (wsClientRef.current && wsClientRef.current.isOpen()) {
+      try {
+        wsClientRef.current.execute(cellId, codeToExecute);
+        return;
+      } catch (err) {
+        console.warn('WebSocket execution failed, using REST fallback:', err);
+      }
+    }
+
+    // Direct REST execution fallback
+    api
+      .runCode(`session-${notebook.id}`, codeToExecute)
+      .then((res) => {
         setNotebook((prev) => {
           if (!prev) return prev;
           return {
@@ -287,8 +409,31 @@ export const App: React.FC = () => {
             ),
           };
         });
+      })
+      .catch((err) => {
+        setNotebook((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            cells: prev.cells.map((c) =>
+              c.id === cellId
+                ? {
+                    ...c,
+                    outputs: [
+                      {
+                        output_type: 'error',
+                        ename: 'ExecutionError',
+                        evalue: err.message || 'Execution failed',
+                        traceback: [],
+                      },
+                    ],
+                    is_running: false,
+                  }
+                : c
+            ),
+          };
+        });
       });
-    }
   };
 
   const handleRunAll = () => {
@@ -357,6 +502,106 @@ export const App: React.FC = () => {
     setNotebook({ ...notebook, cells: updated });
   };
 
+  // Duplicate a cell
+  const handleDuplicateCell = (cellId: string) => {
+    if (!notebook) return;
+    const idx = notebook.cells.findIndex((c) => c.id === cellId);
+    if (idx < 0) return;
+    const target = notebook.cells[idx];
+    const duplicated: NotebookCell = {
+      id: `cell-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      cell_type: target.cell_type,
+      source: target.source,
+      outputs: [],
+      execution_count: null,
+    };
+    const updated = [...notebook.cells];
+    updated.splice(idx + 1, 0, duplicated);
+    setNotebook({ ...notebook, cells: updated });
+    setActiveCellId(duplicated.id);
+  };
+
+  // Clear output of a single cell
+  const handleClearCellOutput = (cellId: string) => {
+    if (!notebook) return;
+    setNotebook({
+      ...notebook,
+      cells: notebook.cells.map((c) =>
+        c.id === cellId ? { ...c, outputs: [], execution_count: null } : c
+      ),
+    });
+  };
+
+  // Clear all outputs across the notebook
+  const handleClearAllOutputs = () => {
+    if (!notebook) return;
+    setNotebook({
+      ...notebook,
+      cells: notebook.cells.map((c) => ({
+        ...c,
+        outputs: [],
+        execution_count: null,
+      })),
+    });
+  };
+
+  // Update cell metadata (e.g. custom_height)
+  const handleUpdateCellMetadata = (cellId: string, metadata: Record<string, any>) => {
+    if (!notebook) return;
+    setNotebook({
+      ...notebook,
+      cells: notebook.cells.map((c) =>
+        c.id === cellId ? { ...c, metadata: { ...c.metadata, ...metadata } } : c
+      ),
+    });
+  };
+
+  // Run current cell (retain focus)
+  const handleRunCurrentCell = (cellId: string, sourceOverride?: string) => {
+    handleRunCell(cellId, sourceOverride);
+    setActiveCellId(cellId);
+  };
+
+  // Run cell & advance to next cell (or append new code cell if at end)
+  const handleRunAndAdvance = (cellId: string, sourceOverride?: string) => {
+    if (!notebook) return;
+    handleRunCell(cellId, sourceOverride);
+    const idx = notebook.cells.findIndex((c) => c.id === cellId);
+    if (idx >= 0 && idx < notebook.cells.length - 1) {
+      setActiveCellId(notebook.cells[idx + 1].id);
+    } else if (idx === notebook.cells.length - 1) {
+      const newCell: NotebookCell = {
+        id: `cell-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        cell_type: 'code',
+        source: '',
+        outputs: [],
+      };
+      setNotebook((prev) => (prev ? { ...prev, cells: [...prev.cells, newCell] } : prev));
+      setActiveCellId(newCell.id);
+    }
+  };
+
+  // Run cell & insert new code cell below
+  const handleRunAndInsertBelow = (cellId: string, sourceOverride?: string) => {
+    if (!notebook) return;
+    handleRunCell(cellId, sourceOverride);
+    const idx = notebook.cells.findIndex((c) => c.id === cellId);
+    const newCell: NotebookCell = {
+      id: `cell-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      cell_type: 'code',
+      source: '',
+      outputs: [],
+    };
+    setNotebook((prev) => {
+      if (!prev) return prev;
+      const updated = [...prev.cells];
+      const insertIdx = idx >= 0 ? idx + 1 : updated.length;
+      updated.splice(insertIdx, 0, newCell);
+      return { ...prev, cells: updated };
+    });
+    setActiveCellId(newCell.id);
+  };
+
   const handleInsertCodeSnippet = (code: string) => {
     if (!notebook) return;
     handleAddCell(notebook.cells.length, 'code');
@@ -372,10 +617,15 @@ export const App: React.FC = () => {
     }, 50);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     api.clearToken();
     setUser(null);
-    setNotebook(null);
+    try {
+      await api.initGuestSession();
+    } catch (err) {
+      console.warn('Guest session init error:', err);
+    }
+    await loadOrCreateInitialNotebook();
   };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -389,160 +639,13 @@ export const App: React.FC = () => {
       }
       const profile = await api.getMe();
       setUser(profile);
-      loadOrCreateInitialNotebook();
+      setIsAuthModalOpen(false);
+      // Load user's private notebooks
+      await loadOrCreateInitialNotebook();
     } catch (err: any) {
       setAuthError(err.message || 'Authentication failed');
     }
   };
-
-  if (!user) {
-    return (
-      <div
-        style={{
-          height: '100vh',
-          width: '100vw',
-          backgroundColor: '#090d16',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <div
-          style={{
-            width: '380px',
-            padding: '32px',
-            backgroundColor: '#0f172a',
-            borderRadius: '12px',
-            border: '1px solid #1e293b',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
-          }}
-        >
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#f8fafc', marginBottom: '8px' }}>
-            Enterprise Python Cloud Studio
-          </h2>
-          <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '24px' }}>
-            {isRegisterMode ? 'Create your platform account' : 'Sign in to access your workspaces'}
-          </p>
-
-          {authError && (
-            <div
-              style={{
-                padding: '8px 12px',
-                backgroundColor: '#450a0a',
-                border: '1px solid #ef4444',
-                borderRadius: '6px',
-                color: '#fca5a5',
-                fontSize: '12px',
-                marginBottom: '16px',
-              }}
-            >
-              {authError}
-            </div>
-          )}
-
-          <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {isRegisterMode && (
-              <div>
-                <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={authName}
-                  onChange={(e) => setAuthName(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '6px',
-                    color: '#ffffff',
-                    outline: 'none',
-                  }}
-                />
-              </div>
-            )}
-            <div>
-              <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: '6px',
-                  color: '#ffffff',
-                  outline: 'none',
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '12px', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
-                Password
-              </label>
-              <input
-                type="password"
-                required
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: '6px',
-                  color: '#ffffff',
-                  outline: 'none',
-                }}
-              />
-            </div>
-
-            <button
-              type="submit"
-              style={{
-                marginTop: '8px',
-                padding: '10px 16px',
-                backgroundColor: '#2563eb',
-                border: 'none',
-                borderRadius: '6px',
-                color: '#ffffff',
-                fontWeight: 600,
-                fontSize: '13px',
-                cursor: 'pointer',
-              }}
-            >
-              {isRegisterMode ? 'Register Account' : 'Sign In'}
-            </button>
-          </form>
-
-          <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
-            {isRegisterMode ? (
-              <span>
-                Already have an account?{' '}
-                <a href="#" onClick={() => setIsRegisterMode(false)} style={{ color: '#3b82f6', textDecoration: 'none' }}>
-                  Sign In
-                </a>
-              </span>
-            ) : (
-              <span>
-                New to Cloud Studio?{' '}
-                <a href="#" onClick={() => setIsRegisterMode(true)} style={{ color: '#3b82f6', textDecoration: 'none' }}>
-                  Create Account
-                </a>
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -555,60 +658,420 @@ export const App: React.FC = () => {
         onRunAll={handleRunAll}
         onRestartKernel={handleRestartKernel}
         onInterruptKernel={handleInterruptKernel}
+        onClearAllOutputs={handleClearAllOutputs}
         onSave={handleSaveNotebook}
         onLogout={handleLogout}
         isLeftSidebarOpen={isLeftSidebarOpen}
         onToggleLeftSidebar={toggleLeftSidebar}
         isRightSidebarOpen={isRightSidebarOpen}
         onToggleRightSidebar={toggleRightSidebar}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenAdminDashboard={() => setIsAdminOpen(true)}
       />
 
+      {/* Guest Mode Public Privacy Notice Banner */}
+      {!user && showGuestBanner && (
+        <div
+          data-testid="guest-privacy-banner"
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            borderBottom: '1px solid var(--border-main)',
+            padding: '7px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '12.5px',
+            color: 'var(--text-main)',
+            zIndex: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Globe size={15} color="var(--border-accent)" />
+            <span>
+              <strong style={{ color: 'var(--border-accent)' }}>Guest Mode — Public Workspace:</strong> You are working in the public workspace. Any files or notebooks you create are visible to other users.
+            </span>
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--border-accent)',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                fontSize: '12.5px',
+                fontWeight: 600,
+                padding: '0 4px',
+              }}
+            >
+              Sign in for your private workspace
+            </button>
+          </div>
+          <button
+            onClick={dismissGuestBanner}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '14px',
+              padding: '2px 6px',
+              lineHeight: 1,
+            }}
+            title="Dismiss notice"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 3-Panel Resizable Workspace */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-        {/* Collapsible Left Sidebar (Files only, streamlined) */}
+        {/* Left Sidebar (Files) */}
         {isLeftSidebarOpen && (
           <Sidebar
             onOpenFile={handleOpenFile}
             onOpenNotebookFile={handleOpenNotebookFile}
             onCreateNewNotebook={handleCreateNewNotebook}
-            activeFilePath={openFile?.path}
+            activeFilePath={activeFilePath || undefined}
+            width={leftSidebarWidth}
           />
         )}
 
-        {/* Center Workspace (Jupyter Notebook Editor) */}
+        {/* Left Resizer Divider */}
+        {isLeftSidebarOpen && (
+          <div
+            data-testid="left-resizer"
+            onMouseDown={handleMouseDownLeft}
+            style={{
+              width: '5px',
+              cursor: 'col-resize',
+              backgroundColor: isDraggingLeft ? 'var(--border-accent)' : 'var(--border-main)',
+              borderLeft: '1px solid var(--border-main)',
+              borderRight: '1px solid var(--border-secondary)',
+              transition: isDraggingLeft ? 'none' : 'background-color 0.15s ease',
+              zIndex: 20,
+              flexShrink: 0,
+              userSelect: 'none',
+            }}
+            title="Drag to resize Left Sidebar"
+          />
+        )}
+
+        {/* Center Workspace (Jupyter Notebook Editor) - 100% remaining horizontal space */}
         {notebook && (
-          <NotebookEditor
-            cells={notebook.cells}
-            onUpdateCellSource={handleUpdateCellSource}
-            onRunCell={handleRunCell}
-            onAddCell={handleAddCell}
-            onDeleteCell={handleDeleteCell}
-            onMoveCell={handleMoveCell}
-            activeCellId={activeCellId}
-            onSelectCell={setActiveCellId}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <NotebookEditor
+              cells={notebook.cells}
+              onUpdateCellSource={handleUpdateCellSource}
+              onRunCell={handleRunCell}
+              onAddCell={handleAddCell}
+              onDeleteCell={handleDeleteCell}
+              onMoveCell={handleMoveCell}
+              onDuplicateCell={handleDuplicateCell}
+              onClearCellOutput={handleClearCellOutput}
+              onClearAllOutputs={handleClearAllOutputs}
+              onRunCurrentCell={handleRunCurrentCell}
+              onRunAndAdvance={handleRunAndAdvance}
+              onRunAndInsertBelow={handleRunAndInsertBelow}
+              activeCellId={activeCellId}
+              onSelectCell={setActiveCellId}
+              sessionId={notebook ? `session-${notebook.id}` : undefined}
+              onUpdateCellMetadata={handleUpdateCellMetadata}
+            />
+          </div>
+        )}
+
+        {/* Right Resizer Divider */}
+        {isRightSidebarOpen && (
+          <div
+            data-testid="right-resizer"
+            onMouseDown={handleMouseDownRight}
+            style={{
+              width: '5px',
+              cursor: 'col-resize',
+              backgroundColor: isDraggingRight ? 'var(--border-accent)' : 'var(--border-main)',
+              borderLeft: '1px solid var(--border-secondary)',
+              borderRight: '1px solid var(--border-main)',
+              transition: isDraggingRight ? 'none' : 'background-color 0.15s ease',
+              zIndex: 20,
+              flexShrink: 0,
+              userSelect: 'none',
+            }}
+            title="Drag to resize Right Sidebar"
           />
         )}
 
-        {/* Collapsible Right Sidebar (File Preview & Code Editor by default; toggleable to AI/Tools) */}
+        {/* Right Sidebar (File Preview & Code Editor / Tools) */}
         {isRightSidebarOpen && (
-          <div style={{ display: 'flex', height: '100%' }}>
-            {/* If openFile exists or tab is 'editor', render FileEditorPanel */}
-            {rightSidebarTab === 'editor' && openFile ? (
+          <div
+            style={{
+              width: `${rightSidebarWidth}px`,
+              flexShrink: 0,
+              height: '100%',
+              display: 'flex',
+              overflow: 'hidden',
+            }}
+          >
+            {rightSidebarTab === 'editor' && openFiles.length > 0 ? (
               <FileEditorPanel
-                file={openFile}
+                openFiles={openFiles}
+                activeFilePath={activeFilePath}
                 isOpen={isRightSidebarOpen}
                 onClose={() => setIsRightSidebarOpen(false)}
+                onSelectTab={handleSelectTab}
+                onCloseTab={handleCloseTab}
                 onSave={handleSaveOpenFile}
-                onContentChange={(newContent) =>
-                  setOpenFile((prev) => (prev ? { ...prev, content: newContent, isDirty: true } : null))
-                }
+                onContentChange={handleContentChange}
                 onOpenAsNotebook={handleOpenNotebookFile}
+                width={rightSidebarWidth}
               />
             ) : (
-              <RightPanel onInsertCodeSnippet={handleInsertCodeSnippet} />
+              <RightPanel
+                onInsertCodeSnippet={handleInsertCodeSnippet}
+                width={rightSidebarWidth}
+              />
             )}
           </div>
         )}
       </div>
+
+      {/* Non-intrusive Authentication Modal Dialog */}
+      {isAuthModalOpen && (
+        <div
+          data-testid="auth-modal"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            backdropFilter: 'blur(3px)',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsAuthModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              width: '400px',
+              padding: '30px',
+              backgroundColor: 'var(--bg-modal)',
+              borderRadius: '12px',
+              border: '1px solid var(--border-secondary)',
+              boxShadow: '0 25px 50px rgba(0, 0, 0, 0.4)',
+              position: 'relative',
+            }}
+          >
+            <button
+              onClick={() => setIsAuthModalOpen(false)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                padding: '4px',
+              }}
+              title="Close"
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  backgroundColor: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Lock size={16} color="#ffffff" />
+              </div>
+              <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
+                {isRegisterMode ? 'Create Private Workspace' : 'Sign In to Workspace'}
+              </h2>
+            </div>
+
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+              {isRegisterMode
+                ? 'Get your dedicated, completely private environment with isolated files.'
+                : 'Access your private workspace and secure notebooks.'}
+            </p>
+
+            {authError && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  backgroundColor: '#450a0a',
+                  border: '1px solid #ef4444',
+                  borderRadius: '6px',
+                  color: '#fca5a5',
+                  fontSize: '12px',
+                  marginBottom: '16px',
+                }}
+              >
+                {authError}
+              </div>
+            )}
+
+            <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {isRegisterMode && (
+                <div>
+                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={authName}
+                    onChange={(e) => setAuthName(e.target.value)}
+                    placeholder="e.g. Alex Johnson"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      backgroundColor: 'var(--bg-input)',
+                      border: '1px solid var(--border-secondary)',
+                      borderRadius: '6px',
+                      color: 'var(--text-main)',
+                      outline: 'none',
+                      fontSize: '13px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              )}
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-secondary)',
+                    borderRadius: '6px',
+                    color: 'var(--text-main)',
+                    outline: 'none',
+                    fontSize: '13px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                  Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-secondary)',
+                    borderRadius: '6px',
+                    color: 'var(--text-main)',
+                    outline: 'none',
+                    fontSize: '13px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                style={{
+                  marginTop: '8px',
+                  padding: '10px 16px',
+                  backgroundColor: '#2563eb',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                }}
+              >
+                <LogIn size={15} />
+                {isRegisterMode ? 'Create Account & Switch' : 'Sign In'}
+              </button>
+            </form>
+
+            <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
+              {isRegisterMode ? (
+                <span>
+                  Already have an account?{' '}
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setIsRegisterMode(false);
+                      setAuthError('');
+                    }}
+                    style={{ color: '#3b82f6', textDecoration: 'none' }}
+                  >
+                    Sign In
+                  </a>
+                </span>
+              ) : (
+                <span>
+                  New to Cloud Studio?{' '}
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setIsRegisterMode(true);
+                      setAuthError('');
+                    }}
+                    style={{ color: '#3b82f6', textDecoration: 'none' }}
+                  >
+                    Create Account
+                  </a>
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Super Admin Dashboard Modal */}
+      <ErrorBoundary fallbackTitle="Admin Console Encountered an Issue" onClose={() => setIsAdminOpen(false)}>
+        <AdminDashboard
+          isOpen={isAdminOpen}
+          onClose={() => setIsAdminOpen(false)}
+          currentUserEmail={user?.email}
+        />
+      </ErrorBoundary>
     </div>
   );
 };

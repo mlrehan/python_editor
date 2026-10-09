@@ -3,9 +3,10 @@ import { Sparkles, Database, Activity, Send, Copy } from 'lucide-react';
 
 interface RightPanelProps {
   onInsertCodeSnippet: (code: string) => void;
+  width?: number;
 }
 
-export const RightPanel: React.FC<RightPanelProps> = ({ onInsertCodeSnippet }) => {
+export const RightPanel: React.FC<RightPanelProps> = ({ onInsertCodeSnippet, width = 320 }) => {
   const [activeTab, setActiveTab] = useState<'variables' | 'ai' | 'metrics'>('ai');
   const [messages, setMessages] = useState<Array<{ sender: 'user' | 'assistant'; text: string; code?: string }>>([
     {
@@ -42,16 +43,22 @@ export const RightPanel: React.FC<RightPanelProps> = ({ onInsertCodeSnippet }) =
   };
 
   return (
-    <aside style={{
-      width: '320px',
-      backgroundColor: '#0f172a',
-      borderLeft: '1px solid #1e293b',
-      display: 'flex',
-      flexDirection: 'column',
-      height: 'calc(100vh - 56px)'
-    }}>
+    <aside
+      data-testid="right-panel"
+      style={{
+        width: `${width}px`,
+        maxWidth: `${width}px`,
+        minWidth: `${width}px`,
+        backgroundColor: 'var(--bg-sidebar)',
+        borderLeft: '1px solid var(--border-main)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 56px)',
+        flexShrink: 0,
+      }}
+    >
       {/* Tab Switcher */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #1e293b', backgroundColor: '#0b1120' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-main)', backgroundColor: 'var(--bg-sidebar-header)' }}>
         <button
           onClick={() => setActiveTab('ai')}
           style={{
@@ -165,7 +172,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ onInsertCodeSnippet }) =
             </div>
 
             {/* Input Box */}
-            <div style={{ padding: '12px', borderTop: '1px solid #1e293b', display: 'flex', gap: '6px' }}>
+            <div style={{ padding: '12px', borderTop: '1px solid var(--border-main)', display: 'flex', gap: '6px' }}>
               <input
                 type="text"
                 value={inputPrompt}
@@ -175,10 +182,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({ onInsertCodeSnippet }) =
                 style={{
                   flex: 1,
                   padding: '8px 10px',
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
+                  backgroundColor: 'var(--bg-input)',
+                  border: '1px solid var(--border-secondary)',
                   borderRadius: '6px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   fontSize: '13px',
                   outline: 'none'
                 }}

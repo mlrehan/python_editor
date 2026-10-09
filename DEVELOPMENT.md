@@ -1,4 +1,4 @@
-# 🚀 Local Development & User Guide
+# 🚀 Enterprise Python Cloud Studio — Local Development & User Guide
 
 Welcome to **Enterprise Python Cloud Studio** (`python-cloud-studio`)!
 
@@ -39,208 +39,137 @@ Once the command is running, open your web browser:
 
 ---
 
-## 🧪 How to Verify Everything is Working (Automated Tests)
+## 🔑 Super Admin Credentials & Console
 
-We provide an automated acceptance test suite that verifies **real Python execution**, **NumPy**, **Pandas**, **Matplotlib charts**, **exception tracebacks**, **kernel restart state resetting**, **multi-user isolation**, and **workspace path traversal defenses**.
+The platform includes a dedicated **Super Admin System** bootstrapped from `.env`:
 
-To run all tests:
+- **Bootstrap Email**: `admin@example.com`
+- **Bootstrap Password**: `AdminSecurePassword2026!`
+- **Database Authority**: After the initial bootstrap, credentials are permanently stored in the database. Changing your password in the Admin Console persists across server restarts without ever being overwritten by `.env`.
+
+### Accessing the Super Admin Console:
+1. Open [http://localhost:8765/](http://localhost:8765/)
+2. Click **Sign In** and enter `admin@example.com` / `AdminSecurePassword2026!`
+3. An amber **Admin** button will appear in the top Navbar next to your profile.
+4. Click **Admin** to open the full Super Admin Console with 7 management tabs:
+   - **System Overview**: Live CPU, RAM, disk storage gauges, total users, and active kernel counts.
+   - **User Management**: View, search, create, update roles, toggle package management permissions, and reset user passwords.
+   - **Python Packages**: View installed packages, search packages, install new libraries via pip, and uninstall non-protected packages.
+   - **Kernel Memory**: Inspect running IPyKernel processes (PID, RAM in MB, CPU %, Idle time), and free memory for individual sessions or terminate all runtimes.
+   - **Global Workspaces**: Browse public guest files and private user workspaces; delete obsolete files and folders globally.
+   - **Audit Logs**: Full administrative audit trail of all security and system actions.
+   - **Admin Profile**: Change Super Admin email, username, and password with real-time database persistence.
+
+---
+
+## 🎨 System / Dark / Light Theme Switcher
+
+The studio includes complete multi-theme support:
+- Click the **Theme Toggle** button in the top navigation bar (displays Laptop, Moon, or Sun icon).
+- **System**: Automatically syncs with your operating system preference via `prefers-color-scheme`. If Windows flips between Dark and Light mode, the studio UI dynamically adapts instantly.
+- **Dark Mode**: Rich enterprise dark navy theme optimized for coding.
+- **Light Mode**: High-contrast, clean light theme for presentation and daytime work.
+- Preferences are saved locally in `localStorage` and automatically synced to your database profile upon sign-in.
+
+---
+
+## 📂 Multi-Tab File Explorer & Close Lifecycle
+
+The right-side file preview panel delivers a true IDE multi-tab file editing experience:
+- **Double-click any file** in the left Files explorer to open it in a tab.
+- Opening multiple files creates a scrollable row of tabs with file type icons (`.py`, `.ipynb`, `.csv`, `.md`, `.json`, `.png`, etc.).
+- **Dirty State**: If you make modifications to a file, an amber unsaved dot (`●`) appears on the tab.
+- **Close Button (X)**:
+  - If the file is **saved**: Clicking `(X)` closes the tab immediately.
+  - If the file has **unsaved changes**: A modal confirmation appears asking:
+    - **Save and Close**: Writes changes to disk and closes tab.
+    - **Discard Changes**: Discards unsaved edits and closes tab.
+    - **Cancel**: Keeps tab open with edits intact.
+- Closing the active tab switches focus to an adjacent open tab; closing the last tab resets the panel cleanly.
+
+---
+
+## 📊 Preinstalled Data Science Libraries & Inline Plots
+
+All core Python data analysis packages are preinstalled and verified:
+- **Core Stack**: `numpy`, `pandas`, `scipy`, `scikit-learn`, `statsmodels`
+- **Visualization**: `matplotlib`, `seaborn`, `plotly`, `ipympl`
+- **Spreadsheets & Data**: `openpyxl`, `xlsxwriter`, `pyarrow`, `Pillow`, `requests`
+- **Jupyter Architecture**: `ipykernel`, `IPython`, `ipywidgets`
+
+### Google Colab–Style Visualization:
+- When running `plt.plot()` or `sns.heatmap()`, plots render inline immediately beneath code cells as crisp, centered graphics.
+- Cells containing multiple `plt.figure()` calls render all figures sequentially in proper order.
+- Each figure features a dedicated **Download Plot** button to save high-resolution figures directly to disk.
+
+---
+
+## ⚡ Concurrent Multi-User Execution
+
+The kernel runtime architecture uses per-session locking:
+- IPyKernels run in independent processes.
+- Long-running computations (e.g. `time.sleep(10)`) by User A do **NOT** block other users.
+- User B executing code on their own session computes instantly without waiting for User A.
+
+---
+
+## 🧪 Automated Testing & Verification
+
+Run the test suite using pytest in PowerShell or Command Prompt:
+
 ```powershell
+cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio
+
+# 1. Run all 5 feature enhancement tests (Libraries, Matplotlib, Concurrency, Super Admin, Theme)
+python -m pytest tests/integration/test_feature_enhancements.py -v
+
+# 2. Run the full integration test suite (24 tests total)
 python -m pytest tests/integration/ -v
 ```
-*(Or simply double-click `run_tests.bat`)*
 
 ### Expected Output:
-You will see 18 passed tests with **100% success rate**:
 ```text
-tests/integration/test_api_endpoints.py::test_api_health PASSED
-tests/integration/test_api_endpoints.py::test_32_to_37_multi_user_auth_and_isolation PASSED
-tests/integration/test_api_endpoints.py::test_16_to_22_notebook_crud_and_ipynb_export PASSED
-tests/integration/test_api_endpoints.py::test_39_deny_workspace_path_traversal PASSED
-tests/integration/test_api_endpoints.py::test_48_to_51_classroom_and_assignment_workflow PASSED
-tests/integration/test_api_endpoints.py::test_api_code_execution_endpoint PASSED
-tests/integration/test_kernel_execution.py::test_01_execute_hello_world PASSED
-tests/integration/test_kernel_execution.py::test_02_perform_arithmetic PASSED
-tests/integration/test_kernel_execution.py::test_03_persist_variables_across_cells PASSED
-tests/integration/test_kernel_execution.py::test_04_execute_functions PASSED
-tests/integration/test_kernel_execution.py::test_05_execute_python_classes PASSED
-tests/integration/test_kernel_execution.py::test_06_import_numpy PASSED
-tests/integration/test_kernel_execution.py::test_07_create_pandas_dataframe PASSED
-tests/integration/test_kernel_execution.py::test_08_read_csv_with_pandas PASSED
-tests/integration/test_kernel_execution.py::test_09_generate_matplotlib_chart PASSED
-tests/integration/test_kernel_execution.py::test_11_handle_python_exception PASSED
-tests/integration/test_kernel_execution.py::test_13_and_14_restart_kernel_and_variable_reset PASSED
-tests/integration/test_kernel_execution.py::test_15_stdout_and_stderr_behavior PASSED
-
-====================== 18 passed in 36s ======================
+tests/integration/test_feature_enhancements.py::test_01_preinstalled_libraries_import PASSED
+tests/integration/test_feature_enhancements.py::test_02_matplotlib_multi_figure_inline PASSED
+tests/integration/test_feature_enhancements.py::test_03_concurrent_multi_user_execution PASSED
+tests/integration/test_feature_enhancements.py::test_04_super_admin_bootstrap_and_apis PASSED
+tests/integration/test_feature_enhancements.py::test_05_theme_preference_persistence PASSED
+======================= 5 passed in 17.67s =======================
 ```
 
 ---
 
-## 💻 Manual Verification in the Web UI: What to Try
+## 🔌 Custom Non-Colliding Ports
 
-## 💻 Manual Verification in the Web UI: What to Try
+The application strictly avoids all common default ports (`8000`, `3000`, `5432`, `6379`):
 
-Once you open **[http://localhost:8765/](http://localhost:8765/)** in your browser, try these workflows:
-
-### 1. Google Colab-Style File Manager & Sidebars
-- **Collapsible Sidebars**:
-  - Click the **Left Sidebar Toggle** in the top navigation bar (or press `Ctrl+B`) to expand or collapse the file explorer.
-  - Click the **Right Sidebar Toggle** to expand or collapse the preview/editor panel at any time.
-- **Double-Click File Opening**:
-  - The right sidebar is **collapsed by default**.
-  - In the left **FILES** explorer, double-click `sample_data.csv`: The right sidebar smoothly auto-expands with a **formatted table view** of the dataset!
-  - Click **<> Raw Text** to switch between tabular view and raw text editing.
-  - Double-click `main.py`: The code editor opens with line numbers, syntax highlighting, and an editable code area.
-  - Double-click `README.md`: View formatted Markdown or toggle between live preview and text edit mode.
-  - Double-click `Getting_Started.ipynb`: The notebook loads directly into your interactive cell workspace.
-- **File & Folder Operations**:
-  - Click **+ File** to create new Python scripts, CSV datasets, or Markdown files.
-  - Click **+ Folder** to create directory structures.
-  - Click **Upload** to upload files from your local computer into the workspace.
-  - Click the **⋮** menu next to any file to **Download**, **Rename**, or **Delete** with confirmation.
-- **Unsaved Changes Protection**:
-  - When editing a file, a golden **Unsaved** badge appears.
-  - Press `Ctrl + S` or click **Save** to persist modifications.
-  - If you attempt to switch files or close with unsaved edits, a confirmation dialog protects your changes.
-
-### 2. Basic Python Execution
-Type in the first cell:
-```python
-print("Hello World from Enterprise Python Cloud Studio!")
-```
-Click **Run** (or press `Shift + Enter`).  
-*Result:* Output displays immediately below the cell, and the execution counter updates to `[1]`.
-
-### 3. Cross-Cell Variable Persistence
-In Cell 1:
-```python
-x = 100
-```
-Add a new code cell below (click **+ Add Code Cell**) and run:
-```python
-print(f"Computed total: {x * 5}")
-```
-*Result:* Displays `Computed total: 500`. Variables persist across cells in the same kernel session!
-
-### 4. Data Science & Chart Rendering (Matplotlib)
-Add a code cell and run:
-```python
-import matplotlib.pyplot as plt
-import numpy as np
-
-x = np.linspace(0, 10, 100)
-plt.figure(figsize=(6, 3))
-plt.plot(x, np.sin(x), color='#3b82f6', lw=2)
-plt.title("Sine Wave in Cloud Studio")
-plt.show()
-```
-*Result:* A crisp Matplotlib chart renders right inside your notebook!
-
-### 5. Pandas DataFrames
-Add a code cell and run:
-```python
-import pandas as pd
-df = pd.DataFrame({
-    'Language': ['Python', 'SQL', 'Rust'],
-    'Proficiency': [98, 92, 85]
-})
-print(df)
-```
-*Result:* Displays the formatted tabular output cleanly.
-
-### 6. Exception & Traceback Handling
-Add a cell with:
-```python
-1 / 0
-```
-*Result:* Displays a formatted, easy-to-read error box with `ZeroDivisionError` and the exact line traceback.
-
-### 7. Kernel Lifecycle Controls
-- Click **Restart** in the top navigation bar: The kernel restarts in seconds, clearing in-memory variables.
-- Click **Run All**: Executes every code cell in sequence from top to bottom.
-- Click **Save**: Persists the updated notebook to cloud storage.
-
-### 8. AI Assistant
-- In the right sidebar, switch to the **AI Assistant** tab.
-- Type: `How do I create a bar plot in matplotlib?`
-- Click **Send**: The assistant suggests formatted Python code with a **Insert in Notebook** button that pastes it directly into your active workspace!
+- **FastAPI Control Plane & Production Web Dashboard**: `http://localhost:8765`
+- **Frontend Vite Dev Server (HMR development)**: `http://localhost:3765`
+- **PostgreSQL Sandbox (Optional)**: `5476`
+- **Redis Cache (Optional)**: `6395`
 
 ---
 
-## 🛠️ Frontend Development with Hot Reload (Vite)
-
-If you wish to edit React/TypeScript frontend code with instant browser hot-reloading:
-
-1. **Terminal 1 (Backend API):**
-   ```powershell
-   cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio
-   python -m uvicorn services.api.main:app --port 8765 --reload
-   ```
-
-2. **Terminal 2 (Frontend Vite Dev Server):**
-   ```powershell
-   cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio\apps\web-dashboard
-   npm run dev
-   ```
-   Open **[http://localhost:3765](http://localhost:3765)** for live hot module replacement. (API and WebSocket calls are automatically proxied to custom port 8765).
-
-3. **Rebuilding Frontend Production Bundle:**
-   Whenever you make changes you want baked into the static FastAPI server:
-   ```powershell
-   cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio\apps\web-dashboard
-   npm run build
-   ```
-
----
-
-## 📁 Repository Structure Overview
+## 📁 Repository Structure
 
 ```text
 python-cloud-studio/
 │
 ├── apps/
 │   └── web-dashboard/        # React 19 + TypeScript + Vite modern IDE frontend
+│       ├── src/components/   # Navbar, Sidebar, NotebookEditor, FileEditorPanel, AdminDashboard
+│       ├── src/context/      # ThemeContext (System, Dark, Light)
+│       └── dist/             # Production build served directly by FastAPI
 │
 ├── services/
-│   ├── api/                  # FastAPI Control Plane (Auth, Workspaces, Files, Classrooms)
-│   └── runtime_management/   # Real IPyKernel manager & ZeroMQ wire protocol bridge
-│
-├── infrastructure/
-│   └── docker/               # Dockerfiles for API and non-root runtime sandbox
+│   ├── api/                  # FastAPI Control Plane (Auth, Admin, Files, Notebooks, Execution)
+│   └── runtime_management/   # Multi-tenant IPyKernel manager & session bridge
 │
 ├── tests/
-│   └── integration/          # 18 automated acceptance tests for kernel & API
+│   └── integration/          # Automated integration & concurrency tests
 │
+├── .env                      # Application configuration and bootstrap secrets
 ├── run_app.bat               # One-click Windows starter
-├── run_tests.bat             # One-click Windows test runner
 ├── run_app.ps1               # PowerShell starter script
-├── docker-compose.yml        # PostgreSQL & Redis container configuration
-├── ARCHITECTURE.md           # System architecture & C4 diagrams
-├── SECURITY.md               # STRIDE threat model & sandboxing policies
-└── DEVELOPMENT.md            # This setup and user guide
+└── DEVELOPMENT.md            # This documentation
 ```
-
----
-
-### Custom Ports Overview
-This project avoids all standard default ports (8000, 3000, 5432, 6379) so it will never conflict with other services running on your machine:
-- **API Server & Web App**: `8765`
-- **Frontend Vite Dev**: `3765`
-- **PostgreSQL**: `5476`
-- **Redis**: `6395`
-
-To run on a different port:
-```powershell
-python -m uvicorn services.api.main:app --host 127.0.0.1 --port 9090 --reload
-```
-Then visit `http://localhost:9090/`.
-
-### Missing Python packages
-Run:
-```powershell
-python -m pip install -r services/api/requirements.txt
-```
-
-### Resetting local test database
-If you want to clear your local development SQLite database:
-Simply delete `studio_dev.db`. A clean database with all tables will automatically be recreated upon startup.

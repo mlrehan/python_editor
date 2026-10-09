@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
+    # Initial Super Admin Bootstrap (from .env)
+    ADMIN_BOOTSTRAP_EMAIL: str = "admin@example.com"
+    ADMIN_BOOTSTRAP_PASSWORD: str = "AdminSecurePassword2026!"
+
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./studio_dev.db"
 

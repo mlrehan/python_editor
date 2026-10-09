@@ -34,10 +34,64 @@ class UserResponse(BaseModel):
     role: str
     organization_id: Optional[str] = None
     is_active: bool
+    can_manage_packages: bool = False
+    theme_preference: str = "system"
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class AdminUserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    full_name: str = Field(..., min_length=2)
+    role: str = "student"  # super_admin, admin, instructor, student
+    can_manage_packages: bool = False
+    organization_id: Optional[str] = None
+
+
+class AdminUserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    can_manage_packages: Optional[bool] = None
+
+
+class AdminPasswordReset(BaseModel):
+    new_password: str = Field(..., min_length=8)
+
+
+class AdminProfileUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+
+class UserThemeUpdate(BaseModel):
+    theme: Optional[str] = None
+    theme_preference: Optional[str] = None
+
+
+class PackageInstallRequest(BaseModel):
+    package_name: str = Field(..., min_length=1)
+    version: Optional[str] = None
+
+
+class PackageUninstallRequest(BaseModel):
+    package_name: str = Field(..., min_length=1)
+
+
+class ClearRuntimesRequest(BaseModel):
+    confirm: bool = False
+
+
+class AdminDeleteFileRequest(BaseModel):
+    path: str
+    workspace_target: str = "public"  # "public" or user_id
+    confirm: bool = True
 
 
 # ==========================================

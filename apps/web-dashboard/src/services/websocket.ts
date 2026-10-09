@@ -89,8 +89,12 @@ export class KernelWebSocketClient {
     };
   }
 
+  isOpen(): boolean {
+    return this.isConnected && this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
   execute(cellId: string, code: string) {
-    if (!this.ws || !this.isConnected) {
+    if (!this.isOpen() || !this.ws) {
       throw new Error('WebSocket is not connected');
     }
     this.ws.send(

@@ -20,19 +20,13 @@ async def kernel_websocket(
     Streams outputs token-by-token and manages execution state.
     """
     # 1. Authenticate WebSocket connection token
-    if not token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-    except Exception:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
+    user_id = "public"
+    if token and not token.startswith("gst_"):
+        try:
+            payload = decode_access_token(token)
+            user_id = payload.get("sub") or "public"
+        except Exception:
+            user_id = "public"
 
     await websocket.accept()
 

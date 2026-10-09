@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .database import init_db
 from .kernel_bridge import kernel_pool
-from .routers import health, auth, notebooks, execution, files, classrooms, websockets
+from .routers import health, auth, notebooks, execution, files, classrooms, websockets, admin, editor
 
 
 @asynccontextmanager
@@ -44,6 +44,8 @@ app.include_router(notebooks.router, prefix="/api/v1")
 app.include_router(execution.router, prefix="/api/v1")
 app.include_router(files.router, prefix="/api/v1")
 app.include_router(classrooms.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+app.include_router(editor.router, prefix="/api/v1")
 
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles

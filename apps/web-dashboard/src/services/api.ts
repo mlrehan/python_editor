@@ -4,9 +4,16 @@ const API_BASE = '/api/v1';
 
 export class ApiClient {
   private token: string | null = null;
+  private guestToken: string | null = null;
 
   constructor() {
     this.token = localStorage.getItem('pcs_token');
+    let gst = localStorage.getItem('pcs_guest_token');
+    if (!gst) {
+      gst = 'gst_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+      localStorage.setItem('pcs_guest_token', gst);
+    }
+    this.guestToken = gst;
   }
 
   setToken(token: string) {
@@ -16,6 +23,10 @@ export class ApiClient {
 
   getToken(): string | null {
     return this.token;
+  }
+
+  getGuestToken(): string {
+    return this.guestToken || 'gst_guest_session';
   }
 
   clearToken() {
@@ -32,6 +43,9 @@ export class ApiClient {
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
+    if (this.guestToken) {
+      headers['X-Guest-Token'] = this.guestToken;
+    }
 
     const res = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
@@ -40,7 +54,17 @@ export class ApiClient {
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(errorData.detail || `Request failed with status ${res.status}`);
+      let msg = 'Request failed';
+      if (typeof errorData.detail === 'string') {
+        msg = errorData.detail;
+      } else if (Array.isArray(errorData.detail)) {
+        msg = errorData.detail.map((e: any) => e.msg || JSON.stringify(e)).join(', ');
+      } else if (errorData.detail) {
+        msg = JSON.stringify(errorData.detail);
+      } else {
+        msg = `Request failed with status ${res.status}`;
+      }
+      throw new Error(msg);
     }
 
     if (res.status === 204) {
@@ -71,6 +95,21 @@ export class ApiClient {
 
   async getMe(): Promise<UserProfile> {
     return this.request<UserProfile>('/auth/me');
+  }
+
+  async initGuestSession(): Promise<{ guest_token: string; workspace_type: string }> {
+    try {
+      const data = await this.request<{ guest_token: string; workspace_type: string }>('/auth/guest-session', {
+        method: 'POST',
+      });
+      if (data && data.guest_token) {
+        this.guestToken = data.guest_token;
+        localStorage.setItem('pcs_guest_token', data.guest_token);
+      }
+      return data;
+    } catch {
+      return { guest_token: this.getGuestToken(), workspace_type: 'public' };
+    }
   }
 
   // Notebooks
@@ -194,6 +233,9 @@ export class ApiClient {
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
+    if (this.guestToken) {
+      headers['X-Guest-Token'] = this.guestToken;
+    }
 
     const res = await fetch(`/api/v1/files/upload?directory=${encodeURIComponent(directory)}`, {
       method: 'POST',
@@ -209,7 +251,9 @@ export class ApiClient {
   }
 
   getDownloadUrl(path: string): string {
-    const tokenParam = this.token ? `&token=${encodeURIComponent(this.token)}` : '';
+    const tokenParam = this.token
+      ? `&token=${encodeURIComponent(this.token)}`
+      : `&x_guest_token=${encodeURIComponent(this.getGuestToken())}`;
     return `/api/v1/files/download?path=${encodeURIComponent(path)}${tokenParam}`;
   }
 
@@ -225,6 +269,125 @@ export class ApiClient {
     return this.request<any>('/execution/control', {
       method: 'POST',
       body: JSON.stringify({ session_id: sessionId, action }),
+    });
+  }
+
+  // Theme Preference
+  async updateThemePreference(theme: string): Promise<{ status: string; theme_preference: string }> {
+    return this.request('/auth/theme', {
+      method: 'PUT',
+      body: JSON.stringify({ theme_preference: theme }),
+    });
+  }
+
+  // Admin APIs
+  async getAdminStats() {
+    return this.request<any>('/admin/stats');
+  }
+
+  async getAdminUsers(page = 1, limit = 50, search = '') {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit), search });
+    return this.request<any>(`/admin/users?${q.toString()}`);
+  }
+
+  async createAdminUser(data: any) {
+    return this.request<any>('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAdminUser(userId: string, data: any) {
+    return this.request<any>(`/admin/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resetUserPassword(userId: string, newPassword: string) {
+    return this.request<any>(`/admin/users/${userId}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ new_password: newPassword }),
+    });
+  }
+
+  async deleteUser(userId: string) {
+    return this.request<any>(`/admin/users/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getAdminPackages(search = '') {
+    const q = search ? `?search=${encodeURIComponent(search)}` : '';
+    return this.request<any>(`/admin/packages${q}`);
+  }
+
+  async installPackage(packageName: string) {
+    return this.request<any>('/admin/packages/install', {
+      method: 'POST',
+      body: JSON.stringify({ package_name: packageName }),
+    });
+  }
+
+  async uninstallPackage(packageName: string) {
+    return this.request<any>('/admin/packages/uninstall', {
+      method: 'POST',
+      body: JSON.stringify({ package_name: packageName }),
+    });
+  }
+
+  async getAdminRuntimes() {
+    return this.request<any>('/admin/runtimes');
+  }
+
+  async clearRuntimes(sessionId?: string, clearAll = false) {
+    return this.request<any>('/admin/runtimes/clear', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, clear_all: clearAll }),
+    });
+  }
+
+  async getAdminWorkspaces() {
+    return this.request<any>('/admin/workspaces');
+  }
+
+  async deleteWorkspaceFile(targetPath: string) {
+    return this.request<any>('/admin/workspaces/delete-file', {
+      method: 'POST',
+      body: JSON.stringify({ target_path: targetPath }),
+    });
+  }
+
+  async getAdminAuditLogs(limit = 100) {
+    return this.request<any>(`/admin/audit-logs?limit=${limit}`);
+  }
+
+  async updateAdminProfile(data: any) {
+    return this.request<any>('/admin/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Language Service / Autocomplete / Diagnostics
+  async getCompletions(code: string, line: number, column: number, notebookContext: string[] = [], sessionId?: string) {
+    return this.request<{ completions: Array<{ label: string; type: string; detail?: string; documentation?: string; insert_text?: string }>; signatures: any[] }>('/editor/complete', {
+      method: 'POST',
+      body: JSON.stringify({ code, line, column, notebook_context: notebookContext, session_id: sessionId }),
+    });
+  }
+
+  async getSignatures(code: string, line: number, column: number, notebookContext: string[] = []) {
+    return this.request<{ signatures: Array<{ name: string; signature: string; params: string[]; docstring?: string; index: number }> }>('/editor/signatures', {
+      method: 'POST',
+      body: JSON.stringify({ code, line, column, notebook_context: notebookContext }),
+    });
+  }
+
+  async getDiagnostics(code: string, notebookContext: string[] = [], sessionId?: string) {
+    return this.request<{ diagnostics: Array<{ from_line: number; from_col: number; to_line: number; to_col: number; message: string; severity: string }> }>('/editor/diagnostics', {
+      method: 'POST',
+      body: JSON.stringify({ code, notebook_context: notebookContext, session_id: sessionId }),
     });
   }
 }

@@ -23,8 +23,17 @@ class KernelPoolManager:
         self._lock = asyncio.Lock()
         os.makedirs(self.workspaces_root, exist_ok=True)
 
+    def get_public_workspace_path(self) -> str:
+        """Computes shared public workspace directory path for unauthenticated guest users."""
+        path = os.path.join(self.workspaces_root, "public")
+        os.makedirs(path, exist_ok=True)
+        self._seed_default_workspace(path)
+        return path
+
     def get_user_workspace_path(self, user_id: str, project_id: Optional[str] = None) -> str:
         """Computes isolated canonical workspace directory path for a user/project."""
+        if not user_id or user_id in ("public", "guest", "public_guest") or user_id.startswith("guest_"):
+            return self.get_public_workspace_path()
         if project_id:
             path = os.path.join(self.workspaces_root, f"user_{user_id}", f"project_{project_id}")
         else:
@@ -124,8 +133,20 @@ class KernelPoolManager:
             self._sessions[session_id] = session
             return session
 
+    @property
+    def sessions(self) -> Dict[str, KernelSession]:
+        return self._sessions
+
     def get_session(self, session_id: str) -> Optional[KernelSession]:
         return self._sessions.get(session_id)
+
+    async def restart_session(self, session_id: str) -> bool:
+        """Restarts a running kernel session, clearing its memory."""
+        session = self._sessions.get(session_id)
+        if session:
+            await session.restart()
+            return True
+        return False
 
     async def shutdown_session(self, session_id: str) -> bool:
         """Halts and unregisters a kernel session."""

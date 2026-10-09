@@ -78,3 +78,38 @@ async def get_me(current_user: User = Depends(get_current_user)):
     """Returns profile information for the authenticated user."""
     return current_user
 
+
+from ..schemas import UserThemeUpdate
+
+
+@router.put("/theme", response_model=UserResponse)
+async def update_theme(
+    req: UserThemeUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Updates user theme preference ('system', 'dark', 'light')."""
+    chosen = req.theme or req.theme_preference or "system"
+    if chosen not in ("system", "dark", "light"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid theme value")
+    current_user.theme_preference = chosen
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+from ..guest_ownership import guest_ownership
+
+
+@router.post("/guest-session")
+async def create_guest_session():
+    """Generates an unguessable capability token for guest session in public workspace."""
+    token = guest_ownership.generate_token()
+    return {
+        "guest_token": token,
+        "workspace_type": "public",
+        "is_guest": True,
+        "role": "guest",
+        "notice": "Guest Mode: Files you save in this workspace are public. Sign in to create private files.",
+    }
+
