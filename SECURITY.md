@@ -41,3 +41,4 @@ if not resolved_path.startswith(os.path.realpath(workspace_root)):
 
 ## 5. Security Incident Reporting
 Security findings and vulnerabilities should be documented in the vulnerability tracker and resolved before any production deployment gate.
+

@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pcs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pcs_user
+      POSTGRES_PASSWORD: pcs_password
+      POSTGRES_DB: python_cloud_studio
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcs_user -d python_cloud_studio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pcs-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.api
+    container_name: pcs-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://pcs_user:pcs_password@postgres:5432/python_cloud_studio
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=change-in-production-secure-key-32chars
+      - WORKSPACES_ROOT=/app/storage/workspaces
+    volumes:
+      - ./storage:/app/storage
+
+volumes:
+  pgdata:
+  redisdata:

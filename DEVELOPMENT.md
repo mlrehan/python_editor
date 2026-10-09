@@ -50,3 +50,4 @@ python -m pytest tests/e2e -v
 - Python: Formatted with clean typing (`mypy` / `pyright`), documented functions, explicit schemas.
 - TypeScript: Strict typing enabled (`tsconfig.json`), no `any` where avoidable.
 - Tests: Every milestone requires real functional verification. No fake mocks for actual Python code execution.
+

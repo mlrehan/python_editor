@@ -92,3 +92,8 @@ desktop.ini
 *.log
 workspace_data/
 storage/
+*.db
+*.sqlite
+*.sqlite3
+
+

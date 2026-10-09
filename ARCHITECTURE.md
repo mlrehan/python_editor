@@ -106,3 +106,4 @@ The relational database models the complete multi-tenant hierarchy:
   - `control`: Kernel shutdown, interruption, and debugging commands.
   - `heartbeat`: Liveness probes.
 - **Debugger**: Implements Debug Adapter Protocol over Jupyter `control` channel using `debugpy`, enabling real breakpoints, step into/over/out, stack inspection, and variable inspection.
+
