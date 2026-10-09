@@ -22,7 +22,7 @@ Double-click either:
 Open PowerShell or Command Prompt in the repository folder:
 ```powershell
 cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio
-python -m uvicorn services.api.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn services.api.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 ---
@@ -33,9 +33,9 @@ Once the command is running, open your web browser:
 
 | Interface | URL | Description |
 | :--- | :--- | :--- |
-| **🎨 Web Dashboard & Notebook Studio** | **[http://localhost:8000/](http://localhost:8000/)** (or `/app/`) | Complete interactive notebook studio, file manager, AI assistant, and classroom panel |
-| **📚 Interactive API Documentation** | **[http://localhost:8000/docs](http://localhost:8000/docs)** | OpenAPI Swagger documentation for all REST endpoints |
-| **🩺 Health Probe** | **[http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)** | Live system metrics, active kernels count, and Python runtime status |
+| **🎨 Web Dashboard & Notebook Studio** | **[http://localhost:8765/](http://localhost:8765/)** (or `/app/`) | Complete interactive notebook studio, file manager, AI assistant, and classroom panel |
+| **📚 Interactive API Documentation** | **[http://localhost:8765/docs](http://localhost:8765/docs)** | OpenAPI Swagger documentation for all REST endpoints |
+| **🩺 Health Probe** | **[http://localhost:8765/api/v1/health](http://localhost:8765/api/v1/health)** | Live system metrics, active kernels count, and Python runtime status |
 
 ---
 
@@ -151,7 +151,7 @@ If you wish to edit React/TypeScript frontend code with instant browser hot-relo
 1. **Terminal 1 (Backend API):**
    ```powershell
    cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio
-   python -m uvicorn services.api.main:app --port 8000 --reload
+   python -m uvicorn services.api.main:app --port 8765 --reload
    ```
 
 2. **Terminal 2 (Frontend Vite Dev Server):**
@@ -159,7 +159,7 @@ If you wish to edit React/TypeScript frontend code with instant browser hot-relo
    cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio\apps\web-dashboard
    npm run dev
    ```
-   Open **[http://localhost:3000](http://localhost:3000)** for live hot module replacement. (API and WebSocket calls are automatically proxied to port 8000).
+   Open **[http://localhost:3765](http://localhost:3765)** for live hot module replacement. (API and WebSocket calls are automatically proxied to custom port 8765).
 
 3. **Rebuilding Frontend Production Bundle:**
    Whenever you make changes you want baked into the static FastAPI server:
@@ -199,14 +199,18 @@ python-cloud-studio/
 
 ---
 
-## ❓ Troubleshooting & FAQs
+### Custom Ports Overview
+This project avoids all standard default ports (8000, 3000, 5432, 6379) so it will never conflict with other services running on your machine:
+- **API Server & Web App**: `8765`
+- **Frontend Vite Dev**: `3765`
+- **PostgreSQL**: `5476`
+- **Redis**: `6395`
 
-### Port 8000 is already in use
-Run on a different port:
+To run on a different port:
 ```powershell
-python -m uvicorn services.api.main:app --host 127.0.0.1 --port 8080 --reload
+python -m uvicorn services.api.main:app --host 127.0.0.1 --port 9090 --reload
 ```
-Then visit `http://localhost:8080/`.
+Then visit `http://localhost:9090/`.
 
 ### Missing Python packages
 Run:

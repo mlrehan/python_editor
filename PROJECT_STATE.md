@@ -44,9 +44,9 @@
 ```bash
 # In repository root: d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio
 python -m pytest tests/integration/ -v
-python -m uvicorn services.api.main:app --port 8000 --reload
+python -m uvicorn services.api.main:app --port 8765 --reload
 ```
-Open `http://localhost:8000/app/` in your browser to interact with the full web notebook studio.
+Open `http://localhost:8765/app/` in your browser to interact with the full web notebook studio.
 
 ---
 

@@ -7,3 +7,4 @@ echo.
 python -m pytest tests/integration/ -v
 echo.
 pause
+

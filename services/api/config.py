@@ -6,8 +6,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "Enterprise Python Cloud Studio"
     APP_ENV: str = "development"
     APP_DEBUG: bool = True
-    API_PORT: int = 8000
-    WEB_PORT: int = 3000
+    API_PORT: int = 8765
+    WEB_PORT: int = 3765
 
     # Security & JWT
     SECRET_KEY: str = "pcs-super-secret-key-change-in-production-32chars-min!!"

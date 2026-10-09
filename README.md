@@ -55,7 +55,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions.
 python -m pytest tests/ -v
 
 # 2. Start Backend API & Kernel Gateway
-python -m uvicorn services.api.main:app --port 8000 --reload
+python -m uvicorn services.api.main:app --port 8765 --reload
 
 # 3. Start Frontend Dashboard
 cd apps/web-dashboard

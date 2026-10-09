@@ -32,3 +32,4 @@ WORKDIR /home/sandboxuser/workspace
 EXPOSE 8888
 
 CMD ["python", "-m", "ipykernel_launcher", "-f", "/tmp/kernel-connection.json"]
+
