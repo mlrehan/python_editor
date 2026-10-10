@@ -3,7 +3,7 @@ import shutil
 from typing import List, Union
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from ..models import User
-from ..schemas import FileItemResponse, FileWriteRequest, FolderCreateRequest, FileRenameRequest
+from ..schemas import FileItemResponse, FileWriteRequest, FolderCreateRequest, FileRenameRequest, WorkspaceEnvUpdateRequest
 from ..auth import get_current_user_or_guest, GuestUser
 from ..kernel_bridge import kernel_pool
 from ..guest_ownership import guest_ownership
@@ -242,3 +242,69 @@ async def download_file(
         filename=filename,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+
+@router.get("/env")
+async def get_workspace_env(
+    current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
+):
+    """
+    Returns user-specific environment variables defined in their private workspace .env.
+    Shields all server-level secrets. Guests cannot access or persist private secrets.
+    """
+    if getattr(current_user, "is_guest", False):
+        return {"env": {}}
+
+    ws_dir = get_safe_workspace_root(current_user)
+    env_file = os.path.join(ws_dir, ".env")
+    if not os.path.exists(env_file):
+        return {"env": {}}
+
+    from dotenv import dotenv_values
+    from ..package_security import SENSITIVE_SERVER_KEYS
+    vars_dict = {}
+    try:
+        raw = dotenv_values(env_file)
+        for k, v in raw.items():
+            if k and v and k not in SENSITIVE_SERVER_KEYS:
+                vars_dict[k] = v
+    except Exception:
+        pass
+    return {"env": vars_dict}
+
+
+@router.put("/env")
+async def update_workspace_env(
+    req: WorkspaceEnvUpdateRequest,
+    current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
+):
+    """
+    Saves user-specific environment variables and API keys to their private workspace .env.
+    Prevents injecting reserved server keys.
+    """
+    if getattr(current_user, "is_guest", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Guests cannot persist private environment variables. Please sign in.",
+        )
+
+    from ..package_security import SENSITIVE_SERVER_KEYS
+    ws_dir = get_safe_workspace_root(current_user)
+    env_file = os.path.join(ws_dir, ".env")
+
+    # Support either req.env or extra fields on req
+    env_dict = req.env if req.env else req.model_dump(exclude={"env"})
+    clean_entries = []
+    saved_keys = []
+    for k, v in env_dict.items():
+        clean_k = str(k).strip()
+        if not clean_k or clean_k in SENSITIVE_SERVER_KEYS:
+            continue
+        clean_entries.append(f"{clean_k}={str(v).strip()}")
+        saved_keys.append(clean_k)
+
+    with open(env_file, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(clean_entries) + "\n")
+
+    return {"status": "ok", "keys": saved_keys, "message": "Workspace environment updated successfully."}
+

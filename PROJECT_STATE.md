@@ -1,8 +1,8 @@
 # Project State: Enterprise Python Cloud Studio
 
 ## Current Status Overview
-- **Active Phase**: PHASE 8 COMPLETE & FULLY VERIFIED — Google Colab–Grade Non-Overlapping Autocomplete & Function Signature Popups, Active Parameter Highlighting, Single-Key Escape Priority Dismissal, and Comprehensive E2E Verification.
-- **Current Milestone**: Milestone 3.3 (100% Passing Tests Across Full Test Suites: 15/15 E2E & Integration IntelliSense/Theme Tests, Production Vite Frontend Built with 0 Errors, Zero Regressions Across All Baseline Systems).
+- **Active Phase**: PHASE 10 COMPLETE & FULLY VERIFIED — Interactive Kernel Restart Lifecycle with Visual Feedback (Animated Spin, Toast Banners, Pulsing Blue Status), Seamless `%pip install` User-Site Auto-Discovery, ZeroMQ Clean Process Reconnection, and Comprehensive E2E Verification.
+- **Current Milestone**: Milestone 4.1 (100% Passing Tests Across Pip Install & Kernel Restart Integration & E2E Suites, Zero Regressions Across All Baseline Systems).
 - **Environment**: Windows 11 x64, Python 3.14.0, Node.js 24.16.0, npm 11.13.0, Git 2.54.0.
 - **Dedicated Service Ports (Strictly Preserved)**:
   - Web Dashboard & API: `http://localhost:8765/` (Swagger docs: `http://localhost:8765/docs`)
@@ -47,53 +47,116 @@
   - **Keyboard Auto-Scrolling**: `listRef` synchronizes active suggestion index with DOM `scrollTop` so the highlighted item is always visible.
   - **Viewport-Aware Positioning**: Dynamically calculates space below; flips above the cursor if space below is <260px; clamps horizontally to prevent overflowing editor boundaries.
   - **Dismissal Lifecycle & Async Request Guards**: Global `pointerdown` outside click listener and window `Escape` listener dismiss popups. Uses monotonic `autocompleteReqIdRef` to discard in-flight completions arriving after dismissal.
-- **TDR-023**: Non-Overlapping Dual Popups & Single-Key Escape Priority:
-  - **Disjoint Geometry Invariant**: Signature help tooltip is positioned above cursor line (`top: lineTop - 6px`, `transform: translateY(-100%)`) while autocomplete dropdown is positioned below cursor line (`top: lineBottom + 6px`). Vertical separation is at least `lineHeight + 12px` (~33px), guaranteeing 0px overlap and unobstructed visibility of the line being written.
-  - **Colab Trigger Differentiation**: Typing `print(` opens signature help only without popping open the 100+ completions dropdown. Autocomplete only opens when an identifier token is typed (e.g. `print(s`), a dot is typed (`np.`), or explicitly triggered (`Ctrl+Space`).
-  - **Single-Key Escape Dismissal Priority**: Window capture-phase and textarea handlers use `__pcsHandledEscape` guard and `dismissTopmostPopup` helper. 1st `Escape` press closes *only* the autocomplete dropdown, leaving signature help visible. 2nd `Escape` press closes signature help.
-  - **Active Parameter Highlighting**: Active parameter from language server is highlighted in the signature tooltip with an accent underline and background badge.
+- **TDR-024**: Server-Side Secret Shielding & Kernel Environment Sanitization:
+  - `get_sanitized_kernel_env()` strips critical infrastructure credentials (`SECRET_KEY`, `DATABASE_URL`, `ADMIN_BOOTSTRAP_PASSWORD`) before launching tenant IPyKernel processes.
+  - Binds tenant user site packages to `PYTHONUSERBASE=workspace/.local`.
+  - Injects tenant `.env` safely into runtime without exposing platform host variables.
+- **TDR-025**: Permission-Based Package Installation & OS-Level Escape Prevention:
+  - Static AST and regex inspection in `validate_code_security()` intercepts unauthorized `%pip` / `!pip` calls for unprivileged users and guests.
+  - Rewrites authorized `%pip` to include `--user` targeting isolated tenant workspace.
+  - Intercepts OS escapes (`!apt`, `!sudo`, `os.system("sudo ...")`) and writes security violations to audit log.
+- **TDR-026**: High-Concurrency Database Architecture (SQLite WAL & Busy Timeout):
+  - Configures SQLite `PRAGMA journal_mode=WAL;` and `PRAGMA busy_timeout=60000;` alongside connection timeout 60s, completely eliminating database locking under 100+ concurrent user read/write bursts.
+- **TDR-027**: Persistent Workspace Session Resumption & Debounced Auto-Save:
+  - 2.5-second debounced save pipeline on cell edits.
+  - Saves active notebook ID in `localStorage.pcs_active_notebook_id` and restores session state automatically on browser reconnection.
+  - Standalone `NotebooksModal.tsx` provides full CRUD, duplication, download, and switching across workspace notebooks.
+- **TDR-028**: Workspace-Level `.env` & AI API Key Management:
+  - Dedicated `/api/v1/files/env` REST endpoint and `SecretsModal.tsx` for configuring `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `HUGGINGFACEHUB_API_TOKEN`, and custom variables.
+- **TDR-029**: Production HTTP Security Headers:
+  - Registered ASGI security middleware enforcing `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Content-Security-Policy`.
+- **TDR-030**: Mobile-Responsive Drawer Overlays & Non-Colliding Layout:
+  - Viewports <768px transition sidebars to overlay drawer mode with backdrop dismissal.
+  - Dynamic navbar spacing (`flexShrink: 0`, auto overflow) preventing touch target collision on 375px screens.
+- **TDR-031**: Dual-Path Synchronous Kernel Restart & Interactive Feedback Lifecycle:
+  - Clean ZeroMQ socket channel teardown and IPyKernel subprocess re-initialization in `KernelSession.restart()`.
+  - Frontend triggers REST `/api/v1/execution/control` (with WebSocket fallback), updating UI with animated spinning icon (`animate-spin`), button disabled state, pulsing blue status indicator (`Python 3 (restarting)`), and immediate toast banners ("Restarting Python kernel..." -> "Python kernel restarted successfully. Variables reset.").
+- **TDR-032**: Python User-Site Packages Auto-Discovery & Post-PIP Runtime Refresh Hook:
+  - Pre-creates versioned user site-packages (`.local/Python{major}{minor}/site-packages` on Windows, `.local/lib/python{major}.{minor}/site-packages` on Unix) and configures `PYTHONPATH` + `PYTHONUSERBASE` at launch.
+  - `KernelSession.execute()` automatically runs an internal site-packages refresh and `importlib.invalidate_caches()` hook whenever `%pip` / `!pip` runs, making newly installed packages immediately importable in subsequent cells without requiring manual restart.
+- **TDR-033**: Multi-Tenant Workspace Package Discovery & Live Diagnostics Synchronization:
+  - Resolves workspace-installed libraries (`.local/site-packages`) across user workspaces and `workspaces_root` via `importlib.machinery.PathFinder.find_spec(root_pkg, search_paths)`.
+  - Injects resolved paths into `jedi.Project(path=primary_ws, sys_path=full_sys_paths)` so Jedi autocompletes workspace-installed libraries (`rich`, `seaborn`, local modules) with full docstrings and signatures.
+  - Dispatches `pcs-refresh-diagnostics` custom events upon cell execution completion (WS & REST) and kernel restarts, prompting cell editors to immediately refresh diagnostics without requiring code changes.
+  - Guarantees 0 false "unresolved import" warnings on valid installed packages while maintaining strict red squiggly underlines on genuine missing modules and syntax errors.
+- **TDR-034**: Google Colab-Grade Interactive Tabular Data Viewer (`DataTableView`):
+  - Converts raw pandas/Jupyter HTML tables (`<table class="dataframe">`) into a modern, full-featured interactive data viewer component.
+  - Features dynamic column sorting (numeric and alphanumeric with visual `▲`/`▼` indicators), live cross-column search filtering with clear button, selectable page sizes (10, 25, 50, 100, All), full pagination navigation, CSV file download, and one-click TSV clipboard copying.
+  - Implements intelligent column type inference (`number`, `string`, `date`, `boolean`) with proper right/left alignment, monospace numeric formatting, and elegant badges for missing values (`NaN`, `None`, `<NA>`, `NaT`).
+  - Seamlessly integrates with system Dark and Light themes via semantic CSS variables.
+- **TDR-035**: Google Colab-Style User File and Folder Isolation & Session Boundary Enforcement:
+  - **Dynamic Sidebar Remounting**: `key={user ? `user-${user.id}` : 'guest-public'}` forces complete React unmounting/remounting on session transitions (SuperAdmin <-> Guest <-> Student), eliminating any DOM or state retention of private files.
+  - **Session State Cleansing**: Logout and login handlers reset `openFiles: []`, `activeFilePath: null`, `isRightSidebarOpen: false`, clear `pcs_active_notebook_id` from `localStorage`, and dispatch `pcs-refresh-files` window event.
+  - **Workspace Status Indication**: Visual badge in Sidebar header explicitly displays current isolation context (`[Public]`, `[Private]`, `[Admin]`).
+  - **Defense-in-Depth Path Traversal Interception**:
+    - **Backend File API**: `get_safe_user_path()` strictly restricts directory resolution within the tenant's workspace root, returning `403 Forbidden` for `../` escapes.
+    - **Static Code Analyzer**: `validate_code_security()` rejects any code referencing cross-workspace paths (`user_admin_super`, `../user_`, `workspaces/user_`) with `SecurityError`.
+    - **Runtime Sandbox Guard (`sitecustomize.py`)**: Intercepts `builtins.open`, `io.open`, `IPython.core.interactiveshell.io_open`, `os.listdir`, `os.scandir`, and `os.stat` in IPyKernel processes, raising `PermissionError` if resolved realpath points to another user's workspace.
+    - **PYTHONPATH Shielding**: `get_sanitized_kernel_env()` only exposes `public/.local` and the user's own `.local` packages, completely preventing cross-tenant library discovery.
 
 ---
 
 ## Verified Acceptance Test Results (100% Passing)
 
+### Live Workspace Diagnostics & Interactive Table Suite (100% Passing)
+- [x] `test_diagnostics_live_workspace_resolution` (PASSED)
+  - `from rich import print`: 0 diagnostics (installed package recognized in workspace site-packages).
+  - `import nonexistent_fake_pkg`: 1 accurate diagnostic (`Unresolved import 'nonexistent_fake_pkg': No module named 'nonexistent_fake_pkg' found in active Python runtime.`).
+  - `np.` transient expression: 0 false syntax errors.
+  - Jedi `/api/v1/editor/complete` returns 98 completions for `from rich import ` (`abc`, `align`, `ansi`, `Any`, `bar`, ...).
+- [x] `scratch/test_e2e_verification.py::run` (PASSED in browser)
+  - Interactive Data Table: `DataTableView` renders with record count pill (`12 rows × 7 cols`).
+  - Column headers with sort arrows and column type badges (`#` for number, `T` for text).
+  - Numeric sorting: sorting `salary` ascending orders values numerically (`75000` to `125000`).
+  - Live search filtering: typing "Engineering" dynamically filters table down to `3 of 12 rows`.
+  - Missing values: `None` / `NaN` formatted with elegant muted badges.
+  - CSV export & TSV clipboard copy buttons verified.
+  - Rich module execution verified with green styled output and 0 squiggly underlines.
+  - Visual artifacts: `interactive_datatable_view_verified.png`, `table_salary_sorted_asc_verified.png`, `table_filtered_engineering_verified.png`, `rich_module_no_diagnostics_verified.png`, `table_and_editor_light_theme_verified.png`.
+
+### Kernel Restart & Pip Installation Suite
+- [x] `tests/integration/test_pip_install_and_restart.py::test_pip_install_and_kernel_restart_integration` (PASSED in 9.18s)
+  - Authorized `%pip install rich` execution
+  - Immediate `from rich import print` import in running kernel
+  - Synchronous kernel restart via `/api/v1/execution/control`
+  - Variable state reset (`x` raises `NameError`) and rich module persistence in restarted kernel
+- [x] `tests/e2e/test_kernel_restart_and_pip_e2e.py::test_ui_restart_kernel_and_pip_rich_execution` (PASSED in 10.38s)
+  - Verified UI restart button transitions to spinning icon & disabled state
+  - Verified toast notification banner appears immediately and confirms success
+  - Verified code cell execution of `from rich import print as rprint; rprint('[bold green]RICH WORKS![/bold green]')` with styled output in browser
+  - Visual artifacts: `kernel_restart_toast_verified.png`, `rich_module_output_verified.png`
+
+### Production Readiness & Security Audit Suite (9 Tests)
+- [x] `tests/integration/test_production_security_audit.py::test_01_security_headers` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_02_guest_package_install_rejected` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_03_student_without_permission_rejected` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_04_authorized_user_package_install` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_05_os_escape_prevention` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_06_server_secret_shielding_in_kernel` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_07_workspace_env_and_ai_credentials` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_08_superadmin_audited_endpoints` (PASSED)
+- [x] `tests/integration/test_production_security_audit.py::test_09_cross_user_file_isolation` (PASSED)
+
+### Mobile & Tablet Responsiveness Suite (Playwright E2E)
+- [x] `tests/e2e/test_mobile_responsiveness_e2e.py::test_mobile_and_tablet_responsiveness` (PASSED in 6.86s)
+  - Mobile iPhone SE (375x667): Drawer overlay and backdrop dismissal verified.
+  - Tablet iPad (768x1024): Non-overlapping toolbar and modal rendering verified.
+  - Generated visual artifacts: `mobile_viewport_375x667_verified.png`, `mobile_notebooks_modal_verified.png`, `mobile_secrets_modal_verified.png`, `tablet_viewport_768x1024_verified.png`.
+
+### High-Concurrency Empirical Benchmarks (100+ Users)
+- [x] `test_100_concurrent_dashboard_requests`: 100/100 completed, 0 errors (0.00%), 47.63 req/sec, p50: 1224.42ms, p95: 1383.24ms, p99: 1425.61ms.
+- [x] `test_100_concurrent_notebook_operations`: 100/100 completed, 0 errors (0.00%), 1.85 req/sec, p50: 30217.66ms, p95: 45999.12ms, p99: 52147.47ms.
+- [x] `test_100_concurrent_websocket_connections`: 100/100 completed, 0 errors (0.00%), 37.48 req/sec, p50: 920.83ms, p95: 1755.04ms, p99: 1788.27ms.
+- [x] `test_concurrent_kernel_executions`: 20/20 completed, 0 errors (0.00%), 0.62 req/sec, p50: 13434.83ms, p95: 19904.66ms, p99: 19904.66ms.
+
 ### IntelliSense, Autocomplete & Theme Verification Suite (15 Tests)
 - [x] `tests/e2e/test_signature_autocomplete_overlap_e2e.py::test_signature_and_autocomplete_overlap_and_escape_priority` (PASSED)
-  - Typing `print(` shows signature help only (autocomplete closed)
-  - Typing `print(s` shows both popups with disjoint vertical geometry (`sig_bottom <= drop_top`, difference +33px)
-  - First Escape dismisses autocomplete only; signature help stays visible
-  - Second Escape dismisses signature help
-  - Typing `pri` + Enter inserts `print` without executing cell
 - [x] `tests/e2e/test_autocomplete_full_e2e.py::test_autocomplete_exact_text_insertion_and_modes` (PASSED)
-  - `pd.re` + Enter $\rightarrow$ `pd.read_csv` (Zero corruption: no `pd.ad_csv` or `pd._csv`)
-  - `pd.re` + Tab $\rightarrow$ `pd.read_csv`
-  - `pd.re` + Mouse Click $\rightarrow$ `pd.read_csv`
-  - `pd.read_c` + Enter $\rightarrow$ `pd.read_csv`
-  - `np.ar` + Enter $\rightarrow$ `np.array`
 - [x] `tests/e2e/test_autocomplete_full_e2e.py::test_autocomplete_scrolling_escape_and_outside_click` (PASSED)
-  - 8x ArrowDown scrolls dropdown listbox to 120px
-  - ArrowUp scrolls listbox back up to 84px
-  - Escape closes dropdown immediately without modifying code
-  - Navbar click closes dropdown immediately
-  - Signature tooltip (`pd.read_csv(`) displays parameters and closes on Escape
 - [x] `tests/e2e/test_theme_and_cell_resize_e2e.py::test_theme_switching_system_dark_light` (PASSED)
-  - Light mode: navbar `#ffffff`, body `#f8fafc`
-  - Dark mode: navbar `#0f172a`
-  - Autocomplete dropdown renders with theme-consistent styling
 - [x] `tests/e2e/test_theme_and_cell_resize_e2e.py::test_vertical_cell_resizing_and_persistence` (PASSED)
-  - Drag downward expands height from 68px to 188px
-  - Height persists after cell code execution (`Ctrl+Enter`)
-  - Double-click resets cell back to auto-fit (68px)
 - [x] `tests/e2e/test_editor_intellisense_e2e.py::test_python_editor_autocomplete_and_clean_diagnostics` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_numpy_autocomplete` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_pandas_autocomplete` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_cross_cell_context_dataframe_autocomplete` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_prefix_filtering` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_signature_help` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_diagnostics_clean_on_valid_code` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_diagnostics_suppress_incomplete_expression` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_diagnostics_real_syntax_error` (PASSED)
-- [x] `tests/integration/test_editor_intellisense.py::test_diagnostics_missing_module_error` (PASSED)
+- [x] All 9 Language Server unit & integration tests (PASSED)
 
 ### Baseline Platform Tests (100% Passing)
 - [x] TEST FEATURE 01: Preinstalled Libraries Import (`test_01_preinstalled_libraries_import` PASSED)
@@ -119,10 +182,10 @@ python -m uvicorn services.api.main:app --port 8765 --reload
 # 2. Build the frontend dashboard (Vite + TypeScript):
 npm --prefix apps/web-dashboard run build
 
-# 3. Run all automated tests:
-python -m pytest tests/e2e/test_autocomplete_full_e2e.py -v -s
-python -m pytest tests/e2e/test_theme_and_cell_resize_e2e.py -v -s
-python -m pytest tests/integration/test_editor_intellisense.py -v
+# 3. Run all automated verification tests:
+python -m pytest tests/integration/test_production_security_audit.py -v
+python -m pytest tests/e2e/test_mobile_responsiveness_e2e.py -v -s
+python -m pytest tests/load/test_concurrency_100_users.py -v -s
 ```
 
 Dashboard is accessible at: `http://localhost:8765/`

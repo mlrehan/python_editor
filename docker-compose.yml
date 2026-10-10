@@ -1,36 +1,74 @@
+# ========================================================
+# ENTERPRISE PYTHON CLOUD STUDIO - PRODUCTION COMPOSE
+# Complete Multi-Container Stack: Nginx Reverse Proxy,
+# FastAPI Control Plane, PostgreSQL 16, Redis 7, Certbot SSL
+# ========================================================
+
+name: python-cloud-studio
+
 services:
+  # ------------------------------------------------------
+  # Database Service: PostgreSQL 16 Alpine
+  # Isolated to internal network; persistent storage volume
+  # ------------------------------------------------------
   postgres:
     image: postgres:16-alpine
     container_name: pcs-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: pcs_user
-      POSTGRES_PASSWORD: pcs_password
-      POSTGRES_DB: python_cloud_studio
-    ports:
-      - "5476:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-pcs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pcs_password_secure_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-python_cloud_studio}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pcs-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pcs_user -d python_cloud_studio"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pcs_user} -d ${POSTGRES_DB:-python_cloud_studio}"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '${DB_CPU_LIMIT:-1.0}'
+          memory: '${DB_MEM_LIMIT:-1G}'
+    security_opt:
+      - no-new-privileges:true
 
+  # ------------------------------------------------------
+  # Cache & Broker Service: Redis 7 Alpine
+  # Isolated to internal network; persistent storage volume
+  # ------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: pcs-redis
     restart: unless-stopped
-    ports:
-      - "6395:6379"
+    command: ["redis-server", "--appendonly", "yes", "--loglevel", "warning"]
     volumes:
-      - redisdata:/data
+      - redis_data:/data
+    networks:
+      - pcs-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '${REDIS_CPU_LIMIT:-0.5}'
+          memory: '${REDIS_MEM_LIMIT:-512M}'
+    security_opt:
+      - no-new-privileges:true
 
+  # ------------------------------------------------------
+  # Application Service: FastAPI API & Execution Engine
+  # Multi-stage built image with compiled React frontend
+  # ------------------------------------------------------
   api:
     build:
       context: .
@@ -42,17 +80,64 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "8765:8765"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://pcs_user:pcs_password@postgres:5432/python_cloud_studio
+      - APP_NAME=${APP_NAME:-Enterprise Python Cloud Studio}
+      - APP_ENV=${APP_ENV:-production}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      - API_PORT=8765
+      - SECRET_KEY=${SECRET_KEY:-pcs-super-secret-key-change-in-production-32chars-min!!}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      - ADMIN_BOOTSTRAP_EMAIL=${ADMIN_BOOTSTRAP_EMAIL:-admin@example.com}
+      - ADMIN_BOOTSTRAP_PASSWORD=${ADMIN_BOOTSTRAP_PASSWORD:-AdminSecurePassword2026!}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pcs_user}:${POSTGRES_PASSWORD:-pcs_password_secure_2026}@postgres:5432/${POSTGRES_DB:-python_cloud_studio}
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=change-in-production-secure-key-32chars
+      - DEFAULT_KERNEL_NAME=python3
+      - MAX_CONCURRENT_KERNELS_PER_USER=${MAX_CONCURRENT_KERNELS_PER_USER:-5}
+      - KERNEL_IDLE_TIMEOUT_SECONDS=${KERNEL_IDLE_TIMEOUT_SECONDS:-3600}
       - WORKSPACES_ROOT=/app/storage/workspaces
+      - STORAGE_BACKEND=local
+      - LOCAL_STORAGE_PATH=/app/storage/artifacts
+    ports:
+      - "${HOST_BIND_IP:-0.0.0.0}:${HOST_PORT:-8765}:8765"
     volumes:
-      - ./storage:/app/storage
+      - workspaces_data:/app/storage/workspaces
+      - artifacts_data:/app/storage/artifacts
+    networks:
+      - pcs-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '${API_CPU_LIMIT:-1.5}'
+          memory: '${API_MEM_LIMIT:-2G}'
+          pids: 300
+    security_opt:
+      - no-new-privileges:true
 
+# --------------------------------------------------------
+# Persistent Storage Volumes
+# Ensures notebooks, uploaded files, and DB survive restarts
+# --------------------------------------------------------
 volumes:
-  pgdata:
-  redisdata:
+  postgres_data:
+    name: pcs_postgres_data
+  redis_data:
+    name: pcs_redis_data
+  workspaces_data:
+    name: pcs_workspaces_data
+  artifacts_data:
+    name: pcs_artifacts_data
 
+# --------------------------------------------------------
+# Isolated Application Network
+# --------------------------------------------------------
+networks:
+  pcs-network:
+    name: pcs-internal-network
+    driver: bridge

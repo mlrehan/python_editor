@@ -904,3 +904,258 @@ async def update_super_admin_credentials(
         {"email": current_user.email},
     )
     return current_user
+
+
+# ========================================================
+# 9. SUPER ADMIN NOTEBOOK & WORKSPACE INSPECTION (AUDITED)
+# ========================================================
+@router.get("/notebooks")
+async def admin_list_all_notebooks(
+    current_user: User = Depends(require_admin_or_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """SuperAdmin inspects all notebooks across all users."""
+    import json
+    stmt = (
+        select(Notebook, User)
+        .outerjoin(User, Notebook.user_id == User.id)
+        .order_by(desc(Notebook.updated_at))
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+    results = []
+    for nb, u in rows:
+        cell_count = 0
+        try:
+            parsed = json.loads(nb.content_json)
+            cell_count = len(parsed.get("cells", []))
+        except Exception:
+            pass
+
+        results.append({
+            "id": nb.id,
+            "title": nb.title,
+            "user_id": nb.user_id,
+            "user_email": u.email if u else "Guest / Public",
+            "user_name": u.full_name if u else "Guest Visitor",
+            "user_role": u.role if u else "guest",
+            "kernel_name": nb.kernel_name,
+            "cell_count": cell_count,
+            "created_at": nb.created_at.isoformat() if nb.created_at else "",
+            "updated_at": nb.updated_at.isoformat() if nb.updated_at else "",
+        })
+
+    await log_admin_action(
+        db,
+        current_user.id,
+        "LIST_ALL_NOTEBOOKS",
+        "notebook_catalog",
+        None,
+        {"count": len(results)},
+    )
+    return results
+
+
+@router.get("/notebooks/{notebook_id}")
+async def admin_get_notebook(
+    notebook_id: str,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """SuperAdmin inspects any notebook content with mandatory security audit logging."""
+    import json
+    res = await db.execute(select(Notebook).where(Notebook.id == notebook_id))
+    nb = res.scalar_one_or_none()
+    if not nb:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notebook not found")
+
+    await log_admin_action(
+        db,
+        current_user.id,
+        "INSPECT_USER_NOTEBOOK",
+        "notebook",
+        notebook_id,
+        {"title": nb.title, "owner_id": nb.user_id},
+    )
+
+    content = {}
+    try:
+        content = json.loads(nb.content_json)
+    except Exception:
+        pass
+
+    return {
+        "id": nb.id,
+        "title": nb.title,
+        "user_id": nb.user_id,
+        "kernel_name": nb.kernel_name,
+        "content": content,
+        "created_at": nb.created_at.isoformat() if nb.created_at else "",
+        "updated_at": nb.updated_at.isoformat() if nb.updated_at else "",
+    }
+
+
+@router.delete("/notebooks/{notebook_id}")
+async def admin_delete_notebook(
+    notebook_id: str,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """SuperAdmin deletes any notebook across workspaces with mandatory audit logging."""
+    res = await db.execute(select(Notebook).where(Notebook.id == notebook_id))
+    nb = res.scalar_one_or_none()
+    if not nb:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notebook not found")
+
+    title = nb.title
+    owner_id = nb.user_id
+    await db.delete(nb)
+    await db.commit()
+
+    await log_admin_action(
+        db,
+        current_user.id,
+        "DELETE_USER_NOTEBOOK",
+        "notebook",
+        notebook_id,
+        {"title": title, "owner_id": owner_id},
+    )
+    return {"status": "ok", "message": f"Successfully deleted notebook '{title}'."}
+
+
+@router.get("/workspaces/{user_id}/files")
+async def admin_inspect_user_workspace(
+    user_id: str,
+    directory: str = Query("", description="Subdirectory in workspace"),
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """SuperAdmin inspects files and folders in any user's workspace with mandatory audit logging."""
+    ws_root = os.path.abspath(settings.WORKSPACES_ROOT)
+    if user_id in ("public", "guest", "public_guest"):
+        user_ws = os.path.realpath(os.path.join(ws_root, "public"))
+    else:
+        user_ws = os.path.realpath(os.path.join(ws_root, f"user_{user_id}"))
+
+    if not os.path.exists(user_ws):
+        return []
+
+    target_dir = os.path.realpath(os.path.join(user_ws, directory.lstrip("/\\")))
+    if not (target_dir == user_ws or target_dir.startswith(user_ws + os.sep)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Path traversal attempt blocked.")
+
+    if not os.path.exists(target_dir):
+        return []
+
+    items = []
+    for entry in os.scandir(target_dir):
+        rel = os.path.relpath(entry.path, user_ws).replace("\\", "/")
+        stat = entry.stat()
+        items.append({
+            "name": entry.name,
+            "path": rel,
+            "is_dir": entry.is_dir(),
+            "size": stat.st_size if entry.is_file() else 0,
+            "modified_at": stat.st_mtime,
+        })
+    items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+
+    await log_admin_action(
+        db,
+        current_user.id,
+        "INSPECT_USER_WORKSPACE",
+        "user_workspace",
+        user_id,
+        {"directory": directory, "items_count": len(items)},
+    )
+    return items
+
+
+@router.get("/workspaces/{user_id}/files/read")
+async def admin_read_user_file(
+    user_id: str,
+    path: str = Query(..., description="Relative file path"),
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """SuperAdmin inspects file contents within a user's workspace with mandatory audit logging."""
+    ws_root = os.path.abspath(settings.WORKSPACES_ROOT)
+    if user_id in ("public", "guest", "public_guest"):
+        user_ws = os.path.realpath(os.path.join(ws_root, "public"))
+    else:
+        user_ws = os.path.realpath(os.path.join(ws_root, f"user_{user_id}"))
+
+    target_file = os.path.realpath(os.path.join(user_ws, path.lstrip("/\\")))
+    if not (target_file == user_ws or target_file.startswith(user_ws + os.sep)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Path traversal attempt blocked.")
+
+    if not os.path.isfile(target_file):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    try:
+        with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot read file: {e}")
+
+    await log_admin_action(
+        db,
+        current_user.id,
+        "INSPECT_USER_FILE",
+        "user_file",
+        user_id,
+        {"path": path, "size_chars": len(content)},
+    )
+    return {"path": path, "content": content}
+
+
+@router.get("/settings/integrations")
+async def admin_get_integration_settings(
+    current_user: User = Depends(require_admin_or_super_admin),
+):
+    """Retrieves system-wide integration and runtime settings."""
+    return {
+        "ai_providers": {
+            "openai_enabled": True,
+            "gemini_enabled": True,
+            "anthropic_enabled": True,
+            "huggingface_enabled": True,
+        },
+        "runtime_limits": {
+            "max_kernels_per_user": settings.MAX_CONCURRENT_KERNELS_PER_USER,
+            "idle_timeout_seconds": settings.KERNEL_IDLE_TIMEOUT_SECONDS,
+            "default_kernel": settings.DEFAULT_KERNEL_NAME,
+        },
+        "storage": {
+            "backend": settings.STORAGE_BACKEND,
+            "root": settings.WORKSPACES_ROOT,
+        },
+        "environment": settings.APP_ENV,
+    }
+
+
+@router.put("/settings/integrations")
+async def admin_update_integration_settings(
+    req: Dict[str, Any],
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """SuperAdmin updates system-wide integrations and runtime limits with audit logging."""
+    if "max_kernels_per_user" in req:
+        settings.MAX_CONCURRENT_KERNELS_PER_USER = int(req["max_kernels_per_user"])
+        kernel_pool.max_kernels_per_user = int(req["max_kernels_per_user"])
+
+    if "idle_timeout_seconds" in req:
+        settings.KERNEL_IDLE_TIMEOUT_SECONDS = int(req["idle_timeout_seconds"])
+        kernel_pool.idle_timeout_seconds = int(req["idle_timeout_seconds"])
+
+    await log_admin_action(
+        db,
+        current_user.id,
+        "UPDATE_SYSTEM_INTEGRATIONS",
+        "system_settings",
+        None,
+        req,
+    )
+    return {"status": "ok", "updated": req}
+

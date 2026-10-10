@@ -21,6 +21,7 @@ async def kernel_websocket(
     """
     # 1. Authenticate WebSocket connection token
     user_id = "public"
+    token_str = token if token and token.startswith("gst_") else "guest_default"
     if token and not token.startswith("gst_"):
         try:
             payload = decode_access_token(token)
@@ -28,13 +29,29 @@ async def kernel_websocket(
         except Exception:
             user_id = "public"
 
+    user = None
+    if user_id != "public":
+        from ..database import AsyncSessionLocal
+        from ..models import User
+        from sqlalchemy import select
+        async with AsyncSessionLocal() as db_sess:
+            res_user = await db_sess.execute(select(User).where(User.id == user_id))
+            user = res_user.scalar_one_or_none()
+
+    if not user:
+        from ..auth import GuestUser
+        user = GuestUser(guest_token=token_str)
+        user_id = f"guest_{token_str}"
+
     await websocket.accept()
 
     try:
         # 2. Retrieve or provision user kernel session
+        is_admin = getattr(user, "role", "") == "super_admin" or user_id == "admin_super"
         session = await kernel_pool.get_or_create_session(
             session_id=session_id,
             user_id=user_id,
+            is_admin=is_admin,
         )
     except Exception as e:
         await websocket.send_json({"type": "error", "message": f"Failed to start kernel: {str(e)}"})
@@ -48,6 +65,9 @@ async def kernel_websocket(
         "status": "ready" if session.is_running else "starting",
         "execution_count": session.execution_count,
     })
+
+    from ..package_security import validate_code_security
+    from ..audit import record_audit_log
 
     try:
         while True:
@@ -69,6 +89,47 @@ async def kernel_websocket(
                     "execution_state": "busy",
                 })
 
+                # Validate code security (block unauthorized package installs and OS escapes)
+                is_allowed, error_msg, final_code = validate_code_security(code, user)
+                if not is_allowed:
+                    await record_audit_log(
+                        user_id=user_id,
+                        action="code_execution_blocked",
+                        resource_type="kernel_session",
+                        resource_id=session_id,
+                        details={"reason": error_msg, "code_snippet": code[:200]},
+                    )
+                    await websocket.send_json({
+                        "type": "output",
+                        "cell_id": cell_id,
+                        "output_type": "error",
+                        "ename": "SecurityError",
+                        "evalue": error_msg,
+                        "traceback": [f"SecurityError: {error_msg}"],
+                    })
+                    await websocket.send_json({
+                        "type": "execute_reply",
+                        "cell_id": cell_id,
+                        "status": "error",
+                        "execution_count": session.execution_count,
+                        "execution_time": 0.001,
+                    })
+                    await websocket.send_json({
+                        "type": "status",
+                        "cell_id": cell_id,
+                        "execution_state": "idle",
+                    })
+                    continue
+
+                if final_code != code or "%pip" in code or "!pip" in code:
+                    await record_audit_log(
+                        user_id=user_id,
+                        action="package_install_attempt",
+                        resource_type="kernel_session",
+                        resource_id=session_id,
+                        details={"code_snippet": code[:200], "status": "authorized"},
+                    )
+
                 # Callback for streaming outputs directly to client as they arrive
                 async def stream_callback(chunk: dict):
                     msg = {
@@ -81,7 +142,7 @@ async def kernel_websocket(
                     except Exception:
                         pass
 
-                result = await session.execute(code, on_output_chunk=stream_callback)
+                result = await session.execute(final_code, on_output_chunk=stream_callback)
 
                 await websocket.send_json({
                     "type": "execute_reply",

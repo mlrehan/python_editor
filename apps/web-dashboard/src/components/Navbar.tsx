@@ -19,6 +19,9 @@ import {
   Moon,
   Laptop,
   ShieldCheck,
+  BookOpen,
+  Key,
+  HelpCircle,
 } from 'lucide-react';
 import { KernelStatus, UserProfile } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -37,6 +40,9 @@ interface NavbarProps {
   onLogout: () => void;
   onOpenAuthModal?: () => void;
   onOpenAdminDashboard?: () => void;
+  onOpenNotebooks?: () => void;
+  onOpenSecrets?: () => void;
+  isRestarting?: boolean;
   isLeftSidebarOpen: boolean;
   onToggleLeftSidebar: () => void;
   isRightSidebarOpen: boolean;
@@ -57,6 +63,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenAuthModal,
   onOpenAdminDashboard,
+  onOpenNotebooks,
+  onOpenSecrets,
+  isRestarting = false,
   isLeftSidebarOpen,
   onToggleLeftSidebar,
   isRightSidebarOpen,
@@ -65,6 +74,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { themeMode, setThemeMode } = useTheme();
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -84,14 +100,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 16px',
-        gap: '12px',
+        padding: isMobile ? '0 8px' : '0 16px',
+        gap: isMobile ? '6px' : '12px',
         zIndex: 30,
+        overflowX: isMobile ? 'auto' : 'visible',
         transition: 'background-color 0.15s ease, border-color 0.15s ease',
       }}
     >
       {/* Brand & Left Toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px', flexShrink: 0 }}>
         {/* Toggle Left Sidebar */}
         <button
           onClick={onToggleLeftSidebar}
@@ -111,23 +128,25 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isLeftSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
         </button>
 
-        <div
-          style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: '8px',
-            backgroundColor: '#2563eb',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(37,99,235,0.4)',
-          }}
-        >
-          <Terminal size={18} color="#ffffff" />
-        </div>
+        {!isMobile && (
+          <div
+            style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              backgroundColor: '#2563eb',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(37,99,235,0.4)',
+            }}
+          >
+            <Terminal size={18} color="#ffffff" />
+          </div>
+        )}
 
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span
               style={{
                 fontSize: '11px',
@@ -161,58 +180,145 @@ export const Navbar: React.FC<NavbarProps> = ({
               border: 'none',
               outline: 'none',
               color: 'var(--text-main)',
-              fontSize: '14px',
+              fontSize: '13px',
               fontWeight: 600,
               padding: '2px 0',
               cursor: 'text',
-              width: '240px',
+              width: isMobile ? '80px' : '220px',
             }}
           />
         </div>
       </div>
 
-      {/* Center Execution Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {/* Center Execution & Notebook Controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', flexShrink: 0 }}>
+        {onOpenNotebooks && (
+          <button
+            onClick={onOpenNotebooks}
+            data-testid="navbar-notebooks-btn"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              backgroundColor: 'var(--btn-secondary-bg)',
+              color: 'var(--text-main)',
+              border: '1px solid var(--btn-secondary-border)',
+              padding: isMobile ? '6px 8px' : '6px 11px',
+              borderRadius: '6px',
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title="Manage Workspace Notebooks"
+          >
+            <BookOpen size={14} color="#60a5fa" />
+            {!isMobile && <span>Notebooks</span>}
+          </button>
+        )}
+
+        {onOpenSecrets && (
+          <button
+            onClick={onOpenSecrets}
+            data-testid="navbar-secrets-btn"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              backgroundColor: 'var(--btn-secondary-bg)',
+              color: 'var(--text-main)',
+              border: '1px solid var(--btn-secondary-border)',
+              padding: isMobile ? '6px 8px' : '6px 11px',
+              borderRadius: '6px',
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title="Manage Workspace Secrets & AI Credentials"
+          >
+            <Key size={14} color="#a78bfa" />
+            {!isMobile && <span>Secrets</span>}
+          </button>
+        )}
+
+        <a
+          href="/python-cloud-studio-user-guide.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="navbar-help-btn"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            backgroundColor: 'var(--btn-secondary-bg)',
+            color: 'var(--text-main)',
+            border: '1px solid var(--btn-secondary-border)',
+            padding: isMobile ? '6px 8px' : '6px 11px',
+            borderRadius: '6px',
+            fontSize: '12.5px',
+            fontWeight: 500,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            textDecoration: 'none',
+          }}
+          title="Open Python Cloud Studio User Guide (New Tab)"
+        >
+          <HelpCircle size={14} color="#38bdf8" />
+          {!isMobile && <span>Help</span>}
+        </a>
+
         <button
           onClick={onRunAll}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '5px',
             backgroundColor: 'var(--btn-secondary-bg)',
             color: 'var(--text-main)',
             border: '1px solid var(--btn-secondary-border)',
-            padding: '6px 12px',
+            padding: isMobile ? '6px 8px' : '6px 11px',
             borderRadius: '6px',
-            fontSize: '13px',
+            fontSize: '12.5px',
             fontWeight: 500,
             cursor: 'pointer',
+            whiteSpace: 'nowrap',
           }}
           title="Run All Cells"
         >
           <Play size={14} color="#3b82f6" fill="#3b82f6" />
-          Run All
+          {!isMobile && <span>Run All</span>}
         </button>
 
         <button
           onClick={onRestartKernel}
+          disabled={isRestarting}
+          data-testid="navbar-restart-btn"
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            backgroundColor: 'var(--btn-secondary-bg)',
+            gap: '5px',
+            backgroundColor: isRestarting ? 'var(--btn-secondary-border)' : 'var(--btn-secondary-bg)',
             color: 'var(--btn-secondary-text)',
             border: '1px solid var(--btn-secondary-border)',
-            padding: '6px 12px',
+            padding: isMobile ? '6px 8px' : '6px 11px',
             borderRadius: '6px',
-            fontSize: '13px',
+            fontSize: '12.5px',
             fontWeight: 500,
-            cursor: 'pointer',
+            cursor: isRestarting ? 'not-allowed' : 'pointer',
+            opacity: isRestarting ? 0.75 : 1,
+            whiteSpace: 'nowrap',
           }}
-          title="Restart Python Kernel"
+          title={isRestarting ? 'Restarting Python Kernel...' : 'Restart Python Kernel'}
         >
-          <RotateCcw size={14} />
-          Restart
+          <RotateCcw
+            size={14}
+            className={isRestarting ? 'animate-spin' : ''}
+            style={{
+              transition: 'transform 0.3s ease',
+            }}
+          />
+          {!isMobile && <span>{isRestarting ? 'Restarting...' : 'Restart'}</span>}
         </button>
 
         <button
@@ -220,13 +326,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '5px',
             backgroundColor: 'var(--btn-secondary-bg)',
             color: 'var(--btn-secondary-text)',
             border: '1px solid var(--btn-secondary-border)',
-            padding: '6px 10px',
+            padding: '6px 8px',
             borderRadius: '6px',
-            fontSize: '13px',
+            fontSize: '12.5px',
             fontWeight: 500,
             cursor: 'pointer',
           }}
@@ -235,26 +341,27 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Square size={14} color="#ef4444" />
         </button>
 
-        {onClearAllOutputs && (
+        {onClearAllOutputs && !isMobile && (
           <button
             onClick={onClearAllOutputs}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
+              gap: '5px',
               backgroundColor: 'var(--btn-secondary-bg)',
               color: 'var(--btn-secondary-text)',
               border: '1px solid var(--btn-secondary-border)',
-              padding: '6px 12px',
+              padding: '6px 11px',
               borderRadius: '6px',
-              fontSize: '13px',
+              fontSize: '12.5px',
               fontWeight: 500,
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
             title="Clear all cell outputs in notebook"
           >
             <Eraser size={14} color="#f59e0b" />
-            Clear Outputs
+            <span>Clear Outputs</span>
           </button>
         )}
 
@@ -263,37 +370,39 @@ export const Navbar: React.FC<NavbarProps> = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '5px',
             backgroundColor: 'var(--btn-secondary-bg)',
             color: 'var(--btn-secondary-text)',
             border: '1px solid var(--btn-secondary-border)',
-            padding: '6px 12px',
+            padding: isMobile ? '6px 8px' : '6px 11px',
             borderRadius: '6px',
-            fontSize: '13px',
+            fontSize: '12.5px',
             fontWeight: 500,
             cursor: 'pointer',
+            whiteSpace: 'nowrap',
           }}
           title="Save Notebook"
         >
           <Save size={14} />
-          Save
+          {!isMobile && <span>Save</span>}
         </button>
       </div>
 
       {/* Right Controls: Kernel Status, User Profile, Right Toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px' }}>
         {/* Kernel Status Badge */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
-            padding: '4px 10px',
+            gap: isMobile ? '0px' : '8px',
+            padding: isMobile ? '6px' : '4px 10px',
             backgroundColor: '#1e293b',
             borderRadius: '999px',
             border: '1px solid #334155',
             fontSize: '12px',
           }}
+          title={`Python 3 (${kernelStatus})`}
         >
           <span
             style={{
@@ -305,12 +414,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ? '#10b981'
                   : kernelStatus === 'busy'
                   ? '#f59e0b'
+                  : kernelStatus === 'restarting'
+                  ? '#3b82f6'
                   : '#ef4444',
+              boxShadow:
+                kernelStatus === 'restarting'
+                  ? '0 0 6px #3b82f6'
+                  : kernelStatus === 'busy'
+                  ? '0 0 6px #f59e0b'
+                  : 'none',
             }}
           />
-          <span style={{ color: '#94a3b8', textTransform: 'capitalize' }}>
-            Python 3 ({kernelStatus})
-          </span>
+          {!isMobile && (
+            <span style={{ color: '#94a3b8', textTransform: 'capitalize' }}>
+              Python 3 ({kernelStatus})
+            </span>
+          )}
         </div>
 
         {/* Workspace Mode Indicator */}
@@ -318,7 +437,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div
             data-testid="workspace-indicator-private"
             style={{
-              display: 'flex',
+              display: isMobile ? 'none' : 'flex',
               alignItems: 'center',
               gap: '6px',
               padding: '4px 9px',
@@ -338,7 +457,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div
             data-testid="workspace-indicator-public"
             style={{
-              display: 'flex',
+              display: isMobile ? 'none' : 'flex',
               alignItems: 'center',
               gap: '6px',
               padding: '4px 9px',
@@ -358,7 +477,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* User Info & Logout OR Guest Sign In */}
         {user ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div
               style={{
                 display: 'flex',
@@ -367,21 +486,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 color: '#e2e8f0',
                 fontSize: '13px',
               }}
+              title={user.email}
             >
               <User size={15} color="#94a3b8" />
-              <span>{user.full_name}</span>
-              <span
-                style={{
-                  fontSize: '10px',
-                  padding: '2px 6px',
-                  backgroundColor: '#334155',
-                  borderRadius: '4px',
-                  color: '#cbd5e1',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {user.role}
-              </span>
+              {!isMobile && <span>{user.full_name}</span>}
             </div>
             <button
               onClick={onLogout}

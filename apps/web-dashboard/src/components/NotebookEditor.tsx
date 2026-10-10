@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { NotebookCell, KernelOutput } from '../types';
 import { PythonCellEditor } from './PythonCellEditor';
+import { DataTableView } from './DataTableView';
 
 interface NotebookEditorProps {
   cells: NotebookCell[];
@@ -331,6 +332,10 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
         );
       }
       if (data['text/html']) {
+        const htmlStr = data['text/html'];
+        if (htmlStr.includes('<table')) {
+          return <DataTableView key={idx} html={htmlStr} />;
+        }
         return (
           <div
             key={idx}
@@ -340,7 +345,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
               color: 'var(--text-main)',
               fontSize: '13px',
             }}
-            dangerouslySetInnerHTML={{ __html: data['text/html'] }}
+            dangerouslySetInnerHTML={{ __html: htmlStr }}
           />
         );
       }
@@ -724,9 +729,11 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                     }}
                   >
                     <button
+                      data-testid="cell-run-btn"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onRunCell(cell.id);
+                        const currentSource = textareaRefs.current[cell.id]?.value ?? cell.source;
+                        onRunCell(cell.id, currentSource);
                       }}
                       disabled={cell.is_running}
                       style={{
@@ -849,6 +856,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
               {/* Cell Output Area (Beneath the code editor) */}
               {hasOutputs && (
                 <div
+                  data-testid="cell-output-container"
                   style={{
                     padding: '12px 16px 12px 52px',
                     backgroundColor: 'var(--bg-output)',

@@ -6,14 +6,18 @@ import { FileEditorPanel, OpenFileInfo } from './components/FileEditorPanel';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { RightPanel } from './components/RightPanel';
+import { NotebooksModal } from './components/NotebooksModal';
+import { SecretsModal } from './components/SecretsModal';
 import { NotebookDocument, NotebookCell, KernelStatus, UserProfile, FileItem } from './types';
 import { api } from './services/api';
 import { KernelWebSocketClient } from './services/websocket';
-import { Globe, X, Lock, LogIn } from 'lucide-react';
+import { Globe, X, Lock, LogIn, RotateCcw, CheckCircle, AlertCircle } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isNotebooksModalOpen, setIsNotebooksModalOpen] = useState(false);
+  const [isSecretsModalOpen, setIsSecretsModalOpen] = useState(false);
   const [showGuestBanner, setShowGuestBanner] = useState<boolean>(() => {
     return sessionStorage.getItem('pcs_guest_banner_dismissed') !== 'true';
   });
@@ -27,7 +31,26 @@ export const App: React.FC = () => {
   const [notebook, setNotebook] = useState<NotebookDocument | null>(null);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
   const [kernelStatus, setKernelStatus] = useState<KernelStatus>('disconnected');
+  const [isRestartingKernel, setIsRestartingKernel] = useState(false);
+  const [kernelToast, setKernelToast] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isDirtyRef = useRef(false);
+
+  // Mobile viewport detection
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) {
+        setIsRightSidebarOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Sidebar Layout State (Right sidebar COLLAPSED by default)
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(() => {
@@ -144,16 +167,26 @@ export const App: React.FC = () => {
     initAuth();
   }, []);
 
-  const loadOrCreateInitialNotebook = async () => {
+  const loadOrCreateInitialNotebook = async (preferredId?: string) => {
     try {
       const nbs = await api.listNotebooks();
-      if (nbs.length > 0) {
+      const targetId = preferredId || localStorage.getItem('pcs_active_notebook_id');
+      const match = nbs.find((n) => n.id === targetId);
+
+      if (match) {
+        const loaded = await api.getNotebook(match.id);
+        setNotebook(loaded);
+        localStorage.setItem('pcs_active_notebook_id', loaded.id);
+        if (loaded.cells.length > 0) setActiveCellId(loaded.cells[0].id);
+      } else if (nbs.length > 0) {
         const loaded = await api.getNotebook(nbs[0].id);
         setNotebook(loaded);
+        localStorage.setItem('pcs_active_notebook_id', loaded.id);
         if (loaded.cells.length > 0) setActiveCellId(loaded.cells[0].id);
       } else {
         const created = await api.createNotebook('Welcome to Python Cloud Studio');
         setNotebook(created);
+        localStorage.setItem('pcs_active_notebook_id', created.id);
         if (created.cells.length > 0) setActiveCellId(created.cells[0].id);
       }
     } catch (err) {
@@ -161,12 +194,28 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSelectNotebook = async (id: string) => {
+    try {
+      const loaded = await api.getNotebook(id);
+      setNotebook(loaded);
+      localStorage.setItem('pcs_active_notebook_id', loaded.id);
+      if (loaded.cells.length > 0) setActiveCellId(loaded.cells[0].id);
+    } catch (err) {
+      console.error('Failed to switch notebook:', err);
+    }
+  };
+
+  const getKernelSessionId = (nbId: string): string => {
+    const scope = user?.id ? `usr_${user.id}` : `gst_${api.getGuestToken()}`;
+    return `session-${scope}-${nbId}`;
+  };
+
   // Connect WebSocket when notebook is ready (works for both guests and authenticated users)
   useEffect(() => {
     if (!notebook) return;
 
     const token = api.getToken() || api.getGuestToken();
-    const sessionId = `session-${notebook.id}`;
+    const sessionId = getKernelSessionId(notebook.id);
     const wsClient = new KernelWebSocketClient(
       sessionId,
       token,
@@ -194,6 +243,7 @@ export const App: React.FC = () => {
       },
       // onComplete
       (cellId, reply) => {
+        window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
         setNotebook((prev) => {
           if (!prev) return prev;
           return {
@@ -391,8 +441,9 @@ export const App: React.FC = () => {
 
     // Direct REST execution fallback
     api
-      .runCode(`session-${notebook.id}`, codeToExecute)
+      .runCode(getKernelSessionId(notebook.id), codeToExecute)
       .then((res) => {
+        window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
         setNotebook((prev) => {
           if (!prev) return prev;
           return {
@@ -444,9 +495,45 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleRestartKernel = () => {
-    if (wsClientRef.current) {
-      wsClientRef.current.restart();
+  const handleRestartKernel = async () => {
+    if (!notebook) return;
+    setIsRestartingKernel(true);
+    setKernelStatus('restarting');
+    setKernelToast({ text: 'Restarting Python kernel...', type: 'info' });
+
+    const sessionId = getKernelSessionId(notebook.id);
+    try {
+      // 1. Trigger reliable REST control API
+      await api.controlKernel(sessionId, 'restart');
+
+      // 2. Also notify active WebSocket client if connected
+      if (wsClientRef.current && wsClientRef.current.isOpen()) {
+        try {
+          wsClientRef.current.restart();
+        } catch (_) {}
+      }
+
+      setKernelStatus('idle');
+      setKernelToast({ text: 'Python kernel restarted successfully. Variables reset.', type: 'success' });
+      window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
+    } catch (err: any) {
+      console.warn('REST restart encountered issue, attempting WebSocket restart:', err);
+      if (wsClientRef.current && wsClientRef.current.isOpen()) {
+        try {
+          wsClientRef.current.restart();
+          setKernelStatus('idle');
+          setKernelToast({ text: 'Python kernel restarted successfully.', type: 'success' });
+          window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
+          setIsRestartingKernel(false);
+          setTimeout(() => setKernelToast(null), 3500);
+          return;
+        } catch (_) {}
+      }
+      setKernelStatus('idle');
+      setKernelToast({ text: `Kernel restart failed: ${err.message || 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsRestartingKernel(false);
+      setTimeout(() => setKernelToast(null), 3500);
     }
   };
 
@@ -458,6 +545,7 @@ export const App: React.FC = () => {
 
   const handleSaveNotebook = async () => {
     if (!notebook) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     setIsSaving(true);
     try {
       await api.saveNotebook(notebook);
@@ -467,6 +555,34 @@ export const App: React.FC = () => {
       setTimeout(() => setIsSaving(false), 500);
     }
   };
+
+  // Debounced auto-save effect (2.5 seconds)
+  useEffect(() => {
+    if (!notebook) return;
+    if (!isDirtyRef.current) {
+      isDirtyRef.current = true;
+      return;
+    }
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        setIsSaving(true);
+        await api.saveNotebook(notebook);
+      } catch (err) {
+        console.warn('Auto-save error:', err);
+      } finally {
+        setTimeout(() => setIsSaving(false), 500);
+      }
+    }, 2500);
+
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [notebook]);
 
   const handleAddCell = (index: number, cellType: 'code' | 'markdown') => {
     if (!notebook) return;
@@ -620,12 +736,17 @@ export const App: React.FC = () => {
   const handleLogout = async () => {
     api.clearToken();
     setUser(null);
+    setOpenFiles([]);
+    setActiveFilePath(null);
+    setIsRightSidebarOpen(false);
+    localStorage.removeItem('pcs_active_notebook_id');
     try {
       await api.initGuestSession();
     } catch (err) {
       console.warn('Guest session init error:', err);
     }
     await loadOrCreateInitialNotebook();
+    window.dispatchEvent(new CustomEvent('pcs-refresh-files'));
   };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -640,8 +761,13 @@ export const App: React.FC = () => {
       const profile = await api.getMe();
       setUser(profile);
       setIsAuthModalOpen(false);
+      setOpenFiles([]);
+      setActiveFilePath(null);
+      setIsRightSidebarOpen(false);
+      localStorage.removeItem('pcs_active_notebook_id');
       // Load user's private notebooks
       await loadOrCreateInitialNotebook();
+      window.dispatchEvent(new CustomEvent('pcs-refresh-files'));
     } catch (err: any) {
       setAuthError(err.message || 'Authentication failed');
     }
@@ -667,7 +793,63 @@ export const App: React.FC = () => {
         onToggleRightSidebar={toggleRightSidebar}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onOpenAdminDashboard={() => setIsAdminOpen(true)}
+        onOpenNotebooks={() => setIsNotebooksModalOpen(true)}
+        onOpenSecrets={() => setIsSecretsModalOpen(true)}
+        isRestarting={isRestartingKernel}
       />
+
+      {/* Kernel Toast Notification Banner */}
+      {kernelToast && (
+        <div
+          data-testid="kernel-toast-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '7px 16px',
+            backgroundColor:
+              kernelToast.type === 'error'
+                ? 'rgba(239, 68, 68, 0.15)'
+                : kernelToast.type === 'success'
+                ? 'rgba(16, 185, 129, 0.15)'
+                : 'rgba(59, 130, 246, 0.15)',
+            borderBottom: `1px solid ${
+              kernelToast.type === 'error'
+                ? '#ef4444'
+                : kernelToast.type === 'success'
+                ? '#10b981'
+                : '#3b82f6'
+            }`,
+            color: 'var(--text-main)',
+            fontSize: '12.5px',
+            zIndex: 40,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {kernelToast.type === 'info' && (
+              <RotateCcw size={14} color="#3b82f6" className="animate-spin" />
+            )}
+            {kernelToast.type === 'success' && <CheckCircle size={14} color="#10b981" />}
+            {kernelToast.type === 'error' && <AlertCircle size={14} color="#ef4444" />}
+            <span style={{ fontWeight: 500 }}>{kernelToast.text}</span>
+          </div>
+          <button
+            onClick={() => setKernelToast(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              padding: '2px',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Guest Mode Public Privacy Notice Banner */}
       {!user && showGuestBanner && (
@@ -724,21 +906,66 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      {/* Mobile Sidebar Backdrops */}
+      {isMobile && isLeftSidebarOpen && (
+        <div
+          data-testid="mobile-left-backdrop"
+          onClick={() => setIsLeftSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: '56px',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(2px)',
+            zIndex: 40,
+          }}
+        />
+      )}
+
+      {isMobile && isRightSidebarOpen && (
+        <div
+          data-testid="mobile-right-backdrop"
+          onClick={() => setIsRightSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: '56px',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(2px)',
+            zIndex: 40,
+          }}
+        />
+      )}
+
       {/* 3-Panel Resizable Workspace */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         {/* Left Sidebar (Files) */}
         {isLeftSidebarOpen && (
-          <Sidebar
-            onOpenFile={handleOpenFile}
-            onOpenNotebookFile={handleOpenNotebookFile}
-            onCreateNewNotebook={handleCreateNewNotebook}
-            activeFilePath={activeFilePath || undefined}
-            width={leftSidebarWidth}
-          />
+          <div
+            style={isMobile ? {
+              position: 'fixed',
+              top: '56px',
+              left: 0,
+              bottom: 0,
+              zIndex: 50,
+              width: `${Math.min(320, window.innerWidth - 40)}px`,
+              boxShadow: '4px 0 20px rgba(0, 0, 0, 0.5)',
+            } : undefined}
+          >
+            <Sidebar
+              key={user ? `user-${user.id}` : 'guest-public'}
+              user={user}
+              onOpenFile={handleOpenFile}
+              onOpenNotebookFile={handleOpenNotebookFile}
+              onCreateNewNotebook={handleCreateNewNotebook}
+              activeFilePath={activeFilePath || undefined}
+              width={isMobile ? Math.min(320, window.innerWidth - 40) : leftSidebarWidth}
+            />
+          </div>
         )}
 
-        {/* Left Resizer Divider */}
-        {isLeftSidebarOpen && (
+        {/* Left Resizer Divider (Hidden on Mobile) */}
+        {!isMobile && isLeftSidebarOpen && (
           <div
             data-testid="left-resizer"
             onMouseDown={handleMouseDownLeft}
@@ -784,14 +1011,14 @@ export const App: React.FC = () => {
               onRunAndInsertBelow={handleRunAndInsertBelow}
               activeCellId={activeCellId}
               onSelectCell={setActiveCellId}
-              sessionId={notebook ? `session-${notebook.id}` : undefined}
+              sessionId={notebook ? getKernelSessionId(notebook.id) : undefined}
               onUpdateCellMetadata={handleUpdateCellMetadata}
             />
           </div>
         )}
 
-        {/* Right Resizer Divider */}
-        {isRightSidebarOpen && (
+        {/* Right Resizer Divider (Hidden on Mobile) */}
+        {!isMobile && isRightSidebarOpen && (
           <div
             data-testid="right-resizer"
             onMouseDown={handleMouseDownRight}
@@ -813,7 +1040,18 @@ export const App: React.FC = () => {
         {/* Right Sidebar (File Preview & Code Editor / Tools) */}
         {isRightSidebarOpen && (
           <div
-            style={{
+            style={isMobile ? {
+              position: 'fixed',
+              top: '56px',
+              right: 0,
+              bottom: 0,
+              zIndex: 50,
+              width: `${Math.min(380, window.innerWidth - 30)}px`,
+              boxShadow: '-4px 0 20px rgba(0, 0, 0, 0.5)',
+              backgroundColor: 'var(--bg-card, #0f172a)',
+              display: 'flex',
+              overflow: 'hidden',
+            } : {
               width: `${rightSidebarWidth}px`,
               flexShrink: 0,
               height: '100%',
@@ -832,12 +1070,12 @@ export const App: React.FC = () => {
                 onSave={handleSaveOpenFile}
                 onContentChange={handleContentChange}
                 onOpenAsNotebook={handleOpenNotebookFile}
-                width={rightSidebarWidth}
+                width={isMobile ? Math.min(380, window.innerWidth - 30) : rightSidebarWidth}
               />
             ) : (
               <RightPanel
                 onInsertCodeSnippet={handleInsertCodeSnippet}
-                width={rightSidebarWidth}
+                width={isMobile ? Math.min(380, window.innerWidth - 30) : rightSidebarWidth}
               />
             )}
           </div>
@@ -1072,6 +1310,22 @@ export const App: React.FC = () => {
           currentUserEmail={user?.email}
         />
       </ErrorBoundary>
+
+      {/* Persistent Notebooks Manager Modal */}
+      <NotebooksModal
+        isOpen={isNotebooksModalOpen}
+        onClose={() => setIsNotebooksModalOpen(false)}
+        currentNotebookId={notebook?.id}
+        onSelectNotebook={handleSelectNotebook}
+        onCreateNewNotebook={handleCreateNewNotebook}
+        currentNotebookDoc={notebook}
+      />
+
+      {/* Secure Environment Variables & AI Secrets Modal */}
+      <SecretsModal
+        isOpen={isSecretsModalOpen}
+        onClose={() => setIsSecretsModalOpen(false)}
+      />
     </div>
   );
 };

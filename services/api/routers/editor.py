@@ -2,12 +2,16 @@ import os
 import sys
 import ast
 import re
+import asyncio
 import importlib.util
-from typing import List, Dict, Any, Optional
+import importlib.machinery
+from typing import List, Dict, Any, Optional, Tuple, Union
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 import jedi
 
+from ..auth import get_current_user_or_guest, GuestUser
+from ..models import User
 from ..kernel_bridge import kernel_pool
 
 router = APIRouter(prefix="/editor", tags=["Language Service / IntelliSense"])
@@ -39,6 +43,7 @@ class SignatureRequest(BaseModel):
     line: int = 1
     column: int = 0
     notebook_context: List[str] = []
+    session_id: Optional[str] = None
 
 
 class DiagnosticItem(BaseModel):
@@ -73,8 +78,68 @@ def _build_virtual_script(code: str, line: int, notebook_context: List[str]):
     return full_code, eval_line
 
 
+def _get_workspace_search_paths(
+    session_id: Optional[str] = None,
+    current_user: Optional[Union[User, GuestUser]] = None,
+) -> Tuple[str, List[str]]:
+    """
+    Resolves the active workspace directory and all Python package search paths,
+    including the user workspace root, .local/site-packages, and multi-tenant paths.
+    """
+    candidate_dirs: List[str] = []
+    primary_ws: Optional[str] = None
+
+    if session_id:
+        session = kernel_pool.get_session(session_id)
+        if session and session.workspace_dir:
+            primary_ws = session.workspace_dir
+            candidate_dirs.append(primary_ws)
+
+    if not primary_ws and current_user:
+        target_uid = f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else getattr(current_user, "id", "public")
+        primary_ws = kernel_pool.get_user_workspace_path(target_uid)
+        candidate_dirs.append(primary_ws)
+
+    if not primary_ws:
+        primary_ws = kernel_pool.get_public_workspace_path()
+        candidate_dirs.append(primary_ws)
+
+    # In multi-tenant environments, also discover existing workspaces under workspaces_root
+    if hasattr(kernel_pool, "workspaces_root") and os.path.isdir(kernel_pool.workspaces_root):
+        try:
+            for entry in os.listdir(kernel_pool.workspaces_root):
+                full_entry = os.path.join(kernel_pool.workspaces_root, entry)
+                if os.path.isdir(full_entry):
+                    candidate_dirs.append(full_entry)
+                    default_sub = os.path.join(full_entry, "default")
+                    if os.path.isdir(default_sub):
+                        candidate_dirs.append(default_sub)
+        except Exception:
+            pass
+
+    search_paths: List[str] = []
+    for cdir in candidate_dirs:
+        abs_cdir = os.path.abspath(cdir)
+        if os.path.isdir(abs_cdir) and abs_cdir not in search_paths:
+            search_paths.append(abs_cdir)
+
+        local_dir = os.path.join(abs_cdir, ".local")
+        if os.path.isdir(local_dir):
+            try:
+                for root, dirs, _ in os.walk(local_dir):
+                    if os.path.basename(root) == "site-packages" and root not in search_paths:
+                        search_paths.append(os.path.abspath(root))
+            except Exception:
+                pass
+
+    return primary_ws or os.getcwd(), search_paths
+
+
 @router.post("/complete", response_model=CompletionResponse)
-async def get_completions(req: CompletionRequest):
+async def get_completions(
+    req: CompletionRequest,
+    current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
+):
     """
     Intelligent Python Autocomplete / IntelliSense endpoint.
     Uses Jedi static analysis combined with optional active kernel runtime introspection.
@@ -84,9 +149,13 @@ async def get_completions(req: CompletionRequest):
     completions_list: List[CompletionItem] = []
     signatures_list: List[Dict[str, Any]] = []
 
+    primary_ws, search_paths = _get_workspace_search_paths(req.session_id, current_user)
+    full_sys_paths = search_paths + [p for p in sys.path if p not in search_paths]
+
     # 1. Static Analysis via Jedi
     try:
-        script = jedi.Script(code=full_code)
+        project = jedi.Project(path=primary_ws, sys_path=full_sys_paths)
+        script = jedi.Script(code=full_code, project=project)
         jedi_comps = script.complete(eval_line, req.column)
         for c in jedi_comps:
             if c.name in seen_labels:
@@ -117,8 +186,7 @@ async def get_completions(req: CompletionRequest):
         except Exception:
             pass
 
-    except Exception as e:
-        # Fallback or pass
+    except Exception:
         pass
 
     # 2. Kernel Runtime Introspection (if active session provided)
@@ -127,7 +195,7 @@ async def get_completions(req: CompletionRequest):
         if session.is_running and session.kc:
             try:
                 # Query IPyKernel complete_request with 500ms timeout
-                msg_id = session.kc.complete(req.code, req.column)
+                session.kc.complete(req.code, req.column)
                 reply = await asyncio.wait_for(session.kc.get_shell_msg(timeout=0.5), timeout=0.6)
                 if reply and "content" in reply and "matches" in reply["content"]:
                     for match in reply["content"]["matches"][:50]:
@@ -150,12 +218,19 @@ async def get_completions(req: CompletionRequest):
 
 
 @router.post("/signatures")
-async def get_signatures(req: SignatureRequest):
+async def get_signatures(
+    req: SignatureRequest,
+    current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
+):
     """Returns signature help and parameter information for the current function call."""
     full_code, eval_line = _build_virtual_script(req.code, req.line, req.notebook_context)
     results = []
+    primary_ws, search_paths = _get_workspace_search_paths(req.session_id, current_user)
+    full_sys_paths = search_paths + [p for p in sys.path if p not in search_paths]
+
     try:
-        script = jedi.Script(code=full_code)
+        project = jedi.Project(path=primary_ws, sys_path=full_sys_paths)
+        script = jedi.Script(code=full_code, project=project)
         sigs = script.get_signatures(eval_line, req.column)
         for s in sigs:
             results.append({
@@ -171,12 +246,16 @@ async def get_signatures(req: SignatureRequest):
 
 
 @router.post("/diagnostics", response_model=DiagnosticsResponse)
-async def get_diagnostics(req: DiagnosticsRequest):
+async def get_diagnostics(
+    req: DiagnosticsRequest,
+    current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
+):
     """
     Performs real Python syntax error validation and unresolved module checking.
     Guarantees:
     - NO red squiggly underlines on valid code (numpy, pandas, user variables, etc.)
     - NO red squiggly underlines on transient typing expressions like 'np.' or 'pd.'
+    - ACCURATE detection of installed packages in workspace site-packages or user environment.
     - ACCURATE red squiggly underlines on genuine syntax errors and missing packages.
     """
     code = req.code
@@ -216,47 +295,54 @@ async def get_diagnostics(req: DiagnosticsRequest):
             )
         return DiagnosticsResponse(diagnostics=diagnostics)
 
+    primary_ws, search_paths = _get_workspace_search_paths(req.session_id, current_user)
+
+    def is_module_available(pkg_name: str) -> bool:
+        """Determines if a root module exists in builtins, global python, or workspace search paths."""
+        if pkg_name in sys.builtin_module_names:
+            return True
+        try:
+            if importlib.util.find_spec(pkg_name) is not None:
+                return True
+        except Exception:
+            pass
+        try:
+            if importlib.machinery.PathFinder.find_spec(pkg_name, search_paths) is not None:
+                return True
+        except Exception:
+            pass
+        return False
+
     # 2. Missing Module Import Detection
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root_pkg = alias.name.split(".")[0]
-                # Check active Python environment
-                if root_pkg not in sys.builtin_module_names:
-                    try:
-                        spec = importlib.util.find_spec(root_pkg)
-                    except Exception:
-                        spec = None
-                    if spec is None:
-                        diagnostics.append(
-                            DiagnosticItem(
-                                from_line=node.lineno,
-                                from_col=node.col_offset,
-                                to_line=getattr(node, "end_lineno", node.lineno),
-                                to_col=getattr(node, "end_col_offset", node.col_offset + len(alias.name) + 7),
-                                message=f"Unresolved import '{alias.name}': No module named '{root_pkg}' found in active Python runtime.",
-                                severity="error",
-                            )
+                if not is_module_available(root_pkg):
+                    diagnostics.append(
+                        DiagnosticItem(
+                            from_line=node.lineno,
+                            from_col=node.col_offset,
+                            to_line=getattr(node, "end_lineno", node.lineno),
+                            to_col=getattr(node, "end_col_offset", node.col_offset + len(alias.name) + 7),
+                            message=f"Unresolved import '{alias.name}': No module named '{root_pkg}' found in active Python runtime.",
+                            severity="error",
                         )
+                    )
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 root_pkg = node.module.split(".")[0]
-                if root_pkg not in sys.builtin_module_names:
-                    try:
-                        spec = importlib.util.find_spec(root_pkg)
-                    except Exception:
-                        spec = None
-                    if spec is None:
-                        diagnostics.append(
-                            DiagnosticItem(
-                                from_line=node.lineno,
-                                from_col=node.col_offset,
-                                to_line=getattr(node, "end_lineno", node.lineno),
-                                to_col=getattr(node, "end_col_offset", node.col_offset + len(node.module) + 5),
-                                message=f"Unresolved import '{node.module}': No module named '{root_pkg}' found in active Python runtime.",
-                                severity="error",
-                            )
+                if not is_module_available(root_pkg):
+                    diagnostics.append(
+                        DiagnosticItem(
+                            from_line=node.lineno,
+                            from_col=node.col_offset,
+                            to_line=getattr(node, "end_lineno", node.lineno),
+                            to_col=getattr(node, "end_col_offset", node.col_offset + len(node.module) + 5),
+                            message=f"Unresolved import '{node.module}': No module named '{root_pkg}' found in active Python runtime.",
+                            severity="error",
                         )
+                    )
 
     return DiagnosticsResponse(diagnostics=diagnostics)
 

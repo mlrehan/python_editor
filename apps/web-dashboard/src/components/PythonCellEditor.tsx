@@ -205,6 +205,19 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
   const contextKey = useMemo(() => (notebookContext || []).join('\n---\n'), [notebookContext]);
 
   // 1. Fetch Diagnostics (Debounced 300ms)
+  const fetchDiagnostics = useCallback(async () => {
+    if (!code.trim()) {
+      setDiagnostics([]);
+      return;
+    }
+    try {
+      const res = await api.getDiagnostics(code, notebookContext, sessionId);
+      setDiagnostics(res.diagnostics || []);
+    } catch {
+      // Quietly handle network or dev errors
+    }
+  }, [code, notebookContext, sessionId]);
+
   useEffect(() => {
     let isCancelled = false;
     const timer = setTimeout(async () => {
@@ -217,7 +230,7 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
         if (!isCancelled) {
           setDiagnostics(res.diagnostics || []);
         }
-      } catch (err) {
+      } catch {
         // Quietly handle network or dev errors
       }
     }, 300);
@@ -227,6 +240,17 @@ export const PythonCellEditor: React.FC<PythonCellEditorProps> = ({
       clearTimeout(timer);
     };
   }, [code, contextKey, sessionId]);
+
+  // Immediately re-fetch diagnostics upon kernel events (package install, kernel restart)
+  useEffect(() => {
+    const handleGlobalRefresh = () => {
+      fetchDiagnostics();
+    };
+    window.addEventListener('pcs-refresh-diagnostics', handleGlobalRefresh);
+    return () => {
+      window.removeEventListener('pcs-refresh-diagnostics', handleGlobalRefresh);
+    };
+  }, [fetchDiagnostics]);
 
   // Helper to render signature with active parameter highlighted
   const renderSignatureHelp = useCallback((sig: SignatureItem) => {

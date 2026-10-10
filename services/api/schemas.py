@@ -191,6 +191,13 @@ class FolderCreateRequest(BaseModel):
     path: str
 
 
+class WorkspaceEnvUpdateRequest(BaseModel):
+    env: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        extra = "allow"
+
+
 
 # ==========================================
 # CLASSROOM SCHEMAS

@@ -7,6 +7,7 @@ from .config import settings
 connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 60.0
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -37,6 +38,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Creates database tables if they do not exist, runs column migrations, and bootstraps Super Admin."""
     async with engine.begin() as conn:
+        if settings.DATABASE_URL.startswith("sqlite"):
+            from sqlalchemy import text
+            await conn.execute(text("PRAGMA journal_mode=WAL;"))
+            await conn.execute(text("PRAGMA busy_timeout=60000;"))
+            await conn.execute(text("PRAGMA synchronous=NORMAL;"))
+
         await conn.run_sync(Base.metadata.create_all)
 
         # Safe SQLite column migration for existing database files
@@ -72,8 +79,8 @@ async def init_db() -> None:
 
         # 2. Super Admin Bootstrap Check:
         # Check if ANY user with role == 'super_admin' exists in the database
-        res_super = await session.execute(select(User).where(User.role == "super_admin"))
-        existing_super = res_super.scalar_one_or_none()
+        res_super = await session.execute(select(User).where(User.role == "super_admin").limit(1))
+        existing_super = res_super.scalars().first()
 
         if not existing_super:
             # Check if bootstrap email already exists

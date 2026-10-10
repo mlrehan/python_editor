@@ -19,7 +19,7 @@ import {
   ChevronRight,
   ChevronDown,
 } from 'lucide-react';
-import { FileItem } from '../types';
+import { FileItem, UserProfile } from '../types';
 import { api } from '../services/api';
 
 interface SidebarProps {
@@ -28,6 +28,7 @@ interface SidebarProps {
   onCreateNewNotebook: () => void;
   activeFilePath?: string;
   width?: number;
+  user?: UserProfile | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -36,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreateNewNotebook,
   activeFilePath,
   width = 280,
+  user,
 }) => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,7 +75,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   useEffect(() => {
+    setSelectedPath(null);
+    setActiveDirectory('');
+    setExpandedFolders({});
     loadFiles();
+  }, [user]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      loadFiles();
+    };
+    window.addEventListener('pcs-refresh-files', handleRefresh);
+    return () => {
+      window.removeEventListener('pcs-refresh-files', handleRefresh);
+    };
   }, []);
 
   // Close context menu and modals on outside click or Escape key
@@ -383,6 +398,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
               Files
+            </span>
+            <span
+              data-testid="workspace-badge"
+              style={{
+                fontSize: '10px',
+                padding: '1px 6px',
+                borderRadius: '4px',
+                backgroundColor: user
+                  ? user.role === 'super_admin'
+                    ? 'rgba(168, 85, 247, 0.15)'
+                    : 'rgba(59, 130, 246, 0.15)'
+                  : 'rgba(234, 179, 8, 0.15)',
+                color: user
+                  ? user.role === 'super_admin'
+                    ? '#c084fc'
+                    : '#60a5fa'
+                  : '#fbbf24',
+                fontWeight: 600,
+                border: user
+                  ? user.role === 'super_admin'
+                    ? '1px solid rgba(168, 85, 247, 0.3)'
+                    : '1px solid rgba(59, 130, 246, 0.3)'
+                  : '1px solid rgba(234, 179, 8, 0.3)',
+              }}
+              title={user ? (user.role === 'super_admin' ? 'SuperAdmin Workspace' : 'Private Workspace') : 'Public Workspace (Guest)'}
+            >
+              {user ? (user.role === 'super_admin' ? 'Admin' : 'Private') : 'Public'}
             </span>
             {activeDirectory && (
               <span

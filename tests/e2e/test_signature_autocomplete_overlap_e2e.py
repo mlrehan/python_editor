@@ -153,3 +153,4 @@ async def test_signature_and_autocomplete_overlap_and_escape_priority():
         assert "print" in val, f"Expected 'print' in code, got '{val}'"
 
         await browser.close()
+

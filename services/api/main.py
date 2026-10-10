@@ -37,6 +37,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Register API Routers under /api/v1
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
@@ -61,6 +78,20 @@ index_html = os.path.join(dist_path, "index.html")
 if os.path.exists(assets_path):
     app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
     app.mount("/app/assets", StaticFiles(directory=assets_path), name="app_assets")
+
+user_guide_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "python-cloud-studio-user-guide.html"))
+
+@app.get("/python-cloud-studio-user-guide.html")
+@app.get("/docs/python-cloud-studio-user-guide.html")
+@app.get("/help")
+@app.get("/user-guide")
+async def serve_user_guide():
+    if os.path.exists(user_guide_file):
+        return FileResponse(user_guide_file, media_type="text/html")
+    dist_guide = os.path.join(dist_path, "python-cloud-studio-user-guide.html")
+    if os.path.exists(dist_guide):
+        return FileResponse(dist_guide, media_type="text/html")
+    return {"error": "User guide not found"}
 
 if os.path.exists(dist_path) and os.path.exists(index_html):
     @app.get("/")

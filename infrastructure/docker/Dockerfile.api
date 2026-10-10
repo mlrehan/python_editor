@@ -1,6 +1,26 @@
-# ==========================================
-# ENTERPRISE PYTHON CLOUD STUDIO - CONTROL PLANE
-# ==========================================
+# ========================================================
+# ENTERPRISE PYTHON CLOUD STUDIO - PRODUCTION DOCKERFILE
+# Multi-Stage Build: Node Frontend Builder + Python API Runtime
+# ========================================================
+
+# --------------------------------------------------------
+# STAGE 1: Frontend Build Environment
+# --------------------------------------------------------
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /build
+
+# Install dependencies first for maximum layer caching
+COPY apps/web-dashboard/package*.json ./
+RUN npm ci --prefer-offline || npm install
+
+# Copy frontend source code and compile production bundle
+COPY apps/web-dashboard/ ./
+RUN npm run build
+
+# --------------------------------------------------------
+# STAGE 2: Python Runtime & Control Plane
+# --------------------------------------------------------
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -9,19 +29,31 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Install system dependencies (build-essential, curl for healthchecks, git)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Python requirements
 COPY services/api/requirements.txt /app/services/api/requirements.txt
 RUN pip install --upgrade pip && \
     pip install -r services/api/requirements.txt
 
+# Copy complete application repository
 COPY . /app
+
+# Overlay fresh production frontend build from Stage 1
+COPY --from=frontend-builder /build/dist /app/apps/web-dashboard/dist
+
+# Ensure persistent storage mount points exist
+RUN mkdir -p /app/storage/workspaces /app/storage/artifacts
 
 EXPOSE 8765
 
-CMD ["uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8765"]
+# Container Healthcheck via internal API health endpoint
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8765/api/v1/health || exit 1
 
+CMD ["uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8765"]

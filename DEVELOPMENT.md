@@ -139,14 +139,65 @@ tests/integration/test_feature_enhancements.py::test_05_theme_preference_persist
 
 ---
 
-## 🔌 Custom Non-Colliding Ports
+## 🔌 Custom Non-Colliding Ports & Zero Default Ports Policy
 
-The application strictly avoids all common default ports (`8000`, `3000`, `5432`, `6379`):
+The application strictly avoids all common default ports (`8000`, `3000`, `5432`, `6379`, `80`, `443`):
 
 - **FastAPI Control Plane & Production Web Dashboard**: `http://localhost:8765`
 - **Frontend Vite Dev Server (HMR development)**: `http://localhost:3765`
-- **PostgreSQL Sandbox (Optional)**: `5476`
-- **Redis Cache (Optional)**: `6395`
+- **PostgreSQL Database**: Isolated inside internal Docker network (never bound to host port 5432)
+- **Redis Cache & Broker**: Isolated inside internal Docker network (never bound to host port 6379)
+- **Host Nginx**: Not used in local development (zero host port 80/443 conflicts)
+
+---
+
+## 🐳 Local Docker Testing (Windows 11 + Docker Desktop)
+
+You can run the entire multi-container stack inside Docker Desktop on Windows 11 with **Zero Nginx** and **Zero Default Ports**.
+
+### Architecture for Local Development
+- **No Nginx Container**: FastAPI directly serves the compiled React frontend, WebSocket execution gateway, and REST API.
+- **Single Host Port**: Only `http://localhost:8765` is bound on the host (`127.0.0.1:8765`).
+- **Internal Database & Cache**: PostgreSQL 16 and Redis 7 communicate over the private bridge network `pcs-network`. Your host's native PostgreSQL (5432) and Redis (6379) remain completely untouched and conflict-free.
+
+### Step-by-Step Commands (PowerShell)
+
+```powershell
+# 1. Navigate to the project directory
+cd d:\LAIT\Code_Editors\Jupyter_Lab\python-cloud-studio
+
+# 2. Build and launch all services in background
+docker compose --env-file .env.development up -d
+
+# 3. Verify container status and health
+docker compose ps
+```
+
+Expected output:
+```text
+NAME           IMAGE                     COMMAND                  SERVICE    STATUS                    PORTS
+pcs-api        python-cloud-studio-api   "uvicorn services.ap…"   api        Up (healthy)              127.0.0.1:8765->8765/tcp
+pcs-postgres   postgres:16-alpine        "docker-entrypoint.s…"   postgres   Up (healthy)              5432/tcp
+pcs-redis      redis:7-alpine            "docker-entrypoint.s…"   redis      Up (healthy)              6379/tcp
+```
+
+### Accessing the Platform Locally
+- **Web Studio & Notebook Editor:** [http://localhost:8765/](http://localhost:8765/)
+- **Super Admin Console:** Click Sign In (`admin@example.com` / `AdminSecurePassword2026!`) &rarr; click **Admin**
+- **User Guide & Documentation:** [http://localhost:8765/python-cloud-studio-user-guide.html](http://localhost:8765/python-cloud-studio-user-guide.html)
+- **Health Check API:** [http://localhost:8765/api/v1/health](http://localhost:8765/api/v1/health)
+
+### Useful Docker Management Commands
+```powershell
+# View live application logs
+docker compose logs -f api
+
+# Restart application service without losing data
+docker compose restart api
+
+# Stop all containers cleanly
+docker compose down
+```
 
 ---
 

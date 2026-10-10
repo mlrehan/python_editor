@@ -1,0 +1,77 @@
+# ========================================================
+# Docker Build Ignore Rules - Python Cloud Studio
+# ========================================================
+
+# Version Control
+.git/
+.gitignore
+
+# Python Bytecode & Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Linting
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# Node & Frontend Build Artifacts
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Database & Persistent Data (must be mounted via volumes, never baked into images)
+*.db
+*.db-shm
+*.db-wal
+storage/workspaces/*
+!storage/workspaces/.gitkeep
+storage/artifacts/*
+!storage/artifacts/.gitkeep
+
+# Local Environment Secrets & Logs
+.env
+.env.local
+.env.*.local
+*.log
+
+# IDE & OS Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Scratch and Temporary Test Directories
+scratch/
+tests/
+

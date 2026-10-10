@@ -103,55 +103,77 @@ class KernelPoolManager:
         session_id: str,
         user_id: str,
         project_id: Optional[str] = None,
-        kernel_name: str = "python3"
+        kernel_name: str = "python3",
+        is_admin: bool = False
     ) -> KernelSession:
         """Retrieves an existing session or provisions a new isolated kernel."""
         async with self._lock:
-            if session_id in self._sessions:
-                session = self._sessions[session_id]
-                if session.user_id != user_id:
-                    raise PermissionError("Access to this kernel session is forbidden for this user.")
-                if not session.is_running:
-                    await session.start()
-                return session
+            # Resolve actual session key: if session_id is already held by another user and caller is not admin,
+            # namespace the session so every user receives their own isolated kernel process.
+            effective_id = session_id
+            if effective_id in self._sessions:
+                existing = self._sessions[effective_id]
+                is_both_guest = (existing.user_id.startswith("guest_") or existing.user_id == "public_guest") and \
+                                (user_id.startswith("guest_") or user_id == "public_guest")
+                if existing.user_id != user_id and not is_admin and not is_both_guest:
+                    effective_id = f"{session_id}::{user_id}"
 
-            # Check user concurrency limit
-            user_sessions = [s for s in self._sessions.values() if s.user_id == user_id]
-            if len(user_sessions) >= self.max_kernels_per_user:
-                raise ValueError(
-                    f"User quota exceeded: Maximum {self.max_kernels_per_user} concurrent kernels reached."
+            if effective_id in self._sessions:
+                session = self._sessions[effective_id]
+            else:
+                # Check user concurrency limit
+                user_sessions = [s for s in self._sessions.values() if s.user_id == user_id]
+                if len(user_sessions) >= self.max_kernels_per_user:
+                    raise ValueError(
+                        f"User quota exceeded: Maximum {self.max_kernels_per_user} concurrent kernels reached."
+                    )
+
+                workspace = self.get_user_workspace_path(user_id, project_id)
+                session = KernelSession(
+                    session_id=effective_id,
+                    user_id=user_id,
+                    workspace_dir=workspace,
+                    kernel_name=kernel_name,
+                    is_admin=is_admin
                 )
+                self._sessions[effective_id] = session
 
-            workspace = self.get_user_workspace_path(user_id, project_id)
-            session = KernelSession(
-                session_id=session_id,
-                user_id=user_id,
-                workspace_dir=workspace,
-                kernel_name=kernel_name
-            )
+        if not session.is_running:
             await session.start()
-            self._sessions[session_id] = session
-            return session
+        return session
 
     @property
     def sessions(self) -> Dict[str, KernelSession]:
         return self._sessions
 
-    def get_session(self, session_id: str) -> Optional[KernelSession]:
+    def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[KernelSession]:
+        if session_id in self._sessions:
+            sess = self._sessions[session_id]
+            if user_id is None or sess.user_id == user_id or sess.is_admin:
+                return sess
+        if user_id:
+            scoped_id = f"{session_id}::{user_id}"
+            if scoped_id in self._sessions:
+                return self._sessions[scoped_id]
         return self._sessions.get(session_id)
 
-    async def restart_session(self, session_id: str) -> bool:
+    async def restart_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
         """Restarts a running kernel session, clearing its memory."""
-        session = self._sessions.get(session_id)
+        session = self.get_session(session_id, user_id)
         if session:
             await session.restart()
             return True
         return False
 
-    async def shutdown_session(self, session_id: str) -> bool:
+    async def shutdown_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
         """Halts and unregisters a kernel session."""
         async with self._lock:
-            session = self._sessions.pop(session_id, None)
+            effective_id = session_id
+            if effective_id not in self._sessions and user_id:
+                scoped_id = f"{session_id}::{user_id}"
+                if scoped_id in self._sessions:
+                    effective_id = scoped_id
+            session = self._sessions.pop(effective_id, None)
             if session:
                 await session.shutdown()
                 return True

@@ -1,0 +1,5019 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Python Cloud Studio - Official Enterprise User Guide & Beginner Training Manual">
+  <title>Python Cloud Studio — Official User Guide & Training Manual</title>
+  <style>
+
+/* === ENTERPRISE DESIGN TOKENS & ROOT VARIABLES === */
+:root {
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  /* Light Theme (Default) */
+  --bg-body: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --bg-sidebar: #f1f5f9;
+  --bg-sidebar-hover: #e2e8f0;
+  --bg-sidebar-active: #e2e8f0;
+  --bg-input: #ffffff;
+  --bg-code: #0f172a;
+  --text-code: #f8fafc;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
+
+  --border-color: #e2e8f0;
+  --border-secondary: #cbd5e1;
+  --border-focus: #2563eb;
+
+  --primary-blue: #2563eb;
+  --primary-blue-hover: #1d4ed8;
+  --primary-blue-light: #eff6ff;
+  --primary-blue-border: #bfdbfe;
+
+  --accent-purple: #7c3aed;
+  --accent-purple-light: #f5f3ff;
+
+  --success-green: #16a34a;
+  --success-light: #f0fdf4;
+  --success-border: #bbf7d0;
+
+  --warning-amber: #d97706;
+  --warning-light: #fffbeb;
+  --warning-border: #fde68a;
+
+  --danger-red: #dc2626;
+  --danger-light: #fef2f2;
+  --danger-border: #fecaca;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+
+  --header-height: 60px;
+  --sidebar-width: 290px;
+  --toc-width: 220px;
+  --content-max-width: 900px;
+  --transition-fast: 0.15s ease;
+}
+
+[data-theme="dark"] {
+  --bg-body: #0b1220;
+  --bg-surface: #111827;
+  --bg-surface-elevated: #1e293b;
+  --bg-sidebar: #0f172a;
+  --bg-sidebar-hover: #1e293b;
+  --bg-sidebar-active: #1e293b;
+  --bg-input: #1e293b;
+  --bg-code: #030712;
+  --text-code: #f1f5f9;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #0f172a;
+
+  --border-color: #334155;
+  --border-secondary: #475569;
+  --border-focus: #3b82f6;
+
+  --primary-blue: #3b82f6;
+  --primary-blue-hover: #60a5fa;
+  --primary-blue-light: rgba(59, 130, 246, 0.15);
+  --primary-blue-border: #1e40af;
+
+  --accent-purple: #a855f7;
+  --accent-purple-light: rgba(168, 85, 247, 0.15);
+
+  --success-green: #22c55e;
+  --success-light: rgba(34, 197, 94, 0.15);
+  --success-border: #166534;
+
+  --warning-amber: #f59e0b;
+  --warning-light: rgba(245, 158, 11, 0.15);
+  --warning-border: #92400e;
+
+  --danger-red: #ef4444;
+  --danger-light: rgba(239, 68, 68, 0.15);
+  --danger-border: #991b1b;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+}
+
+/* === BASE & RESET === */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background-color: var(--bg-body);
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+a {
+  color: var(--primary-blue);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+p {
+  margin-bottom: 1.15rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.8rem;
+  margin-bottom: 0.8rem;
+  scroll-margin-top: 80px;
+}
+
+h1 { font-size: 2.25rem; letter-spacing: -0.025em; margin-top: 0; }
+h2 { font-size: 1.65rem; letter-spacing: -0.02em; border-bottom: 1px solid var(--border-color); padding-bottom: 0.4rem; margin-top: 2.5rem; }
+h3 { font-size: 1.3rem; margin-top: 1.8rem; }
+h4 { font-size: 1.1rem; }
+
+ul, ol {
+  margin-bottom: 1.2rem;
+  padding-left: 1.5rem;
+}
+
+li {
+  margin-bottom: 0.4rem;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+/* === TOP HEADER === */
+.docs-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: var(--header-height);
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.reading-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  width: 0%;
+  transition: width 0.1s ease;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  text-decoration: none !important;
+}
+
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  background-color: #2563eb;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(37,99,235,0.4);
+}
+
+.brand-subtitle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary-blue);
+  background-color: var(--primary-blue-light);
+  border: 1px solid var(--primary-blue-border);
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.header-search-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background-color: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  cursor: pointer;
+  width: 260px;
+  transition: all var(--transition-fast);
+}
+
+.header-search-btn:hover {
+  border-color: var(--primary-blue);
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+}
+
+.search-kbd {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  background-color: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-toggle-btn, .print-btn, .app-link-btn, .mobile-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none !important;
+}
+
+.theme-toggle-btn:hover, .print-btn:hover {
+  background-color: var(--bg-sidebar);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
+}
+
+.app-link-btn {
+  background-color: var(--primary-blue);
+  color: #ffffff !important;
+  border-color: var(--primary-blue);
+  font-weight: 600;
+}
+
+.app-link-btn:hover {
+  background-color: var(--primary-blue-hover);
+}
+
+.mobile-toggle-btn {
+  display: none;
+  padding: 6px 8px;
+}
+
+/* === MAIN 3-COLUMN LAYOUT === */
+.docs-layout, .docs-container {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* === LEFT SIDEBAR === */
+.docs-sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  height: calc(100vh - var(--header-height));
+  position: sticky;
+  top: var(--header-height);
+  overflow-y: auto;
+  border-right: 1px solid var(--border-color);
+  background-color: var(--bg-sidebar);
+  padding: 1.5rem 1rem 3rem 1.25rem;
+  transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+.sidebar-category {
+  margin-bottom: 1.5rem;
+}
+
+.sidebar-category-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  padding-left: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-nav-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.sidebar-nav-item {
+  margin-bottom: 2px;
+}
+
+.sidebar-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-decoration: none !important;
+  transition: all var(--transition-fast);
+}
+
+.sidebar-nav-link:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-sidebar-hover);
+}
+
+.sidebar-nav-link.active {
+  color: var(--primary-blue);
+  background-color: var(--primary-blue-light);
+  font-weight: 600;
+}
+
+.sidebar-nav-badge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.badge-tutorial { background-color: var(--accent-purple-light); color: var(--accent-purple); }
+.badge-verified { background-color: var(--success-light); color: var(--success-green); }
+.badge-admin { background-color: var(--warning-light); color: var(--warning-amber); }
+
+/* === MAIN CONTENT ARTICLE === */
+.docs-main {
+  flex: 1;
+  min-width: 0;
+  padding: 2.5rem 3rem 5rem 3rem;
+  background-color: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
+}
+
+.content-wrapper {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+}
+
+/* === RIGHT TABLE OF CONTENTS === */
+.docs-toc {
+  width: var(--toc-width);
+  flex-shrink: 0;
+  height: calc(100vh - var(--header-height));
+  position: sticky;
+  top: var(--header-height);
+  overflow-y: auto;
+  padding: 2rem 1.25rem;
+  font-size: 0.82rem;
+}
+
+.toc-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.8rem;
+}
+
+.toc-list {
+  list-style: none;
+  padding-left: 0;
+  border-left: 2px solid var(--border-color);
+}
+
+.toc-item {
+  margin-bottom: 0.5rem;
+}
+
+.toc-link {
+  display: block;
+  padding: 3px 0 3px 12px;
+  color: var(--text-muted);
+  text-decoration: none !important;
+  transition: color var(--transition-fast);
+  margin-left: -2px;
+}
+
+.toc-link:hover, .toc-link.active {
+  color: var(--primary-blue);
+  border-left: 2px solid var(--primary-blue);
+  font-weight: 600;
+}
+
+/* === HERO SECTION ON HOME PAGE === */
+.hero-banner {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(124, 58, 237, 0.08) 100%);
+  border: 1px solid var(--primary-blue-border);
+  border-radius: 12px;
+  padding: 2.5rem 2rem;
+  margin-bottom: 2.5rem;
+}
+
+.hero-eyebrow {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--primary-blue);
+  margin-bottom: 0.6rem;
+}
+
+.hero-title {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-top: 0;
+  margin-bottom: 0.8rem;
+  letter-spacing: -0.03em;
+}
+
+.hero-subtitle {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+  max-width: 680px;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn-primary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--primary-blue);
+  color: #ffffff !important;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none !important;
+  box-shadow: 0 2px 8px rgba(37,99,235,0.3);
+  transition: background-color var(--transition-fast);
+}
+
+.btn-primary-action:hover {
+  background-color: var(--primary-blue-hover);
+}
+
+.btn-secondary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-surface);
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color);
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none !important;
+  transition: all var(--transition-fast);
+}
+
+.btn-secondary-action:hover {
+  background-color: var(--bg-sidebar);
+  border-color: var(--border-secondary);
+}
+
+/* === QUICK CARDS GRID === */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin: 1.5rem 0 2.5rem 0;
+}
+
+.doc-card {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.4rem;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-card:hover {
+  border-color: var(--primary-blue);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.doc-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.card-icon-blue { background-color: var(--primary-blue-light); color: var(--primary-blue); }
+.card-icon-purple { background-color: var(--accent-purple-light); color: var(--accent-purple); }
+.card-icon-green { background-color: var(--success-light); color: var(--success-green); }
+.card-icon-amber { background-color: var(--warning-light); color: var(--warning-amber); }
+
+.doc-card-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+
+.doc-card-desc {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  flex: 1;
+}
+
+.doc-card-link {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--primary-blue);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* === CALLOUT BOXES === */
+.callout {
+  border-radius: 8px;
+  padding: 1.15rem 1.25rem;
+  margin: 1.4rem 0;
+  display: flex;
+  gap: 14px;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.callout-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.callout-body {
+  flex: 1;
+}
+
+.callout-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+
+.callout p:last-child {
+  margin-bottom: 0;
+}
+
+.callout-tip {
+  background-color: var(--primary-blue-light);
+  border-left: 4px solid var(--primary-blue);
+  color: var(--text-primary);
+}
+.callout-tip .callout-title { color: var(--primary-blue); }
+
+.callout-important {
+  background-color: var(--warning-light);
+  border-left: 4px solid var(--warning-amber);
+  color: var(--text-primary);
+}
+.callout-important .callout-title { color: var(--warning-amber); }
+
+.callout-warning {
+  background-color: var(--danger-light);
+  border-left: 4px solid var(--danger-red);
+  color: var(--text-primary);
+}
+.callout-warning .callout-title { color: var(--danger-red); }
+
+.callout-success {
+  background-color: var(--success-light);
+  border-left: 4px solid var(--success-green);
+  color: var(--text-primary);
+}
+.callout-success .callout-title { color: var(--success-green); }
+
+/* === CODE BLOCKS & SYNTAX HIGHLIGHTING === */
+.code-container {
+  background-color: var(--bg-code);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 1.2rem 0;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-color);
+}
+
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background-color: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.code-lang-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.copy-btn {
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e2e8f0;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all var(--transition-fast);
+}
+
+.copy-btn:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.copy-btn.copied {
+  background-color: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+
+pre {
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-code);
+}
+
+code {
+  font-family: var(--font-mono);
+}
+
+:not(pre) > code {
+  font-size: 0.86em;
+  padding: 2px 6px;
+  background-color: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--primary-blue);
+}
+
+/* Syntax Highlighting Tokens */
+.syn-kw { color: #f43f5e; font-weight: 600; }
+.syn-str { color: #34d399; }
+.syn-num { color: #fb923c; }
+.syn-com { color: #64748b; font-style: italic; }
+.syn-fn { color: #38bdf8; }
+.syn-var { color: #f8fafc; }
+
+/* === EXPECTED OUTPUT BOX === */
+.expected-output {
+  background-color: #030712;
+  border: 1px solid #1f2937;
+  border-left: 4px solid #10b981;
+  border-radius: 6px;
+  margin: -0.6rem 0 1.4rem 0;
+  padding: 10px 14px;
+}
+
+.output-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #10b981;
+  margin-bottom: 6px;
+}
+
+.output-text {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* === MISTAKE COMPARISON GRID === */
+.mistake-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 1.4rem 0;
+}
+
+.mistake-card {
+  border-radius: 8px;
+  padding: 1.2rem;
+  border: 1px solid var(--border-color);
+}
+
+.mistake-wrong {
+  background-color: var(--danger-light);
+  border-color: var(--danger-border);
+}
+
+.mistake-correct {
+  background-color: var(--success-light);
+  border-color: var(--success-border);
+}
+
+.mistake-badge {
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mistake-wrong .mistake-badge { color: var(--danger-red); }
+.mistake-correct .mistake-badge { color: var(--success-green); }
+
+/* === NUMBERED STEP FLOW === */
+.step-list {
+  list-style: none;
+  padding-left: 0;
+  counter-reset: step-counter;
+  margin: 1.5rem 0;
+}
+
+.step-item {
+  position: relative;
+  counter-increment: step-counter;
+  padding-left: 48px;
+  margin-bottom: 1.8rem;
+}
+
+.step-item::before {
+  content: counter(step-counter);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: var(--primary-blue);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 6px rgba(37,99,235,0.4);
+}
+
+.step-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+/* === INTERFACE DIAGRAMS === */
+.ui-diagram {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 1.8rem 0;
+  box-shadow: var(--shadow-md);
+}
+
+.ui-diagram-header {
+  background-color: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-color);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ui-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.ui-dot-red { background-color: #ef4444; }
+.ui-dot-amber { background-color: #f59e0b; }
+.ui-dot-green { background-color: #10b981; }
+
+.ui-diagram-body {
+  padding: 1.5rem;
+}
+
+.callout-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* === TABLES === */
+.doc-table-container {
+  width: 100%;
+  overflow-x: auto;
+  margin: 1.4rem 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.doc-table th {
+  background-color: var(--bg-sidebar);
+  padding: 10px 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.doc-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.doc-table tr:last-child td {
+  border-bottom: none;
+}
+
+.doc-table tr:hover td {
+  background-color: var(--primary-blue-light);
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background-color: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+  color: var(--text-primary);
+}
+
+/* === ACCORDION DETAILS === */
+details.doc-accordion {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin: 1rem 0;
+  overflow: hidden;
+  background-color: var(--bg-surface);
+}
+
+details.doc-accordion summary {
+  padding: 12px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: var(--bg-sidebar);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-primary);
+}
+
+details.doc-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+details.doc-accordion[open] summary {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.accordion-content {
+  padding: 16px;
+}
+
+/* === SEARCH MODAL === */
+.search-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+}
+
+.search-modal-backdrop.active {
+  display: flex;
+}
+
+.search-modal {
+  width: 90%;
+  max-width: 620px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  animation: modal-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(-10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.search-input-wrapper {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 12px;
+}
+
+.search-modal-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.search-results-list {
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px;
+  list-style: none;
+}
+
+.search-result-item {
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-decoration: none !important;
+  color: var(--text-primary);
+  transition: background-color var(--transition-fast);
+}
+
+.search-result-item:hover, .search-result-item.selected {
+  background-color: var(--primary-blue-light);
+}
+
+.search-result-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--primary-blue);
+}
+
+.search-result-category {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.search-result-snippet {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.search-footer {
+  padding: 8px 16px;
+  background-color: var(--bg-sidebar);
+  border-top: 1px solid var(--border-color);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* === BACK TO TOP BUTTON === */
+.back-to-top-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background-color: var(--primary-blue);
+  color: #ffffff;
+  border: none;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+.back-to-top-btn.visible {
+  display: flex;
+}
+
+.back-to-top-btn:hover {
+  transform: translateY(-3px);
+  background-color: var(--primary-blue-hover);
+}
+
+/* === FOOTER === */
+.docs-footer {
+  background-color: var(--bg-sidebar);
+  border-top: 1px solid var(--border-color);
+  padding: 3rem 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+/* === CUSTOM GUIDE COMPONENTS, BADGES & DIAGRAMS === */
+.search-modal-backdrop.open {
+  display: flex !important;
+}
+
+.search-result-item.highlighted {
+  background-color: var(--primary-blue-light) !important;
+}
+
+.search-result-item .result-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--primary-blue);
+}
+
+.search-result-item .result-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.search-result-item .result-badge {
+  background: var(--bg-sidebar);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.search-result-item .result-url {
+  font-family: var(--font-mono);
+}
+
+/* Hero Section */
+.hero-section {
+  padding: 3rem 0 2.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 3rem;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--primary-blue-light);
+  color: var(--primary-blue);
+  border: 1px solid var(--primary-blue-border);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+.hero-title {
+  font-size: 2.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+  line-height: 1.15;
+}
+
+.hero-subtitle {
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 800px;
+  margin-bottom: 2rem;
+}
+
+.hero-quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 2.5rem;
+}
+
+.quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.quick-chip:hover {
+  border-color: var(--primary-blue);
+  color: var(--primary-blue);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.hero-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.25rem 1rem;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-number {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--primary-blue);
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Grids & Cards */
+.two-column-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+  margin: 1.5rem 0;
+}
+
+.three-column-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+  margin: 1.5rem 0;
+}
+
+.feature-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.feature-card-header {
+  margin-bottom: 0.75rem;
+}
+
+.feature-card h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+}
+
+.feature-card p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+}
+
+.feature-card ul {
+  padding-left: 1.25rem;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+/* Step Cards */
+.step-card {
+  display: flex;
+  gap: 1.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin: 1.25rem 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.step-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--primary-blue);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.step-content {
+  flex: 1;
+}
+
+.step-content h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+}
+
+/* Error Fix Cards */
+.error-fix-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.error-badge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.error-frequency {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Custom Badges */
+.badge-guest {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0284c7;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.badge-idle {
+  background: var(--success-light);
+  color: var(--success-green);
+  border: 1px solid var(--success-border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.badge-busy {
+  background: var(--warning-light);
+  color: var(--warning-amber);
+  border: 1px solid var(--warning-border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.badge-restarting {
+  background: var(--primary-blue-light);
+  color: var(--primary-blue);
+  border: 1px solid var(--primary-blue-border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  animation: pulse 1.5s infinite;
+}
+
+.badge-disconnected {
+  background: var(--danger-light);
+  color: var(--danger-red);
+  border: 1px solid var(--danger-border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.badge-tutorial {
+  background: var(--accent-purple-light);
+  color: var(--accent-purple);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.badge-error {
+  background: var(--danger-light);
+  color: var(--danger-red);
+  border: 1px solid var(--danger-border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Diagram Containers */
+.diagram-container {
+  margin: 2rem 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+.diagram-title {
+  padding: 10px 16px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+/* App Wireframe */
+.app-layout-wireframe {
+  padding: 1.5rem;
+  font-family: var(--font-sans);
+}
+
+.wireframe-navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.wf-logo {
+  font-weight: 700;
+  color: var(--primary-blue);
+  margin-right: 8px;
+}
+
+.wf-badge {
+  background: var(--primary-blue-light);
+  color: var(--primary-blue);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+.wf-pill {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  margin: 0 3px;
+}
+
+.wireframe-body {
+  display: grid;
+  grid-template-columns: 200px 1fr 220px;
+  gap: 12px;
+}
+
+@media (max-width: 800px) {
+  .wireframe-body { grid-template-columns: 1fr; }
+}
+
+.wireframe-sidebar-left, .wireframe-panel-right {
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.8rem;
+}
+
+.wf-header {
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+}
+
+.wf-actions {
+  color: var(--primary-blue);
+  font-size: 0.72rem;
+  margin-bottom: 8px;
+}
+
+.wf-tree {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+
+.wireframe-editor-center {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.wf-notebook-header {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+}
+
+.wf-cell {
+  display: flex;
+  background: var(--bg-code);
+  color: var(--text-code);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+
+.wf-cell-gutter {
+  color: #10b981;
+  font-weight: 700;
+  margin-right: 12px;
+}
+
+.wf-cell-output {
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 0.75rem;
+}
+
+.wf-resize-handle {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 6px 0;
+  cursor: row-resize;
+}
+
+/* Autocomplete Simulation */
+.autocomplete-sim-box {
+  background: var(--bg-code);
+  color: var(--text-code);
+  padding: 1.5rem;
+  font-family: var(--font-mono);
+  position: relative;
+}
+
+.sim-editor-line {
+  line-height: 1.8;
+  font-size: 0.95rem;
+}
+
+.syn-keyword { color: #f43f5e; font-weight: 600; }
+.syn-var { color: #38bdf8; }
+
+.sim-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: #38bdf8;
+  vertical-align: middle;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+.sim-dropdown {
+  margin-top: 6px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.sim-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sim-item.active {
+  background: var(--primary-blue-light);
+  color: var(--primary-blue);
+  border-left: 3px solid var(--primary-blue);
+}
+
+.sim-icon-func {
+  background: #3b82f6;
+  color: #fff;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.sim-desc {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+/* DataTableView Mockup */
+.table-view-mockup {
+  padding: 1.25rem;
+  background: var(--bg-surface);
+}
+
+.tv-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tv-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 12px;
+  flex: 1;
+  max-width: 320px;
+}
+
+.tv-search-box input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  width: 100%;
+}
+
+.tv-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tv-pill-action {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tv-page-select {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.tv-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.tv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.tv-table th {
+  background: var(--bg-sidebar);
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--border-color);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tv-sort-icon {
+  color: var(--primary-blue);
+  font-size: 0.7rem;
+}
+
+.tv-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.tv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.tv-pagination {
+  display: flex;
+  gap: 4px;
+}
+
+.tv-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.tv-page-num.active {
+  padding: 4px 10px;
+  background: var(--primary-blue);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+/* State Diagram */
+.state-diagram-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 2rem 1rem;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cell-node, .kernel-node {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  text-align: center;
+}
+
+.node-title, .kernel-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.node-code, .kernel-vars {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--primary-blue);
+}
+
+.node-arrow {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+/* Chart Simulation */
+.chart-sim-box {
+  padding: 1.5rem;
+  background: var(--bg-surface);
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+}
+
+/* Glossary */
+.glossary-list dt {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--primary-blue);
+  margin-top: 1.25rem;
+}
+
+.glossary-list dd {
+  margin-left: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  font-size: 0.92rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Code Copy */
+.code-copy-btn.copied {
+  background-color: var(--success-green) !important;
+  color: #ffffff !important;
+}
+
+/* === RESPONSIVE BREAKPOINTS === */
+@media (max-width: 1200px) {
+  .docs-toc {
+    display: none;
+  }
+  .docs-main {
+    border-right: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .docs-sidebar {
+    position: fixed;
+    top: var(--header-height);
+    left: 0;
+    bottom: 0;
+    width: 290px;
+    max-width: 85vw;
+    background-color: var(--bg-surface);
+    border-right: 1px solid var(--border-color);
+    z-index: 60;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  }
+  .docs-sidebar.open {
+    transform: translateX(0);
+  }
+  .mobile-toggle-btn {
+    display: flex;
+  }
+  .header-search-btn {
+    width: 170px;
+  }
+  .docs-main {
+    padding: 2rem 1.25rem 4rem 1.25rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .header-search-btn {
+    display: none;
+  }
+  .print-btn {
+    display: none;
+  }
+  .brand-subtitle {
+    display: none;
+  }
+  .brand-badge {
+    white-space: nowrap;
+    font-size: 0.92rem;
+  }
+  .app-link-btn span {
+    display: none;
+  }
+  .app-link-btn {
+    padding: 6px 8px;
+  }
+  .hero-title {
+    font-size: 1.85rem;
+  }
+  .docs-main {
+    padding: 1.5rem 1rem 3rem 1rem;
+  }
+}
+
+/* === PRINT STYLESHEET === */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt;
+  }
+  .docs-header, .docs-sidebar, .docs-toc, .back-to-top-btn, .search-modal-backdrop, .reading-progress-bar, .copy-btn {
+    display: none !important;
+  }
+  .docs-main {
+    padding: 0 !important;
+    border: none !important;
+  }
+  .content-wrapper {
+    max-width: 100% !important;
+  }
+  h1, h2, h3 {
+    color: #000000 !important;
+    page-break-after: avoid;
+  }
+  .code-container, .expected-output, .callout, .doc-card, .mistake-card {
+    border: 1px solid #cccccc !important;
+    background-color: #f9f9f9 !important;
+    color: #000000 !important;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+  }
+  pre, code, .output-text {
+    color: #000000 !important;
+  }
+  a {
+    color: #000000 !important;
+    text-decoration: underline;
+  }
+}
+
+  </style>
+</head>
+<body>
+
+<!-- Reading Progress Bar -->
+<div class="reading-progress-bar" id="readingProgress" aria-hidden="true"></div>
+
+<!-- Top Sticky Header -->
+<header class="docs-header" role="banner">
+  <div class="header-left">
+    <button class="mobile-toggle-btn" id="mobileMenuBtn" aria-label="Toggle navigation menu" title="Open Menu">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+    <a href="#hero" class="brand-badge">
+      <div class="brand-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+      </div>
+      <span>Python Cloud Studio</span>
+      <span class="brand-subtitle">Official User Guide</span>
+    </a>
+  </div>
+
+  <button class="header-search-btn" id="openSearchBtn" aria-label="Search documentation" title="Quick Search (Ctrl+K or /)">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"></circle>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+    </svg>
+    <span>Search guide & tutorials...</span>
+    <span class="search-kbd">Ctrl K</span>
+  </button>
+
+  <div class="header-right">
+    <button class="theme-toggle-btn" id="themeToggleBtn" aria-label="Toggle light and dark mode" title="Switch Theme">
+      <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+      <svg id="themeIconMoon" style="display:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+      <span id="themeLabel">Theme</span>
+    </button>
+
+    <button class="print-btn" id="printDocBtn" aria-label="Print or save as PDF" title="Print Manual / Save as PDF">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 6 2 18 2 18 9"></polyline>
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+        <rect x="6" y="14" width="12" height="8"></rect>
+      </svg>
+      <span>Print / PDF</span>
+    </button>
+
+    <a href="http://localhost:8765" target="_blank" rel="noopener noreferrer" class="app-link-btn" title="Open the running Python Cloud Studio web application at http://localhost:8765">
+      <span>Open Studio</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+        <polyline points="15 3 21 3 21 9"></polyline>
+        <line x1="10" y1="14" x2="21" y2="3"></line>
+      </svg>
+    </a>
+  </div>
+</header>
+
+<!-- Interactive Search Modal -->
+<div class="search-modal-backdrop" id="searchModalBackdrop" role="dialog" aria-modal="true" aria-label="Search User Guide">
+  <div class="search-modal">
+    <div class="search-input-wrapper">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" color="var(--primary-blue)">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" class="search-modal-input" id="searchModalInput" placeholder="Search chapters, features, errors, shortcuts..." autocomplete="off" spellcheck="false" />
+      <button id="closeSearchModalBtn" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;">✕</button>
+    </div>
+    <ul class="search-results-list" id="searchResultsList" role="listbox">
+      <!-- Search items rendered via JavaScript -->
+    </ul>
+    <div class="search-footer">
+      <span>Type to search • Press <strong>Esc</strong> to close</span>
+      <span>Client-Side Local Index</span>
+    </div>
+  </div>
+</div>
+
+
+<div class="docs-layout">
+
+<!-- Left Documentation Sidebar -->
+<aside class="docs-sidebar" id="docsSidebar" role="navigation" aria-label="User Guide Navigation">
+  
+  <!-- Category 1 -->
+  <div class="sidebar-category">
+    <div class="sidebar-category-header">
+      <span>1. Getting Started</span>
+      <span class="badge badge-verified">Core</span>
+    </div>
+    <ul class="sidebar-nav-list">
+      <li class="sidebar-nav-item"><a href="#ch1" class="sidebar-nav-link">Chapter 1: Welcome to Cloud Studio</a></li>
+      <li class="sidebar-nav-item"><a href="#ch2" class="sidebar-nav-link">Chapter 2: First 5 Minutes Tutorial</a></li>
+      <li class="sidebar-nav-item"><a href="#ch3" class="sidebar-nav-link">Chapter 3: Login, Logout & Guest Mode</a></li>
+      <li class="sidebar-nav-item"><a href="#ch4" class="sidebar-nav-link">Chapter 4: Understanding the Interface</a></li>
+      <li class="sidebar-nav-item"><a href="#ch5" class="sidebar-nav-link">Chapter 5: Your First Notebook</a></li>
+    </ul>
+  </div>
+
+  <!-- Category 2 -->
+  <div class="sidebar-category">
+    <div class="sidebar-category-header">
+      <span>2. Writing & Running Python</span>
+      <span class="badge badge-verified">Essential</span>
+    </div>
+    <ul class="sidebar-nav-list">
+      <li class="sidebar-nav-item"><a href="#ch6" class="sidebar-nav-link">Chapter 6: How to Write Python Code</a></li>
+      <li class="sidebar-nav-item"><a href="#ch7" class="sidebar-nav-link">Chapter 7: Executing Code & Controls</a></li>
+      <li class="sidebar-nav-item"><a href="#ch8" class="sidebar-nav-link">Chapter 8: Understanding Output</a></li>
+      <li class="sidebar-nav-item"><a href="#ch9" class="sidebar-nav-link">Chapter 9: Multi-Cell & Kernel State</a></li>
+      <li class="sidebar-nav-item"><a href="#ch16" class="sidebar-nav-link">Chapter 16: Python Runtime & Kernel</a></li>
+      <li class="sidebar-nav-item"><a href="#ch17" class="sidebar-nav-link">Chapter 17: Installing Packages (%pip)</a></li>
+    </ul>
+  </div>
+
+  <!-- Category 3 -->
+  <div class="sidebar-category">
+    <div class="sidebar-category-header">
+      <span>3. Data Science & Files</span>
+      <span class="badge badge-verified">Analysis</span>
+    </div>
+    <ul class="sidebar-nav-list">
+      <li class="sidebar-nav-item"><a href="#ch10" class="sidebar-nav-link">Chapter 10: NumPy & Pandas DataFrames</a></li>
+      <li class="sidebar-nav-item"><a href="#ch11" class="sidebar-nav-link">Chapter 11: Charts & Visualizations</a></li>
+      <li class="sidebar-nav-item"><a href="#ch12" class="sidebar-nav-link">Chapter 12: Uploading & Using Datasets</a></li>
+    </ul>
+  </div>
+
+  <!-- Category 4 -->
+  <div class="sidebar-category">
+    <div class="sidebar-category-header">
+      <span>4. Debugging & Troubleshooting</span>
+      <span class="badge badge-verified">Diagnostics</span>
+    </div>
+    <ul class="sidebar-nav-list">
+      <li class="sidebar-nav-item"><a href="#ch13" class="sidebar-nav-link">Chapter 13: Using the Python Debugger</a></li>
+      <li class="sidebar-nav-item"><a href="#ch14" class="sidebar-nav-link">Chapter 14: Python Errors & How to Fix</a></li>
+      <li class="sidebar-nav-item"><a href="#ch23" class="sidebar-nav-link">Chapter 23: AI Coding Assistant</a></li>
+      <li class="sidebar-nav-item"><a href="#ch18" class="sidebar-nav-link">Chapter 18: Terminal & Shell Magics</a></li>
+    </ul>
+  </div>
+
+  <!-- Category 5 -->
+  <div class="sidebar-category">
+    <div class="sidebar-category-header">
+      <span>5. Organization & Settings</span>
+      <span class="badge badge-verified">Workspace</span>
+    </div>
+    <ul class="sidebar-nav-list">
+      <li class="sidebar-nav-item"><a href="#ch15" class="sidebar-nav-link">Chapter 15: Saving & Managing Work</a></li>
+      <li class="sidebar-nav-item"><a href="#ch19" class="sidebar-nav-link">Chapter 19: Profile, Secrets & Themes</a></li>
+      <li class="sidebar-nav-item"><a href="#ch20" class="sidebar-nav-link">Chapter 20: Sharing & Collaboration</a></li>
+      <li class="sidebar-nav-item"><a href="#ch21" class="sidebar-nav-link">Chapter 21: Student Features</a></li>
+      <li class="sidebar-nav-item"><a href="#ch22" class="sidebar-nav-link">Chapter 22: Instructor & Admin Console</a></li>
+    </ul>
+  </div>
+
+  <!-- Category 6 -->
+  <div class="sidebar-category">
+    <div class="sidebar-category-header">
+      <span>6. Beginner Tutorials (A–J)</span>
+      <span class="badge badge-tutorial">Practice</span>
+    </div>
+    <ul class="sidebar-nav-list">
+      <li class="sidebar-nav-item"><a href="#tut-a" class="sidebar-nav-link">Tutorial A: Hello World</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-b" class="sidebar-nav-link">Tutorial B: Simple Calculator</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-c" class="sidebar-nav-link">Tutorial C: Variables & State</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-d" class="sidebar-nav-link">Tutorial D: Interactive Pandas Table</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-e" class="sidebar-nav-link">Tutorial E: CSV Upload & Analysis</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-f" class="sidebar-nav-link">Tutorial F: Matplotlib Chart</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-g" class="sidebar-nav-link">Tutorial G: Find & Fix Syntax Error</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-h" class="sidebar-nav-link">Tutorial H: Debugging a Function</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-i" class="sidebar-nav-link">Tutorial I: Save & Download Work</a></li>
+      <li class="sidebar-nav-item"><a href="#tut-j" class="sidebar-nav-link">Tutorial J: Multi-Cell Calculations</a></li>
+    </ul>
+  </div>
+
+  <!-- Category 7 -->
+  <div class="sidebar-category">
+    <div class="sidebar-category-header">
+      <span>7. Reference & Help</span>
+      <span class="badge badge-verified">Quick Help</span>
+    </div>
+    <ul class="sidebar-nav-list">
+      <li class="sidebar-nav-item"><a href="#ch24" class="sidebar-nav-link">Chapter 24: Keyboard Shortcuts</a></li>
+      <li class="sidebar-nav-item"><a href="#ch25" class="sidebar-nav-link">Chapter 25: Troubleshooting KB</a></li>
+      <li class="sidebar-nav-item"><a href="#ch26" class="sidebar-nav-link">Chapter 26: Frequently Asked Questions</a></li>
+      <li class="sidebar-nav-item"><a href="#ch27" class="sidebar-nav-link">Chapter 27: Quick Start Cheat Sheet</a></li>
+      <li class="sidebar-nav-item"><a href="#ch28" class="sidebar-nav-link">Chapter 28: Comprehensive Glossary</a></li>
+    </ul>
+  </div>
+
+</aside>
+
+
+  <main class="docs-main" id="mainContent" role="main">
+    <div class="content-wrapper">
+
+<!-- Hero Section -->
+<section id="hero" class="hero-section">
+  <div class="hero-badge">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+    </svg>
+    Official Documentation & Learning Manual
+  </div>
+
+  <h1 class="hero-title">Python Cloud Studio</h1>
+  <p class="hero-subtitle">
+    The enterprise-ready, browser-based Python notebook and data analysis studio.
+    Zero local setup, instant kernel execution, real-time code intelligence, and isolated multi-tenant workspaces.
+  </p>
+
+  <!-- Quick Action Jump Chips -->
+  <div class="hero-quick-links">
+    <a href="#ch2" class="quick-chip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      5-Minute Quickstart
+    </a>
+    <a href="#ch4" class="quick-chip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+      Interface Map
+    </a>
+    <a href="#ch6" class="quick-chip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+      IntelliSense & Autocomplete
+    </a>
+    <a href="#ch10" class="quick-chip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+      Interactive DataTables
+    </a>
+    <a href="#ch24" class="quick-chip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"></path></svg>
+      Keyboard Shortcuts
+    </a>
+    <a href="#tut-a" class="quick-chip">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+      Beginner Tutorials (A–J)
+    </a>
+  </div>
+
+  <!-- Key Architecture Stats / Highlights Grid -->
+  <div class="hero-stats-grid">
+    <div class="stat-card">
+      <div class="stat-number">0 sec</div>
+      <div class="stat-label">Local Setup Required</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">100%</div>
+      <div class="stat-label">Isolated Workspace Sandbox</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">Monaco</div>
+      <div class="stat-label">IntelliSense Autocomplete</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">Live</div>
+      <div class="stat-label">Interactive DataFrame Tables</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 1: Welcome to Python Cloud Studio -->
+<!-- ========================================================================= -->
+<section id="ch1" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 1</span>
+      <span class="section-reading-time">3 min read</span>
+    </div>
+    <h2 class="section-title">Welcome to Python Cloud Studio</h2>
+    <p class="section-lead">
+      Learn what Python Cloud Studio is, why it eliminates traditional Python configuration headaches, and how it compares to local Jupyter and Google Colab.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>What is Python Cloud Studio?</h3>
+    <p>
+      <strong>Python Cloud Studio</strong> is a modern, enterprise-grade cloud workspace for writing, executing, and sharing Python code.
+      Unlike traditional Python workflows that require installing Python interpreters, configuring <code>virtualenv</code> or Anaconda, and debugging environment path collisions on your local computer, Python Cloud Studio runs entirely inside your web browser.
+    </p>
+    <p>
+      Under the hood, Python Cloud Studio pairs a high-performance frontend editor powered by Monaco (the engine behind Visual Studio Code) with a containerized Python kernel communicating over high-speed ZeroMQ and WebSocket connections.
+    </p>
+
+    <div class="callout callout-info">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        Why Browser-Based Cloud Execution Matters
+      </div>
+      <div class="callout-body">
+        <p>Traditional local Python setups frequently break due to conflicting C-libraries, missing dependencies, or OS permission limits. With Python Cloud Studio:</p>
+        <ul>
+          <li><strong>Zero Local Installation:</strong> Open your browser to <code>http://localhost:8765</code> (or your organization's URL) and start coding instantly.</li>
+          <li><strong>Consistent Hardware & Environment:</strong> Every session runs with a verified Python runtime, pre-configured data science libraries, and allocated system resources.</li>
+          <li><strong>Cross-Platform Parity:</strong> Windows, macOS, Linux, and Chromebook users receive the exact same intuitive interface and execution environment.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>How Python Cloud Studio Compares to Other Tools</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>Python Cloud Studio</th>
+          <th>Traditional Jupyter Lab</th>
+          <th>Google Colab</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Setup Time</strong></td>
+          <td><span class="badge badge-verified">Instant (0 sec)</span></td>
+          <td>Requires Terminal, pip, conda (10-30 min)</td>
+          <td>Instant with Google Account</td>
+        </tr>
+        <tr>
+          <td><strong>Multi-Tenant Isolation</strong></td>
+          <td><span class="badge badge-verified">Strict Tenant & Guest Sandbox</span></td>
+          <td>Single-user / Local file access only</td>
+          <td>Single Google Drive boundary</td>
+        </tr>
+        <tr>
+          <td><strong>Pandas Table Viewer</strong></td>
+          <td><span class="badge badge-verified">Interactive DataTableView (Filter, Sort, Export)</span></td>
+          <td>Static HTML table</td>
+          <td>Basic interactive filter (extension required)</td>
+        </tr>
+        <tr>
+          <td><strong>Autocomplete & Signature Help</strong></td>
+          <td><span class="badge badge-verified">Monaco Engine + Viewport-Aware Dropdowns</span></td>
+          <td>Standard CodeMirror completions</td>
+          <td>Custom autocomplete popup</td>
+        </tr>
+        <tr>
+          <td><strong>Institutional / LMS Integration</strong></td>
+          <td><span class="badge badge-verified">Built-in Classrooms & SuperAdmin Console</span></td>
+          <td>Requires JupyterHub setup</td>
+          <td>No native classroom gradebook</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
+        Who Is This Guide For?
+      </div>
+      <div class="callout-body">
+        This documentation is designed for both <strong>complete beginners</strong> writing their very first line of code and <strong>data science professionals</strong> analyzing complex datasets. Each section includes clear visual explanations, practical code examples, and keyboard shortcuts.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 2: First 5 Minutes Tutorial -->
+<!-- ========================================================================= -->
+<section id="ch2" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Chapter 2</span>
+      <span class="section-reading-time">5 min practice</span>
+    </div>
+    <h2 class="section-title">First 5 Minutes Tutorial: Zero to Running Code</h2>
+    <p class="section-lead">
+      Follow this fast-track guide to launch Python Cloud Studio, write your first code cell, execute it, and see your output in under five minutes.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="step-card">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h4>Open the Application in Your Browser</h4>
+        <p>Navigate to <code>http://localhost:8765</code> (or the web address provided by your administrator). The Studio opens immediately in <strong>Guest Mode</strong>, with a clean workspace ready for coding.</p>
+        <p>Notice the top navigation bar displays <span class="badge badge-guest">Guest Mode — Public Workspace</span> and the kernel indicator shows <span class="badge badge-idle">Python 3 (idle)</span>.</p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h4>Locate the Active Code Cell</h4>
+        <p>In the central notebook area, you will see a rectangular block bordered in subtle gray with a left gutter showing <code>[ ]</code> and a circular <kbd>▶</kbd> Run button. This is a <strong>Code Cell</strong>.</p>
+        <p>Click inside the dark editor box to place your cursor. A thin colored border highlights the active cell.</p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h4>Type Your First Python Command</h4>
+        <p>Type the following greeting code inside the cell:</p>
+        <div class="code-container">
+          <div class="code-header">
+            <span class="code-lang">Python</span>
+            <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+          </div>
+          <pre class="code-pre"><code>name = "Python Explorer"
+greeting = f"Welcome to Python Cloud Studio, {name}!"
+print(greeting)</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h4>Execute the Cell</h4>
+        <p>To run your code, you have two options:</p>
+        <ul>
+          <li><strong>Mouse:</strong> Click the circular <kbd>▶</kbd> button on the left gutter of the code cell.</li>
+          <li><strong>Keyboard (Recommended):</strong> Press <kbd>Shift</kbd> + <kbd>Enter</kbd> (or <kbd>Ctrl</kbd> + <kbd>Enter</kbd>).</li>
+        </ul>
+        <p>While executing, the gutter button shows a spinning indicator. Within milliseconds, the execution counter changes to <code>[1]</code> and your output appears directly below the cell:</p>
+        <div class="output-preview">
+          <div class="output-header">Output [1]</div>
+          <pre class="output-body">Welcome to Python Cloud Studio, Python Explorer!</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h4>Add a Second Cell and Reuse Variables</h4>
+        <p>Click the <strong>+ Code</strong> button on the notebook toolbar or press <kbd>Alt</kbd> + <kbd>Enter</kbd> in your first cell. In the new cell, type:</p>
+        <div class="code-container">
+          <div class="code-header">
+            <span class="code-lang">Python</span>
+            <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+          </div>
+          <pre class="code-pre"><code># Notice that 'name' is remembered from the previous cell!
+print(f"Character count in your name: {len(name)}")</code></pre>
+        </div>
+        <p>Press <kbd>Shift</kbd> + <kbd>Enter</kbd> to run it. You have successfully created, connected, and executed your first multi-cell notebook!</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 3: Logging In, Logging Out, and Guest Mode -->
+<!-- ========================================================================= -->
+<section id="ch3" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 3</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Logging In, Logging Out, and Guest Mode</h2>
+    <p class="section-lead">
+      Understand how workspace isolation works, the difference between Public Guest Mode and Private Tenant Workspaces, and how your data remains strictly protected.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>The Two Workspace Modes</h3>
+    <p>
+      Python Cloud Studio provides a dual-tier workspace architecture designed for both friction-free experimentation and high-security enterprise isolation:
+    </p>
+
+    <div class="two-column-grid">
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <span class="badge badge-guest">Guest Mode (Public Workspace)</span>
+        </div>
+        <h4>Instant Collaboration Sandbox</h4>
+        <ul>
+          <li><strong>No Login Required:</strong> Anyone who opens the application starts here immediately.</li>
+          <li><strong>Shared File Access:</strong> Files uploaded or created in Guest Mode live in <code>storage/workspaces/public/</code>.</li>
+          <li><strong>Capability Tokens:</strong> Your browser receives an <code>X-Guest-Token</code> to track your temporary session.</li>
+          <li><strong>Ideal For:</strong> Quick code testing, temporary calculations, and public classroom demonstrations.</li>
+        </ul>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <span class="badge badge-verified">Authenticated (Private Workspace)</span>
+        </div>
+        <h4>Isolated Multi-Tenant Security</h4>
+        <ul>
+          <li><strong>Secured by JWT Authentication:</strong> Accessible only after logging in with your email and password.</li>
+          <li><strong>Strict Tenant Isolation:</strong> Stored in <code>storage/workspaces/user_{id}/default/</code>. No other user can view or alter your files.</li>
+          <li><strong>Persistent Storage:</strong> Your notebooks, CSV datasets, and environment secrets remain saved indefinitely.</li>
+          <li><strong>SuperAdmin Oversight:</strong> Instructors and administrators can audit and manage workspaces without compromising tenant privacy.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>How to Log In</h3>
+    <ol>
+      <li>Click the <strong>Sign In</strong> button located at the top-right corner of the navigation bar.</li>
+      <li>An authentication modal appears over your current screen.</li>
+      <li>Enter your registered <strong>Email</strong> and <strong>Password</strong>, then click <strong>Sign In</strong>.</li>
+      <li>If you are a new student or team member, click <strong>Create an account</strong>, enter your full name, email, desired password, and click <strong>Register</strong>.</li>
+      <li>Upon successful authentication, the top navbar instantly updates to display your name and a green <span class="badge badge-verified">Signed In — Private Workspace</span> badge.</li>
+    </ol>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        Important: What Happens When You Log Out?
+      </div>
+      <div class="callout-body">
+        <p>
+          When you click the red <strong>Sign out</strong> button in the top navbar:
+        </p>
+        <ul>
+          <li>Your JWT session token is instantly destroyed from browser memory.</li>
+          <li>All active file editor tabs and notebook handles associated with your private account are closed immediately.</li>
+          <li>The left file explorer automatically switches back to the <strong>Public Workspace</strong>.</li>
+          <li>Your private files are <strong>NEVER visible</strong> to anyone who uses the browser after you log out.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 4: Understanding the Studio Interface -->
+<!-- ========================================================================= -->
+<section id="ch4" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 4</span>
+      <span class="section-reading-time">6 min read</span>
+    </div>
+    <h2 class="section-title">Understanding the Studio Interface</h2>
+    <p class="section-lead">
+      An in-depth visual breakdown of every toolbar, sidebar, panel, and indicator across Python Cloud Studio.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p>
+      Python Cloud Studio uses a cohesive, high-density layout inspired by Google Colab and Visual Studio Code. The interface is organized into five primary regions:
+    </p>
+
+    <!-- Visual Architecture Diagram of the App -->
+    <div class="diagram-container">
+      <div class="diagram-title">Python Cloud Studio — Layout Architecture</div>
+      <div class="app-layout-wireframe">
+        <!-- Top Navbar Wireframe -->
+        <div class="wireframe-navbar">
+          <div class="wf-nav-left">
+            <span class="wf-logo">Python Cloud Studio</span>
+            <span class="wf-badge">Workspace Badge</span>
+          </div>
+          <div class="wf-nav-center">
+            <span class="wf-pill">Notebooks Modal</span>
+            <span class="wf-pill">Run All</span>
+            <span class="wf-pill">Restart Kernel</span>
+            <span class="wf-pill">Kernel Status (idle)</span>
+          </div>
+          <div class="wf-nav-right">
+            <span class="wf-pill">Secrets</span>
+            <span class="wf-pill">Theme</span>
+            <span class="wf-pill">User Profile / Sign In</span>
+          </div>
+        </div>
+
+        <!-- Main Body Grid Wireframe -->
+        <div class="wireframe-body">
+          <!-- Left Sidebar -->
+          <div class="wireframe-sidebar-left">
+            <div class="wf-header">FILES EXPLORER</div>
+            <div class="wf-actions">+ File | + Folder | Upload | Refresh</div>
+            <div class="wf-tree">
+              <div>📁 data/</div>
+              <div>&nbsp;&nbsp;📄 sales.csv</div>
+              <div>📄 analysis.ipynb</div>
+              <div>📄 script.py</div>
+            </div>
+            <div class="wf-footer">[Public] or [Private]</div>
+          </div>
+
+          <!-- Central Notebook Canvas -->
+          <div class="wireframe-editor-center">
+            <div class="wf-notebook-header">
+              <span class="wf-title">📓 Untitled.ipynb</span>
+              <span class="wf-actions">+ Code | + Text | Save (Ctrl+S)</span>
+            </div>
+            <div class="wf-cell">
+              <div class="wf-cell-gutter">[1] ▶</div>
+              <div class="wf-cell-code">import pandas as pd<br>df = pd.read_csv('data/sales.csv')<br>df</div>
+            </div>
+            <div class="wf-cell-output">
+              <div class="wf-table-bar">Interactive DataTableView (Sort, Filter, Download)</div>
+              <div class="wf-table-grid">[Interactive Table Rows]</div>
+            </div>
+            <div class="wf-resize-handle">═ Drag to Resize Cell Height (80px - 800px) ═</div>
+          </div>
+
+          <!-- Right Collapsible Panel -->
+          <div class="wireframe-panel-right">
+            <div class="wf-tab-bar">Files | AI | Vars | Stats</div>
+            <div class="wf-panel-content">
+              <div><strong>Tabbed File Editor</strong></div>
+              <div>Edit .py, .csv, .md side-by-side with unsaved dirty bullet ●</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Detailed Region Breakdown</h3>
+    <div class="accordion-item">
+      <div class="accordion-header">
+        <h4>1. Top Navigation Bar (Navbar)</h4>
+        <span class="badge badge-verified">Always Visible</span>
+      </div>
+      <div class="accordion-content">
+        <ul>
+          <li><strong>Brand & Workspace Badge:</strong> Shows the active mode (<span class="badge badge-guest">Guest Mode</span> or <span class="badge badge-verified">Private Workspace</span>).</li>
+          <li><strong>Notebooks Button (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>):</strong> Opens the Notebooks Manager dialog to switch, download, duplicate, or delete notebooks.</li>
+          <li><strong>Run All (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>):</strong> Sequentially executes all code cells from top to bottom.</li>
+          <li><strong>Restart Kernel (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>):</strong> Wipes kernel memory and starts a fresh Python interpreter session. Rotates with an animation while restarting.</li>
+          <li><strong>Kernel Status Pill:</strong> Live color-coded indicator:
+            <ul>
+              <li><span class="badge badge-idle">Python 3 (idle)</span> — Kernel is ready to receive commands.</li>
+              <li><span class="badge badge-busy">Python 3 (busy)</span> — Currently executing code.</li>
+              <li><span class="badge badge-restarting">Python 3 (restarting)</span> — Kernel process is rebooting.</li>
+              <li><span class="badge badge-disconnected">Disconnected</span> — Network connection lost.</li>
+            </ul>
+          </li>
+          <li><strong>Secrets (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path></svg>):</strong> Configures workspace environment variables and API keys (e.g., OpenAI, Gemini, HuggingFace).</li>
+          <li><strong>Theme Toggle:</strong> Switches seamlessly between System, Dark, and Light themes.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header">
+        <h4>2. Left Sidebar (Files Explorer)</h4>
+        <span class="badge badge-verified">Collapsible (Ctrl+B)</span>
+      </div>
+      <div class="accordion-content">
+        <ul>
+          <li><strong>Toolbar Actions:</strong> <code>+ File</code> creates a new file; <code>+ Folder</code> creates a subfolder; <code>Upload</code> uploads files from your computer; <code>Refresh</code> reloads the tree.</li>
+          <li><strong>Drag-and-Drop:</strong> You can drag files directly from your computer's desktop into the sidebar to upload them.</li>
+          <li><strong>Context Menu:</strong> Right-clicking any file or folder reveals: <em>Rename</em>, <em>Download</em>, and <em>Delete</em>.</li>
+          <li><strong>Double-Click to Edit:</strong> Double-clicking any non-notebook file (like <code>.py</code>, <code>.csv</code>, <code>.txt</code>, <code>.md</code>) opens it directly in the Right Panel Tabbed Editor.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header">
+        <h4>3. Central Notebook Canvas & Resizable Cells</h4>
+        <span class="badge badge-verified">Core Work Area</span>
+      </div>
+      <div class="accordion-content">
+        <ul>
+          <li><strong>Code Cells:</strong> Monaco-based editor with syntax highlighting, line numbers, autocomplete, and diagnostics.</li>
+          <li><strong>Execution Counter:</strong> Shows <code>[ ]</code> before execution and <code>[n]</code> after, displaying the order in which cells were run.</li>
+          <li><strong>Drag-to-Resize Handle:</strong> Every code cell features an ergonomic drag handle at the bottom edge. Click and drag vertically to resize the editor height anywhere from <strong>80px to 800px</strong>. Cell heights are automatically saved in notebook metadata!</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header">
+        <h4>4. Right Side Panel</h4>
+        <span class="badge badge-verified">Auxiliary Tools</span>
+      </div>
+      <div class="accordion-content">
+        <ul>
+          <li><strong>Files Tab:</strong> Tabbed editor for working with companion scripts, configuration files, or viewing raw CSV text.</li>
+          <li><strong>AI Assistant Tab:</strong> Built-in intelligent programming assistant to generate code, explain errors, and insert snippets directly into your notebook.</li>
+          <li><strong>Variables Tab:</strong> Inspect active Python variables stored in kernel memory.</li>
+          <li><strong>Metrics Tab:</strong> Monitor real-time CPU, RAM, and Disk allocation.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 5: Your First Notebook: Creation, Structure & Cells -->
+<!-- ========================================================================= -->
+<section id="ch5" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 5</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Your First Notebook: Creation, Structure & Cells</h2>
+    <p class="section-lead">
+      Learn how Jupyter notebooks are organized, how to create and rename notebooks, and the fundamental anatomy of code cells.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>What is a Jupyter Notebook (`.ipynb`)?</h3>
+    <p>
+      A notebook is an interactive computational document that combines runnable code, formatted text, equations, and rich visualizations into a single file. Under the hood, notebooks are saved in standard <strong>Jupyter Notebook Format v4</strong> (JSON structure), which means your work is 100% portable and can be opened in VS Code, JupyterLab, or Google Colab.
+    </p>
+
+    <h3>Creating and Managing Notebooks</h3>
+    <p>You can create a new notebook in two simple ways:</p>
+    <ul>
+      <li>Click the <strong>Notebooks</strong> button in the top navbar and click <strong>+ New Notebook</strong>.</li>
+      <li>Click the <strong>+ File</strong> button in the left sidebar and enter a filename ending with <code>.ipynb</code> (e.g., <code>data_analysis.ipynb</code>).</li>
+    </ul>
+
+    <h3>Cell Anatomy: Code vs. Markdown</h3>
+    <div class="two-column-grid">
+      <div class="feature-card">
+        <h4>Code Cells</h4>
+        <p>Used to write executable Python code. They feature:</p>
+        <ul>
+          <li>Left execution gutter with run button <kbd>▶</kbd></li>
+          <li>Execution order number: <code>[1]</code>, <code>[2]</code>, etc.</li>
+          <li>Output area below the editor for text, tables, and images.</li>
+          <li>Monaco editor with full IntelliSense and diagnostics.</li>
+        </ul>
+      </div>
+      <div class="feature-card">
+        <h4>Markdown (Text) Cells</h4>
+        <p>Used to document your work, explain methodology, and create headers:</p>
+        <ul>
+          <li>Supports standard Markdown: <code># Headers</code>, <code>**bold**</code>, <code>*italics*</code>.</li>
+          <li>Rendered automatically when you click outside or press <kbd>Shift</kbd> + <kbd>Enter</kbd>.</li>
+          <li>Supports lists, links, tables, and LaTeX math equations.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Cell Action Toolbar</h3>
+    <p>When you hover over or select a cell, an action toolbar appears allowing you to:</p>
+    <ul>
+      <li><strong>Run Cell:</strong> Execute the cell immediately.</li>
+      <li><strong>Move Up / Down:</strong> Reorder cells within the notebook document.</li>
+      <li><strong>Duplicate Cell:</strong> Create an exact copy of the cell directly below.</li>
+      <li><strong>Delete Cell:</strong> Remove the cell (with an undo safety buffer).</li>
+    </ul>
+  </div>
+</section>
+
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 6: How to Write Python Code & IntelliSense -->
+<!-- ========================================================================= -->
+<section id="ch6" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 6</span>
+      <span class="section-reading-time">5 min read</span>
+    </div>
+    <h2 class="section-title">How to Write Python Code & IntelliSense</h2>
+    <p class="section-lead">
+      Master the Monaco-powered code editor, smart autocomplete suggestions, parameter signature hints, and real-time syntax diagnostics.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>The Monaco Editor Experience</h3>
+    <p>
+      Python Cloud Studio embeds the industry-standard <strong>Monaco Editor</strong> directly into every notebook code cell. This gives you the exact same precision typing, multi-cursor editing, bracket colorization, and auto-indentation found in Visual Studio Code.
+    </p>
+
+    <h3>1. Python IntelliSense Autocomplete</h3>
+    <p>
+      As you type Python code, Cloud Studio actively inspects both the Python Abstract Syntax Tree (AST) and the live runtime kernel namespace to offer context-aware suggestions:
+    </p>
+
+    <div class="callout callout-info">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        Viewport-Aware Dropdown Positioning (Google Colab Style)
+      </div>
+      <div class="callout-body">
+        <ul>
+          <li><strong>Intelligent Placement:</strong> The autocomplete suggestion dropdown appears directly below your typing cursor. If there is insufficient room at the bottom of the viewport (&lt;260px), it smoothly flips <em>above</em> the cursor.</li>
+          <li><strong>Keyboard Navigation:</strong> Use <kbd>Arrow Down</kbd> and <kbd>Arrow Up</kbd> to move through candidate functions, methods, and variables. The list scrolls smoothly to ensure the highlighted item is always in view.</li>
+          <li><strong>Accepting Suggestions:</strong> Press <kbd>Tab</kbd> or <kbd>Enter</kbd> to insert the exact matched token.</li>
+          <li><strong>Dismissing:</strong> Press <kbd>Escape</kbd> to close the autocomplete dropdown without altering your text.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Interactive Diagram / Visual Simulation of Autocomplete -->
+    <div class="diagram-container">
+      <div class="diagram-title">Visual Simulation: Autocomplete Dropdown in Action</div>
+      <div class="autocomplete-sim-box">
+        <div class="sim-editor-line">
+          <span class="syn-keyword">import</span> <span class="syn-var">pandas</span> <span class="syn-keyword">as</span> <span class="syn-var">pd</span>
+        </div>
+        <div class="sim-editor-line">
+          <span class="syn-var">pd.read_</span><span class="sim-cursor"></span>
+        </div>
+        <!-- Dropdown Box -->
+        <div class="sim-dropdown">
+          <div class="sim-item active">
+            <span class="sim-icon-func">f</span>
+            <span class="sim-name"><strong>read_csv</strong></span>
+            <span class="sim-desc">Read a comma-separated values (csv) file into DataFrame</span>
+          </div>
+          <div class="sim-item">
+            <span class="sim-icon-func">f</span>
+            <span class="sim-name">read_excel</span>
+            <span class="sim-desc">Read an Excel file into a pandas DataFrame</span>
+          </div>
+          <div class="sim-item">
+            <span class="sim-icon-func">f</span>
+            <span class="sim-name">read_json</span>
+            <span class="sim-desc">Convert a JSON string to pandas object</span>
+          </div>
+          <div class="sim-item">
+            <span class="sim-icon-func">f</span>
+            <span class="sim-name">read_parquet</span>
+            <span class="sim-desc">Load a parquet object from the file path</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>2. Parameter Signature Help</h3>
+    <p>
+      When you type an opening parenthesis <code>(</code> after a function name (e.g., <code>pd.read_csv(</code> or <code>plt.plot(</code>), a dedicated <strong>Parameter Signature Help</strong> box appears.
+    </p>
+    <ul>
+      <li>Displays parameter names, default values, and parameter descriptions.</li>
+      <li><strong>Non-Overlapping Layout:</strong> The signature popup is positioned cleanly above the line so it never blocks or collides with the autocomplete dropdown below.</li>
+      <li>Pressing <kbd>Escape</kbd> dismisses only the active popup without interfering with your typing flow.</li>
+    </ul>
+
+    <h3>3. Real-Time Code Diagnostics</h3>
+    <p>
+      Python Cloud Studio continually checks your code for syntax mistakes, unclosed parentheses, and unresolved imports:
+    </p>
+    <ul>
+      <li><strong>Red Squiggly Underlines:</strong> Highlight the exact error token in your code. Hover your mouse over the red line to view a clear explanation of what needs to be fixed.</li>
+      <li><strong>Typing Suppression:</strong> To avoid distracting you while actively typing, diagnostics are automatically suppressed until you pause or finish your statement.</li>
+      <li><strong>Automatic Refresh:</strong> When you run a cell, restart the kernel, or install a new package via <code>%pip</code>, diagnostics automatically re-evaluate and clear immediately.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 7: Executing Code & Execution Controls -->
+<!-- ========================================================================= -->
+<section id="ch7" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 7</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Executing Code & Execution Controls</h2>
+    <p class="section-lead">
+      Learn all the ways to run code, understand the cell execution counter, run the entire notebook at once, and cancel stuck calculations.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>The Three Execution Shortcuts</h3>
+    <p>
+      Mastering keyboard shortcuts is the single most effective way to accelerate your Python workflow. Python Cloud Studio provides three distinct execution actions:
+    </p>
+
+    <div class="three-column-grid">
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <kbd>Ctrl</kbd> + <kbd>Enter</kbd>
+        </div>
+        <h4>Run & Stay in Current Cell</h4>
+        <p>Runs the active cell without moving focus. Perfect when iteratively testing adjustments to the same function or chart.</p>
+        <span class="badge badge-verified">Focus Preserved</span>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <kbd>Shift</kbd> + <kbd>Enter</kbd>
+        </div>
+        <h4>Run & Advance to Next Cell</h4>
+        <p>Runs the active cell and automatically advances cursor focus to the next cell. If you are on the last cell, it creates a new empty cell!</p>
+        <span class="badge badge-verified">Primary Workflow</span>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <kbd>Alt</kbd> + <kbd>Enter</kbd>
+        </div>
+        <h4>Run & Insert New Cell Below</h4>
+        <p>Runs the active cell and immediately inserts a brand-new blank cell directly below, moving your cursor into it.</p>
+        <span class="badge badge-verified">Rapid Expansion</span>
+      </div>
+    </div>
+
+    <h3>Understanding the Execution Gutter</h3>
+    <p>
+      On the left side of every code cell is the execution gutter. It communicates three distinct states:
+    </p>
+    <ul>
+      <li><code>[ ]</code> <strong>Not Yet Executed:</strong> The cell has not run in the current kernel session.</li>
+      <li><span class="badge badge-busy">Spinning Circle</span> <strong>Running:</strong> The code is currently executing on the cloud kernel. The top navbar displays <code>Python 3 (busy)</code>.</li>
+      <li><code>[1]</code> <strong>Executed:</strong> The number indicates the exact sequential order in which this cell was executed in the current session.</li>
+    </ul>
+
+    <h3>Using "Run All"</h3>
+    <p>
+      Located on the top navbar, the <strong>Run All</strong> button (<kbd>▶</kbd>) sequentially executes every code cell in your notebook from the first to the last. This is standard practice before sharing your notebook or generating final reports, ensuring all variables and results are computed in top-to-bottom order.
+    </p>
+
+    <h3>Interrupting a Long-Running or Infinite Loop</h3>
+    <p>
+      If your code gets stuck in an unintentional infinite loop (for example, <code>while True: pass</code>), the kernel will remain in the busy state. To stop it:
+    </p>
+    <ol>
+      <li>Click the <strong>Restart Kernel</strong> button (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>) in the top navbar.</li>
+      <li>A confirmation banner appears. Confirm the restart.</li>
+      <li>The kernel process is terminated and instantly rebooted, freeing all CPU resources.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 8: Understanding Output -->
+<!-- ========================================================================= -->
+<section id="ch8" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 8</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Understanding Output</h2>
+    <p class="section-lead">
+      Learn how Python Cloud Studio captures, formats, and renders different types of cell output, from basic print statements to rich multimedia.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Standard Output vs. Expression Return Values</h3>
+    <p>
+      In Python notebooks, there is an important difference between printing something and evaluating an expression on the last line:
+    </p>
+
+    <div class="two-column-grid">
+      <div class="feature-card">
+        <h4>1. Standard Output (`print()`)</h4>
+        <p>Text sent to Python's <code>sys.stdout</code> stream. Rendered in a clean monospace font below the cell:</p>
+        <div class="code-container">
+          <pre class="code-pre"><code>print("Calculating results...")
+print("Step 1 complete.")</code></pre>
+        </div>
+        <div class="output-preview">
+          <pre class="output-body">Calculating results...
+Step 1 complete.</pre>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <h4>2. Last-Line Expression Value</h4>
+        <p>If the final line of your code cell evaluates to an object or expression, the notebook displays it automatically without needing <code>print()</code>:</p>
+        <div class="code-container">
+          <pre class="code-pre"><code>score = 95
+score * 1.05  # Automatically rendered!</code></pre>
+        </div>
+        <div class="output-preview">
+          <div class="output-header">Out [2]:</div>
+          <pre class="output-body">99.75</pre>
+        </div>
+      </div>
+    </div>
+
+    <h3>Rich Output Types Supported</h3>
+    <p>Python Cloud Studio automatically detects and renders rich MIME types:</p>
+    <ul>
+      <li><strong>Pandas DataFrames:</strong> Automatically transformed into interactive, searchable, sortable tables (see Chapter 10).</li>
+      <li><strong>Matplotlib & Seaborn Charts:</strong> High-resolution PNG images rendered inline with crystal-clear vector sharpness.</li>
+      <li><strong>HTML & Markdown:</strong> Rendered directly using safe DOM sanitization.</li>
+      <li><strong>ANSI Error Tracebacks:</strong> Python exceptions and stack traces are color-coded in high-visibility red, amber, and cyan, making errors effortless to diagnose.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 9: Multi-Cell & Kernel State -->
+<!-- ========================================================================= -->
+<section id="ch9" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 9</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Multi-Cell & Kernel State</h2>
+    <p class="section-lead">
+      Understand how memory persists across different cells, the golden rules of notebook execution order, and how to avoid hidden state bugs.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>The Shared Global Namespace</h3>
+    <p>
+      In a Python Cloud Studio notebook, all code cells share a <strong>single running Python kernel process</strong>.
+      When you define a variable, import a library, or declare a function in one cell, it remains stored in the kernel's memory and is immediately accessible to all other cells.
+    </p>
+
+    <!-- Visual Diagram of Shared Memory -->
+    <div class="diagram-container">
+      <div class="diagram-title">How Notebook Cells Share Kernel Memory</div>
+      <div class="state-diagram-wrapper">
+        <div class="cell-node">
+          <div class="node-title">Cell 1 [Executed]</div>
+          <div class="node-code"><code>total_revenue = 450000</code></div>
+        </div>
+        <div class="node-arrow">── stores into ──▶</div>
+        <div class="kernel-node">
+          <div class="kernel-title">Active IPyKernel Memory</div>
+          <div class="kernel-vars">
+            <code>total_revenue: 450000</code><br>
+            <code>tax_rate: 0.15</code>
+          </div>
+        </div>
+        <div class="node-arrow">◀── reads from ──</div>
+        <div class="cell-node">
+          <div class="node-title">Cell 2 [Executed]</div>
+          <div class="node-code"><code>net = total_revenue * (1 - tax_rate)</code></div>
+        </div>
+      </div>
+    </div>
+
+    <h3>The Out-of-Order Execution Pitfall</h3>
+    <p>
+      Because you can run cells in any order you choose, you might run Cell 3 before Cell 2. While flexible, this can lead to confusing bugs where code works on your screen but fails when someone else runs the notebook from top to bottom.
+    </p>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        Best Practice: The "Restart & Run All" Test
+      </div>
+      <div class="callout-body">
+        <p>Before saving your final work or turning in an assignment, always do this quick two-step check:</p>
+        <ol>
+          <li>Click the <strong>Restart</strong> button in the top navbar to clear all kernel variables.</li>
+          <li>Click <strong>Run All</strong> to verify that every cell executes cleanly from top to bottom with zero errors.</li>
+        </ol>
+        <p>If all cells pass, your notebook is 100% reproducible and ready for production or grading!</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 10: NumPy & Pandas DataFrames (Interactive DataTableView) -->
+<!-- ========================================================================= -->
+<section id="ch10" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 10</span>
+      <span class="section-reading-time">6 min read</span>
+    </div>
+    <h2 class="section-title">NumPy & Pandas DataFrames (Interactive DataTableView)</h2>
+    <p class="section-lead">
+      Learn how to manipulate tabular data with Pandas and leverage Python Cloud Studio's upgraded interactive table viewer.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>The Power of Pandas in Cloud Studio</h3>
+    <p>
+      <strong>Pandas</strong> is Python's premier data manipulation library. Whenever you display a Pandas DataFrame (for example, by typing <code>df</code> on the last line of a code cell), Python Cloud Studio automatically intercepts the HTML table output and upgrades it into a rich, interactive <strong>DataTableView</strong> component.
+    </p>
+
+    <!-- Visual Interactive Table Mockup -->
+    <div class="diagram-container">
+      <div class="diagram-title">DataTableView — Interactive Component Architecture</div>
+      <div class="table-view-mockup">
+        <!-- Control Toolbar -->
+        <div class="tv-toolbar">
+          <div class="tv-search-box">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" placeholder="Filter rows across all columns..." value="Engineering" readonly />
+          </div>
+          <div class="tv-actions">
+            <span class="tv-pill-action">📋 Copy TSV</span>
+            <span class="tv-pill-action">⬇ Download CSV</span>
+            <span class="tv-page-select">Show 10 rows ▾</span>
+          </div>
+        </div>
+
+        <!-- Rendered Table Grid -->
+        <div class="tv-table-wrapper">
+          <table class="tv-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Employee Name <span class="tv-sort-icon">▲</span></th>
+                <th>Department</th>
+                <th>Salary ($) <span class="tv-sort-icon">▼</span></th>
+                <th>Performance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>Alex Rivera</td>
+                <td><span class="badge badge-verified">Engineering</span></td>
+                <td>$124,500</td>
+                <td>Excellent</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>Elena Rostova</td>
+                <td><span class="badge badge-verified">Engineering</span></td>
+                <td>$138,200</td>
+                <td>Exceptional</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td>Marcus Vance</td>
+                <td><span class="badge badge-verified">Engineering</span></td>
+                <td>$115,000</td>
+                <td>Good</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Table Footer -->
+        <div class="tv-footer">
+          <span>Showing 1 to 3 of 3 filtered entries (filtered from 50 total records)</span>
+          <div class="tv-pagination">
+            <button class="tv-btn" disabled>« Previous</button>
+            <span class="tv-page-num active">1</span>
+            <button class="tv-btn" disabled>Next »</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Key Capabilities of DataTableView</h3>
+    <div class="two-column-grid">
+      <div class="feature-card">
+        <h4>1. Instant Column Sorting</h4>
+        <p>Click any column header to sort in ascending order (<code>▲</code>). Click again to sort in descending order (<code>▼</code>). Works seamlessly on text, numbers, dates, and currency.</p>
+      </div>
+      <div class="feature-card">
+        <h4>2. Live Real-Time Filtering</h4>
+        <p>Type into the filter bar to immediately isolate rows matching your search query across all columns simultaneously—no code modification needed.</p>
+      </div>
+      <div class="feature-card">
+        <h4>3. Customizable Page Sizes</h4>
+        <p>Choose from 10, 25, 50, 100, or "All" rows per page. High-density virtualization ensures smooth scrolling even on massive datasets.</p>
+      </div>
+      <div class="feature-card">
+        <h4>4. One-Click TSV Copy & CSV Export</h4>
+        <p>Click <strong>Copy TSV</strong> to paste directly into Microsoft Excel or Google Sheets. Click <strong>Download CSV</strong> to save the table to your local hard drive.</p>
+      </div>
+    </div>
+
+    <h3>Example Code: Creating an Interactive DataFrame</h3>
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>import pandas as pd
+import numpy as np
+
+# Create a sample DataFrame
+data = {
+    "Employee": ["Alex Rivera", "Sarah Chen", "Elena Rostova", "Marcus Vance", "Priya Patel"],
+    "Department": ["Engineering", "Product", "Engineering", "Engineering", "Marketing"],
+    "Salary": [124500, 132000, 138200, 115000, 98000],
+    "Tenure_Years": [3.5, 4.0, 5.2, 2.1, 1.8]
+}
+
+df = pd.DataFrame(data)
+df  # Simply evaluate 'df' on the last line to activate DataTableView</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 11: Charts & Visualizations -->
+<!-- ========================================================================= -->
+<section id="ch11" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 11</span>
+      <span class="section-reading-time">5 min read</span>
+    </div>
+    <h2 class="section-title">Charts & Visualizations</h2>
+    <p class="section-lead">
+      Create publication-quality charts using Matplotlib and Seaborn, rendered directly inside your notebook output.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Built-in Visualization Libraries</h3>
+    <p>
+      Python Cloud Studio comes with <strong>Matplotlib</strong> and <strong>Seaborn</strong> pre-configured. When you call <code>plt.show()</code>, the chart is captured as a high-density PNG graphic and embedded directly beneath your code cell.
+    </p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>import matplotlib.pyplot as plt
+import numpy as np
+
+# Generate sample trend data
+x = np.linspace(0, 10, 100)
+y1 = np.sin(x)
+y2 = np.cos(x)
+
+plt.figure(figsize=(9, 4), dpi=100)
+plt.plot(x, y1, label="Sine Wave", color="#2563eb", linewidth=2.5)
+plt.plot(x, y2, label="Cosine Wave", color="#10b981", linewidth=2.5, linestyle="--")
+
+plt.title("Trigonometric Signal Analysis", fontsize=14, fontweight="bold", pad=12)
+plt.xlabel("Time (seconds)", fontsize=11)
+plt.ylabel("Signal Amplitude", fontsize=11)
+plt.legend(frameon=True, loc="upper right")
+plt.grid(True, linestyle=":", alpha=0.6)
+plt.tight_layout()
+plt.show()</code></pre>
+    </div>
+
+    <!-- Visual Chart Simulation -->
+    <div class="diagram-container">
+      <div class="diagram-title">Rendered Output: Inline Matplotlib Plot</div>
+      <div class="chart-sim-box">
+        <svg viewBox="0 0 700 220" class="chart-svg">
+          <!-- Background Grid Lines -->
+          <line x1="50" y1="30" x2="650" y2="30" stroke="var(--border-color)" stroke-dasharray="3,3" />
+          <line x1="50" y1="80" x2="650" y2="80" stroke="var(--border-color)" stroke-dasharray="3,3" />
+          <line x1="50" y1="130" x2="650" y2="130" stroke="var(--border-color)" stroke-dasharray="3,3" />
+          <line x1="50" y1="180" x2="650" y2="180" stroke="var(--border-color)" stroke-dasharray="3,3" />
+          <!-- Axes -->
+          <line x1="50" y1="130" x2="650" y2="130" stroke="var(--text-muted)" stroke-width="1.5" />
+          <!-- Sine Curve (Blue) -->
+          <path d="M 50,130 Q 125,10 200,130 T 350,130 T 500,130 T 650,130" fill="none" stroke="#2563eb" stroke-width="3" />
+          <!-- Cosine Curve (Green Dashed) -->
+          <path d="M 50,30 Q 125,130 200,210 T 350,30 T 500,210 T 650,30" fill="none" stroke="#10b981" stroke-width="2.5" stroke-dasharray="6,4" />
+          <!-- Legend Box -->
+          <rect x="520" y="35" width="120" height="45" rx="4" fill="var(--bg-card)" stroke="var(--border-color)" />
+          <line x1="530" y1="48" x2="555" y2="48" stroke="#2563eb" stroke-width="3" />
+          <text x="562" y="52" fill="var(--text-primary)" font-size="11" font-family="sans-serif">Sine Wave</text>
+          <line x1="530" y1="65" x2="555" y2="65" stroke="#10b981" stroke-width="2.5" stroke-dasharray="4,2" />
+          <text x="562" y="69" fill="var(--text-primary)" font-size="11" font-family="sans-serif">Cosine Wave</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 12: Uploading & Using Datasets -->
+<!-- ========================================================================= -->
+<section id="ch12" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 12</span>
+      <span class="section-reading-time">5 min read</span>
+    </div>
+    <h2 class="section-title">Uploading & Using Datasets</h2>
+    <p class="section-lead">
+      Step-by-step instructions for uploading CSV, Excel, and JSON files, inspecting them in the Tabbed Editor, and loading them into your code.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Uploading Files to Your Workspace</h3>
+    <p>
+      Python Cloud Studio makes uploading datasets effortless. You can use either the file toolbar or direct drag-and-drop:
+    </p>
+
+    <div class="step-card">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h4>Click the Upload Button in the Left Sidebar</h4>
+        <p>In the Left Files Sidebar, click the <strong>Upload</strong> button (or drag files from your computer folder directly into the sidebar panel). Select your dataset (e.g., <code>housing_data.csv</code>).</p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h4>Verify in the Files Tree</h4>
+        <p>The file appears immediately in your file tree. If you are logged in, it is securely stored in your private workspace. If you are a guest, it is stored in the public workspace.</p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h4>Optional: Inspect in the Tabbed File Editor</h4>
+        <p>Double-click the CSV file in the sidebar. A new tab opens in the <strong>Right Panel</strong> displaying the raw data with row numbers. You can make quick edits, save changes, or close the tab.</p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h4>Load into Pandas with Relative File Paths</h4>
+        <p>Because the Python kernel runs with its working directory set to your workspace root, you can read the file directly without typing complex system paths:</p>
+        <div class="code-container">
+          <div class="code-header">
+            <span class="code-lang">Python</span>
+            <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+          </div>
+          <pre class="code-pre"><code>import pandas as pd
+
+# Load the uploaded file directly
+df = pd.read_csv("housing_data.csv")
+
+# Display the first 5 records
+df.head()</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 13: Using the Python Debugger (breakpoint & pdb) -->
+<!-- ========================================================================= -->
+<section id="ch13" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 13</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Using the Python Debugger</h2>
+    <p class="section-lead">
+      Learn how to pause execution, inspect local variables, and step through complex functions using Python's built-in debugger.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="callout callout-info">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        Current Debugging Architecture & Roadmap
+      </div>
+      <div class="callout-body">
+        In Python Cloud Studio, interactive debugging is powered by Python's standard <code>breakpoint()</code> hook and the <code>pdb</code> engine, paired with ANSI-color tracebacks. A visual DAP (Debug Adapter Protocol) gutter breakpoint tool with step-over/step-into buttons is actively on our development roadmap.
+      </div>
+    </div>
+
+    <h3>How to Set Breakpoints in a Code Cell</h3>
+    <p>
+      To pause code execution at a specific line and inspect variables, insert <code>breakpoint()</code> where you want Python to pause:
+    </p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>def calculate_discount(price, customer_tier):
+    rate = 0.05
+    if customer_tier == "vip":
+        rate = 0.20
+    
+    # Pause execution here to inspect variables
+    breakpoint()
+    
+    final_price = price * (1 - rate)
+    return final_price
+
+result = calculate_discount(150.0, "vip")</code></pre>
+    </div>
+
+    <h3>Essential Debugger Commands</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Name</th>
+          <th>What It Does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><kbd>p variable</kbd></td>
+          <td>Print Variable</td>
+          <td>Evaluates and prints the current value of <code>variable</code> (e.g., <code>p rate</code>).</td>
+        </tr>
+        <tr>
+          <td><kbd>n</kbd></td>
+          <td>Next</td>
+          <td>Executes the current line and advances to the next line in the function.</td>
+        </tr>
+        <tr>
+          <td><kbd>s</kbd></td>
+          <td>Step In</td>
+          <td>Steps inside the function call on the current line.</td>
+        </tr>
+        <tr>
+          <td><kbd>c</kbd></td>
+          <td>Continue</td>
+          <td>Resumes normal program execution until the next breakpoint.</td>
+        </tr>
+        <tr>
+          <td><kbd>q</kbd></td>
+          <td>Quit</td>
+          <td>Terminates the debugger immediately.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 14: Python Errors & How to Fix Them -->
+<!-- ========================================================================= -->
+<section id="ch14" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 14</span>
+      <span class="section-reading-time">6 min read</span>
+    </div>
+    <h2 class="section-title">Python Errors & How to Fix Them</h2>
+    <p class="section-lead">
+      A beginner's visual field guide to understanding common Python exceptions, identifying the root cause, and applying the permanent fix.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p>
+      Errors are an expected part of every programmer's journey. When Python encounters an issue, Cloud Studio prints an ANSI-formatted error traceback showing the file, line number, and exact reason.
+    </p>
+
+    <!-- Error 1: SyntaxError -->
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">SyntaxError: invalid syntax</span>
+        <span class="error-frequency">Most Common</span>
+      </div>
+      <p><strong>Cause:</strong> Python cannot understand the structure of your code—often a missing colon <code>:</code>, unclosed quotation mark, or mismatched bracket.</p>
+      <div class="two-column-grid">
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">❌ Broken Code</span></div>
+          <pre class="code-pre"><code>if age &gt;= 18  # Missing colon!
+    print("Eligible")</code></pre>
+        </div>
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">✔ Fixed Code</span></div>
+          <pre class="code-pre"><code>if age &gt;= 18:  # Added colon
+    print("Eligible")</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error 2: NameError -->
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">NameError: name '...' is not defined</span>
+        <span class="error-frequency">Frequent</span>
+      </div>
+      <p><strong>Cause:</strong> You are trying to use a variable or function that has not been defined yet, misspelled the name, or forgot to run the cell above where it was declared.</p>
+      <div class="two-column-grid">
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">❌ Broken Code</span></div>
+          <pre class="code-pre"><code>user_name = "Jordan"
+print(username)  # Misspelled underscore!</code></pre>
+        </div>
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">✔ Fixed Code</span></div>
+          <pre class="code-pre"><code>user_name = "Jordan"
+print(user_name)  # Exact match</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error 3: TypeError -->
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">TypeError: can only concatenate str to str</span>
+        <span class="error-frequency">Frequent</span>
+      </div>
+      <p><strong>Cause:</strong> Combining incompatible data types, such as adding a string to an integer.</p>
+      <div class="two-column-grid">
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">❌ Broken Code</span></div>
+          <pre class="code-pre"><code>age = 25
+print("Your age is: " + age)</code></pre>
+        </div>
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">✔ Fixed Code</span></div>
+          <pre class="code-pre"><code>age = 25
+print(f"Your age is: {age}")  # Use f-strings</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error 4: ModuleNotFoundError -->
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">ModuleNotFoundError: No module named '...'</span>
+        <span class="error-frequency">Environment</span>
+      </div>
+      <p><strong>Cause:</strong> Attempting to import a package that is not yet installed in your runtime environment.</p>
+      <div class="two-column-grid">
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">❌ Broken Code</span></div>
+          <pre class="code-pre"><code>import rich
+# Fails if 'rich' is not installed</code></pre>
+        </div>
+        <div class="code-container">
+          <div class="code-header"><span class="code-lang">✔ Fixed Code</span></div>
+          <pre class="code-pre"><code># Run in a cell first:
+%pip install rich
+
+import rich  # Now succeeds immediately!</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 15: Saving & Managing Your Work -->
+<!-- ========================================================================= -->
+<section id="ch15" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 15</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Saving & Managing Your Work</h2>
+    <p class="section-lead">
+      Learn how to save notebooks, download `.ipynb` files to your computer, duplicate templates, and organize workspace files.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Saving Notebooks (`Ctrl+S`)</h3>
+    <p>
+      Whenever you edit code or generate new cell outputs, press <kbd>Ctrl</kbd> + <kbd>S</kbd> (or <kbd>⌘</kbd> + <kbd>S</kbd> on macOS).
+      A toast notification confirms the save, and the file is written to your workspace storage in valid Jupyter Notebook format v4 JSON.
+    </p>
+
+    <h3>Using the Notebooks Manager Modal</h3>
+    <p>
+      Click the <strong>Notebooks</strong> button (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>) in the top navbar to open the comprehensive <strong>Notebooks Management Dialog</strong>:
+    </p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Button</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Switch Active</strong></td>
+          <td>Click Notebook Card</td>
+          <td>Switches your active editor canvas to the selected notebook without page reload.</td>
+        </tr>
+        <tr>
+          <td><strong>Download</strong></td>
+          <td><kbd>Download .ipynb</kbd></td>
+          <td>Downloads the raw notebook directly to your computer's Downloads folder.</td>
+        </tr>
+        <tr>
+          <td><strong>Duplicate</strong></td>
+          <td><kbd>Duplicate</kbd></td>
+          <td>Creates an exact clone of the notebook (e.g., <code>analysis_copy.ipynb</code>) for safe experimentation.</td>
+        </tr>
+        <tr>
+          <td><strong>Delete</strong></td>
+          <td><kbd>Delete</kbd></td>
+          <td>Deletes the notebook after a confirmation prompt.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 16: Python Runtime & Kernel Management -->
+<!-- ========================================================================= -->
+<section id="ch16" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 16</span>
+      <span class="section-reading-time">5 min read</span>
+    </div>
+    <h2 class="section-title">Python Runtime & Kernel Management</h2>
+    <p class="section-lead">
+      Understand the underlying IPyKernel architecture, how ZeroMQ channels handle code execution, and how to safely reboot the runtime.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Kernel Architecture & Execution Pipeline</h3>
+    <p>
+      When you click Run or press <kbd>Shift</kbd> + <kbd>Enter</kbd>, your browser does not execute Python directly. Instead:
+    </p>
+    <ol>
+      <li>The code string is packaged into a JSON execution message and sent via WebSocket to the FastAPI backend.</li>
+      <li>The backend relays the request through high-performance ZeroMQ sockets to an isolated <strong>IPyKernel</strong> process.</li>
+      <li>Output streams (stdout, stderr, display_data) stream back in real-time to your notebook canvas.</li>
+    </ol>
+
+    <!-- Visual Architecture of the Kernel Lifecycle -->
+    <div class="diagram-container">
+      <div class="diagram-title">ZeroMQ & IPyKernel Execution Flow</div>
+      <div class="state-diagram-wrapper">
+        <div class="cell-node">
+          <div class="node-title">Monaco Editor</div>
+          <div class="node-code">User presses Shift+Enter</div>
+        </div>
+        <div class="node-arrow">── WebSocket ──▶</div>
+        <div class="kernel-node">
+          <div class="kernel-title">FastAPI Backend (8765)</div>
+          <div class="kernel-vars">Dispatches via ZeroMQ</div>
+        </div>
+        <div class="node-arrow">── ZeroMQ ──▶</div>
+        <div class="cell-node">
+          <div class="node-title">Python IPyKernel</div>
+          <div class="node-code">Executes in Sandbox</div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Restarting the Kernel</h3>
+    <p>
+      If your kernel becomes unresponsive or you want to wipe all variables from memory to start fresh:
+    </p>
+    <ol>
+      <li>Click the <strong>Restart</strong> button (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>) in the top navbar.</li>
+      <li>The icon spins (<code>animate-spin</code>) and the status pill turns pulsing blue (<span class="badge badge-restarting">restarting</span>).</li>
+      <li>A toast banner announces <em>"Kernel restarted successfully"</em>.</li>
+      <li>All active variables are wiped, and diagnostics refresh automatically.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 17: Installing Packages with %pip -->
+<!-- ========================================================================= -->
+<section id="ch17" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 17</span>
+      <span class="section-reading-time">5 min read</span>
+    </div>
+    <h2 class="section-title">Installing Packages with %pip</h2>
+    <p class="section-lead">
+      Learn how to install third-party Python libraries using magic commands, understand isolated user site-packages, and why restart is no longer required.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Installing Libraries Directly in a Code Cell</h3>
+    <p>
+      Need a package that isn't pre-installed? You can install it on-the-fly directly inside your notebook using the standard <code>%pip</code> magic command:
+    </p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code># Install any PyPI package into your workspace
+%pip install rich polars scikit-learn</code></pre>
+    </div>
+
+    <div class="callout callout-info">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        How Python Cloud Studio Protects the System Environment
+      </div>
+      <div class="callout-body">
+        <ul>
+          <li><strong>Automatic User Isolation:</strong> When you run <code>%pip install</code>, Cloud Studio automatically injects <code>--user</code> behind the scenes. Packages are placed into your personal <code>.local/lib/python3.x/site-packages</code>.</li>
+          <li><strong>No Kernel Restart Needed:</strong> Cloud Studio immediately invalidates Python's <code>sys.path_importer_cache</code>. You can import your newly installed library in the very next cell without restarting the kernel!</li>
+          <li><strong>Guest Protection:</strong> Guest accounts are restricted from altering the system environment. Sign in to install custom libraries.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 18: Terminal & Shell Magics -->
+<!-- ========================================================================= -->
+<section id="ch18" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 18</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Terminal & Shell Magics</h2>
+    <p class="section-lead">
+      Execute operating system shell commands safely using the `!` prefix, run IPython line magics, and understand security restrictions.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="callout callout-info">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        Current Shell Workflow & Web PTY Roadmap
+      </div>
+      <div class="callout-body">
+        In the current release, command-line operations run through safe IPython cell execution (using <code>!</code> and <code>%</code>). An embedded, full-featured web terminal (PTY / xterm.js) is on our development roadmap for enterprise deployment.
+      </div>
+    </div>
+
+    <h3>Running Shell Commands with `!`</h3>
+    <p>Prefix any line in a code cell with an exclamation mark (<code>!</code>) to execute it in the underlying operating system environment:</p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Bash</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code># Inspect files in the current workspace directory
+!dir
+
+# Check active Python interpreter version
+!python --version</code></pre>
+    </div>
+
+    <h3>Common IPython Magics</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Magic</th>
+          <th>Purpose</th>
+          <th>Example</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>%time</code></td>
+          <td>Measures execution time of a single statement.</td>
+          <td><code>%time sum(range(1000000))</code></td>
+        </tr>
+        <tr>
+          <td><code>%timeit</code></td>
+          <td>Runs code multiple times to compute average benchmark.</td>
+          <td><code>%timeit [x**2 for x in range(1000)]</code></td>
+        </tr>
+        <tr>
+          <td><code>%who</code></td>
+          <td>Lists all defined variables in the kernel namespace.</td>
+          <td><code>%who</code></td>
+        </tr>
+        <tr>
+          <td><code>%pip</code></td>
+          <td>Installs packages into user site-packages.</td>
+          <td><code>%pip install rich</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 19: Profile, Secrets & Themes -->
+<!-- ========================================================================= -->
+<section id="ch19" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 19</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Profile, Secrets & Themes</h2>
+    <p class="section-lead">
+      Manage API keys with the Secrets Modal, configure environment variables, and switch between System, Dark, and Light visual themes.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Managing API Keys with SecretsModal</h3>
+    <p>
+      Never hardcode sensitive API keys or database passwords in your notebook code! Python Cloud Studio includes a dedicated <strong>Secrets Manager</strong>:
+    </p>
+    <ol>
+      <li>Click the <strong>Secrets</strong> button (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path></svg>) in the top navbar.</li>
+      <li>Choose from preset templates (<code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>HUGGINGFACE_API_KEY</code>) or click <strong>+ Add Custom Secret</strong>.</li>
+      <li>Secrets are stored securely in your private workspace <code>.env</code> file and automatically injected into Python's <code>os.environ</code>.</li>
+    </ol>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>import os
+
+# Safely read secrets from environment variables
+api_key = os.environ.get("OPENAI_API_KEY")
+print("Key configured:", bool(api_key))</code></pre>
+    </div>
+
+    <h3>Switching Visual Themes</h3>
+    <p>
+      Click the <strong>Theme</strong> dropdown in the top navbar to choose:
+    </p>
+    <ul>
+      <li><strong>System:</strong> Automatically matches your operating system's light or dark mode setting.</li>
+      <li><strong>Dark:</strong> High-contrast modern dark palette engineered for low eye fatigue.</li>
+      <li><strong>Light:</strong> Crisp, clean high-contrast light theme ideal for classroom presentations and daytime work.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 20: Sharing & Collaboration -->
+<!-- ========================================================================= -->
+<section id="ch20" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 20</span>
+      <span class="section-reading-time">3 min read</span>
+    </div>
+    <h2 class="section-title">Sharing & Collaboration</h2>
+    <p class="section-lead">
+      Export your notebooks for colleagues, share analysis via the Public Workspace, and present findings cleanly.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Ways to Share Your Work</h3>
+    <div class="three-column-grid">
+      <div class="feature-card">
+        <h4>1. Export as `.ipynb`</h4>
+        <p>In the Notebooks Modal, click <strong>Download .ipynb</strong>. The file can be uploaded to GitHub, emailed to colleagues, or imported into Google Colab.</p>
+      </div>
+      <div class="feature-card">
+        <h4>2. Public Workspace Sharing</h4>
+        <p>Save or copy a notebook into the Public Workspace to make it immediately viewable and runnable by students and team guests.</p>
+      </div>
+      <div class="feature-card">
+        <h4>3. Classroom Assignments</h4>
+        <p>Instructors can publish assignment templates to classrooms where students can complete and submit their solutions.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 21: Student Features -->
+<!-- ========================================================================= -->
+<section id="ch21" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 21</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">Student Features & Assignments</h2>
+    <p class="section-lead">
+      How students join classrooms, complete coding assignments, run automated test cells, and submit their coursework.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Joining a Classroom</h3>
+    <p>
+      Instructors provide an enrollment join code (e.g., <code>CS101-FALL</code>). When enrolled as a student:
+    </p>
+    <ol>
+      <li>Sign in to your private account using your student email.</li>
+      <li>Assignments appear in your workspace under the <code>assignments/</code> directory.</li>
+      <li>Open the assigned <code>.ipynb</code> notebook to begin your coursework.</li>
+    </ol>
+
+    <h3>Working with Autograded Test Cells</h3>
+    <p>
+      Many courses include validation cells containing <code>assert</code> statements:
+    </p>
+    <div class="code-container">
+      <div class="code-header"><span class="code-lang">Python</span></div>
+      <pre class="code-pre"><code># Exercise: Define a function 'celsius_to_fahrenheit'
+def celsius_to_fahrenheit(c):
+    return (c * 9/5) + 32
+
+# Automated Test Cell:
+assert celsius_to_fahrenheit(0) == 32.0, "Test failed for 0°C"
+assert celsius_to_fahrenheit(100) == 212.0, "Test failed for 100°C"
+print("✔ All tests passed!")</code></pre>
+    </div>
+    <p>If all <code>assert</code> statements execute without an <code>AssertionError</code>, your solution is verified!</p>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 22: Instructor & SuperAdmin Console -->
+<!-- ========================================================================= -->
+<section id="ch22" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 22</span>
+      <span class="section-reading-time">5 min read</span>
+    </div>
+    <h2 class="section-title">Instructor & SuperAdmin Console</h2>
+    <p class="section-lead">
+      Comprehensive administration guide for managing users, installing system-wide packages, auditing workspaces, and reviewing security logs.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p>
+      Users with <code>super_admin</code> or <code>admin</code> roles see an amber shield <strong>Admin</strong> button in the top navbar. Clicking it opens the <strong>SuperAdmin Dashboard</strong>:
+    </p>
+
+    <!-- SuperAdmin Tabs Grid -->
+    <div class="two-column-grid">
+      <div class="feature-card">
+        <h4>1. System Overview</h4>
+        <p>Live health metrics, active kernel process counts, memory utilization, and real-time user session activity.</p>
+      </div>
+      <div class="feature-card">
+        <h4>2. User & Role Management</h4>
+        <p>Manage users, assign roles (<code>student</code>, <code>instructor</code>, <code>admin</code>), suspend accounts, or reset user access.</p>
+      </div>
+      <div class="feature-card">
+        <h4>3. System Packages Manager</h4>
+        <p>Install or uninstall Python packages across the entire server environment with authorized package governance.</p>
+      </div>
+      <div class="feature-card">
+        <h4>4. Workspaces & File Audit</h4>
+        <p>Inspect tenant file trees, check quota allocations, and enforce organizational data retention policies.</p>
+      </div>
+      <div class="feature-card">
+        <h4>5. Runtime & Kernel Controls</h4>
+        <p>View running kernel sessions across all containers and force-restart hung kernels to reclaim server RAM.</p>
+      </div>
+      <div class="feature-card">
+        <h4>6. Security Audit Logs</h4>
+        <p>Immutable event log recording all logins, privilege escalations, package installations, and system configuration changes.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 23: AI Coding Assistant -->
+<!-- ========================================================================= -->
+<section id="ch23" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 23</span>
+      <span class="section-reading-time">4 min read</span>
+    </div>
+    <h2 class="section-title">AI Coding Assistant</h2>
+    <p class="section-lead">
+      Harness the built-in AI assistant to generate Python code, explain tricky tracebacks, and insert working code directly into your notebook.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h3>Accessing the AI Assistant</h3>
+    <ol>
+      <li>Click the <strong>AI Assistant</strong> tab located in the Right Collapsible Panel.</li>
+      <li>Type your question or coding request into the chat box (e.g., <em>"How do I filter rows with missing values in Pandas?"</em>).</li>
+      <li>The AI streams an explanation alongside a tested code snippet.</li>
+      <li>Click <strong>Insert in Notebook</strong> to automatically append the code into a new cell on your active notebook canvas!</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 24: Keyboard Shortcuts Matrix -->
+<!-- ========================================================================= -->
+<section id="ch24" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 24</span>
+      <span class="section-reading-time">3 min reference</span>
+    </div>
+    <h2 class="section-title">Keyboard Shortcuts Matrix</h2>
+    <p class="section-lead">
+      Comprehensive reference of all productivity keyboard shortcuts for Windows, Linux, and macOS.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Windows / Linux</th>
+          <th>macOS</th>
+          <th>Context</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Run Cell (Stay)</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>Enter</kbd></td>
+          <td>Active Code Cell</td>
+        </tr>
+        <tr>
+          <td><strong>Run Cell & Advance</strong></td>
+          <td><kbd>Shift</kbd> + <kbd>Enter</kbd></td>
+          <td><kbd>Shift</kbd> + <kbd>Enter</kbd></td>
+          <td>Active Code Cell</td>
+        </tr>
+        <tr>
+          <td><strong>Run & Insert Cell Below</strong></td>
+          <td><kbd>Alt</kbd> + <kbd>Enter</kbd></td>
+          <td><kbd>Option</kbd> + <kbd>Enter</kbd></td>
+          <td>Active Code Cell</td>
+        </tr>
+        <tr>
+          <td><strong>Save Notebook</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>S</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>S</kbd></td>
+          <td>Anywhere</td>
+        </tr>
+        <tr>
+          <td><strong>Toggle Left Sidebar</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>B</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>B</kbd></td>
+          <td>Anywhere</td>
+        </tr>
+        <tr>
+          <td><strong>Trigger Autocomplete</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
+          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
+          <td>Editor Cursor</td>
+        </tr>
+        <tr>
+          <td><strong>Accept Suggestion</strong></td>
+          <td><kbd>Tab</kbd> or <kbd>Enter</kbd></td>
+          <td><kbd>Tab</kbd> or <kbd>Enter</kbd></td>
+          <td>Autocomplete Open</td>
+        </tr>
+        <tr>
+          <td><strong>Dismiss Popup</strong></td>
+          <td><kbd>Escape</kbd></td>
+          <td><kbd>Escape</kbd></td>
+          <td>Active Dropdown</td>
+        </tr>
+        <tr>
+          <td><strong>Search User Guide</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>K</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>K</kbd></td>
+          <td>This Documentation</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 25: Troubleshooting Knowledge Base -->
+<!-- ========================================================================= -->
+<section id="ch25" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 25</span>
+      <span class="section-reading-time">6 min read</span>
+    </div>
+    <h2 class="section-title">Troubleshooting Knowledge Base</h2>
+    <p class="section-lead">
+      Step-by-step diagnostic trees and resolution procedures for common operational issues.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">Issue: Kernel Status Shows "Disconnected"</span>
+      </div>
+      <p><strong>Symptom:</strong> The status pill in the top navbar shows red Disconnected and code cells will not run.</p>
+      <p><strong>Solution:</strong> Check your local network or backend server. If running locally, ensure <code>uvicorn</code> on port 8765 is active. Refresh your browser tab. Cloud Studio automatically attempts reconnection.</p>
+    </div>
+
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">Issue: ModuleNotFoundError Immediately After Installing</span>
+      </div>
+      <p><strong>Symptom:</strong> You ran <code>pip install package</code> in a terminal or cell, but Python says module not found.</p>
+      <p><strong>Solution:</strong> Always use <code>%pip install &lt;package&gt;</code> (with the percent <code>%</code> prefix) inside a code cell. This guarantees the package is installed into the exact Python interpreter running the notebook kernel.</p>
+    </div>
+
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">Issue: Code Stuck in Busy State (Infinite Loop)</span>
+      </div>
+      <p><strong>Symptom:</strong> The run button continuously spins and the status remains <code>Python 3 (busy)</code>.</p>
+      <p><strong>Solution:</strong> Click the <strong>Restart Kernel</strong> button in the top navbar. This sends a SIGTERM/SIGKILL signal to the hung process and restarts a clean kernel.</p>
+    </div>
+
+    <div class="error-fix-card">
+      <div class="error-badge-header">
+        <span class="badge badge-error">Issue: File Not Found When Reading CSV</span>
+      </div>
+      <p><strong>Symptom:</strong> <code>FileNotFoundError: [Errno 2] No such file or directory: 'data.csv'</code></p>
+      <p><strong>Solution:</strong> Check the Left Files Sidebar. Confirm the exact spelling and extension of the file. If inside a subfolder, include the folder path (e.g., <code>pd.read_csv("datasets/data.csv")</code>).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 26: Frequently Asked Questions (FAQ) -->
+<!-- ========================================================================= -->
+<section id="ch26" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 26</span>
+      <span class="section-reading-time">5 min read</span>
+    </div>
+    <h2 class="section-title">Frequently Asked Questions (FAQ)</h2>
+    <p class="section-lead">
+      Answers to the most common beginner, technical, and administration questions.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="accordion-item">
+      <div class="accordion-header"><h4>Q1: Do I need to install Python on my computer to use this?</h4></div>
+      <div class="accordion-content">
+        <p>No! Python Cloud Studio runs entirely in the cloud. All code execution happens on the remote server kernel.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header"><h4>Q2: Will my work be saved if I close the browser?</h4></div>
+      <div class="accordion-content">
+        <p>If you are signed in to a private account, your notebooks and uploaded datasets remain permanently saved in your private workspace. Remember to press <kbd>Ctrl+S</kbd> to save recent changes before closing.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header"><h4>Q3: Can I export my notebooks to run on Google Colab or VS Code?</h4></div>
+      <div class="accordion-content">
+        <p>Yes. Open the Notebooks Modal and click <strong>Download .ipynb</strong>. The downloaded file is a standard Jupyter Notebook v4 file compatible with Google Colab, VS Code, and JupyterLab.</p>
+      </div>
+    </div>
+
+    <div class="accordion-item">
+      <div class="accordion-header"><h4>Q4: How do I resize tall code cells?</h4></div>
+      <div class="accordion-content">
+        <p>Hover your cursor over the horizontal drag handle at the bottom of the code cell. Click and drag up or down to set any height between 80px and 800px. The height is saved automatically!</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 27: Quick Start Cheat Sheet -->
+<!-- ========================================================================= -->
+<section id="ch27" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 27</span>
+      <span class="section-reading-time">Printable Reference</span>
+    </div>
+    <h2 class="section-title">Quick Start Cheat Sheet</h2>
+    <p class="section-lead">
+      High-density, printable quick-reference sheet for everyday Python coding in Cloud Studio.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="three-column-grid">
+      <div class="feature-card">
+        <h4>Python Basics</h4>
+        <div class="code-container">
+          <pre class="code-pre"><code># Variables & Printing
+x = 10
+print(f"Value: {x}")
+
+# Lists & Loops
+items = [1, 2, 3]
+for item in items:
+    print(item * 2)</code></pre>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <h4>Pandas Essentials</h4>
+        <div class="code-container">
+          <pre class="code-pre"><code>import pandas as pd
+
+df = pd.read_csv("data.csv")
+df.head()        # View top 5 rows
+df.describe()    # Summary stats
+df[df["col"] &gt; 5] # Filter rows</code></pre>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <h4>Matplotlib Plotting</h4>
+        <div class="code-container">
+          <pre class="code-pre"><code>import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8, 4))
+plt.plot(x, y, label="Trend")
+plt.title("Title")
+plt.legend()
+plt.show()</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- CHAPTER 28: Comprehensive Glossary -->
+<!-- ========================================================================= -->
+<section id="ch28" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-verified">Chapter 28</span>
+      <span class="section-reading-time">4 min reference</span>
+    </div>
+    <h2 class="section-title">Comprehensive Glossary</h2>
+    <p class="section-lead">
+      Clear definitions for every core concept, architecture component, and terminology used in Python Cloud Studio.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <dl class="glossary-list">
+      <dt>Kernel</dt>
+      <dd>The background Python process that receives code from the web frontend, executes statements in memory, and returns stdout/outputs.</dd>
+
+      <dt>ZeroMQ (ZMQ)</dt>
+      <dd>The high-performance asynchronous messaging library used to route commands between the web server and the IPython kernel.</dd>
+
+      <dt>Monaco Editor</dt>
+      <dd>The open-source code editor component powering Visual Studio Code and Python Cloud Studio's code cells.</dd>
+
+      <dt>DataTableView</dt>
+      <dd>Cloud Studio's interactive table component for sorting, filtering, and exporting Pandas DataFrames.</dd>
+
+      <dt>Diagnostics</dt>
+      <dd>Real-time static code analysis that flags syntax errors and missing imports with red squiggly underlines.</dd>
+
+      <dt>Public Workspace</dt>
+      <dd>The zero-login guest sandbox environment where temporary files can be created and tested without an account.</dd>
+
+      <dt>Private Workspace</dt>
+      <dd>The isolated tenant storage directory assigned to a registered user, protected by JWT authentication.</dd>
+    </dl>
+  </div>
+</section>
+
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL A: Hello World -->
+<!-- ========================================================================= -->
+<section id="tut-a" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial A</span>
+      <span class="section-reading-time">3 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial A: Hello World & Modern String Formatting</h2>
+    <p class="section-lead">
+      Learn the universal first step in programming: creating variables, formatting strings using Python f-strings, and printing output.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p><strong>Goal:</strong> Write a program that greets the user with their name and displays the current year using Python.</p>
+    
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>import datetime
+
+user_name = "Alex"
+current_year = datetime.datetime.now().year
+
+# Use Python 3.6+ f-strings for clean formatting
+greeting = f"Hello, {user_name}! Welcome to Python Cloud Studio in {current_year}."
+print(greeting)</code></pre>
+    </div>
+
+    <div class="output-preview">
+      <div class="output-header">Output [1]:</div>
+      <pre class="output-body">Hello, Alex! Welcome to Python Cloud Studio in 2026.</pre>
+    </div>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
+        Pro Tip: Why f-strings?
+      </div>
+      <div class="callout-body">
+        Always prefer <code>f"..."</code> strings over old-style string concatenation (<code>"Hello " + name</code>). They prevent <code>TypeError</code> when embedding numbers and make your code much easier to read.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL B: Simple Calculator -->
+<!-- ========================================================================= -->
+<section id="tut-b" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial B</span>
+      <span class="section-reading-time">4 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial B: Simple Calculator & Numerical Types</h2>
+    <p class="section-lead">
+      Explore integers, floats, arithmetic operators, and how Python handles mathematical calculations.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p><strong>Goal:</strong> Calculate the monthly payment and total cost of an equipment purchase with tax and interest.</p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code># Define base parameters
+item_price = 1200.00
+sales_tax_rate = 0.0825  # 8.25%
+months = 12
+
+# Calculate totals
+total_tax = item_price * sales_tax_rate
+total_price = item_price + total_tax
+monthly_installment = total_price / months
+
+print(f"Base Price:       ${item_price:,.2f}")
+print(f"Sales Tax:        ${total_tax:,.2f}")
+print(f"Total Purchase:   ${total_price:,.2f}")
+print(f"Monthly Payment:  ${monthly_installment:,.2f} / month")</code></pre>
+    </div>
+
+    <div class="output-preview">
+      <div class="output-header">Output [2]:</div>
+      <pre class="output-body">Base Price:       $1,200.00
+Sales Tax:        $99.00
+Total Purchase:   $1,299.00
+Monthly Payment:  $108.25 / month</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL C: Working with Lists, Dictionaries, and Loops -->
+<!-- ========================================================================= -->
+<section id="tut-c" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial C</span>
+      <span class="section-reading-time">5 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial C: Lists, Dictionaries, and Loops</h2>
+    <p class="section-lead">
+      Organize collections of real-world information using Python lists and dictionaries, and iterate through them with loops.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p><strong>Goal:</strong> Manage student grade records and compute passing status.</p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code># List of dictionaries representing students
+students = [
+    {"name": "Liam", "score": 88, "major": "Computer Science"},
+    {"name": "Emma", "score": 94, "major": "Data Science"},
+    {"name": "Noah", "score": 67, "major": "Engineering"},
+    {"name": "Olivia", "score": 91, "major": "Mathematics"}
+]
+
+print("--- Course Grade Audit ---")
+for student in students:
+    passed = student["score"] &gt;= 70
+    status = "PASS" if passed else "RETAKE"
+    print(f"Student: {student['name']:<8} | Score: {student['score']} | Status: {status}")</code></pre>
+    </div>
+
+    <div class="output-preview">
+      <div class="output-header">Output [3]:</div>
+      <pre class="output-body">--- Course Grade Audit ---
+Student: Liam     | Score: 88 | Status: PASS
+Student: Emma     | Score: 94 | Status: PASS
+Student: Noah     | Score: 67 | Status: RETAKE
+Student: Olivia   | Score: 91 | Status: PASS</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL D: Interactive Pandas Table Exploration -->
+<!-- ========================================================================= -->
+<section id="tut-d" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial D</span>
+      <span class="section-reading-time">5 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial D: Interactive Pandas Table Exploration</h2>
+    <p class="section-lead">
+      Build a Pandas DataFrame and test the sorting, searching, and exporting powers of the interactive DataTableView component.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p><strong>Goal:</strong> Create a multi-column dataset and use DataTableView's interactive tools.</p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>import pandas as pd
+
+# Create a sample sales dataset
+data = {
+    "Region": ["North", "South", "East", "West", "North", "South", "East", "West"],
+    "Product": ["Laptops", "Desktops", "Tablets", "Phones", "Monitors", "Laptops", "Phones", "Tablets"],
+    "Units_Sold": [140, 85, 210, 340, 115, 195, 290, 180],
+    "Revenue": [168000, 68000, 105000, 272000, 46000, 234000, 232000, 90000]
+}
+
+df_sales = pd.DataFrame(data)
+
+# Evaluating df_sales activates the interactive DataTableView automatically!
+df_sales</code></pre>
+    </div>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
+        Try These Interactive Features!
+      </div>
+      <div class="callout-body">
+        <ul>
+          <li>Click the <strong>Revenue</strong> column header to sort highest to lowest.</li>
+          <li>Type <code>North</code> into the search box to filter instantly.</li>
+          <li>Click <strong>Copy TSV</strong> and paste directly into Excel or Google Sheets.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL E: CSV Upload & Summary Statistics -->
+<!-- ========================================================================= -->
+<section id="tut-e" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial E</span>
+      <span class="section-reading-time">5 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial E: CSV Upload & Summary Statistics</h2>
+    <p class="section-lead">
+      Upload a comma-separated values (CSV) file, inspect missing values, and calculate statistical summaries.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p><strong>Goal:</strong> Load a local file and run an automated statistical profile.</p>
+
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>import pandas as pd
+
+# Load dataset (upload 'customers.csv' via left sidebar first)
+# For this tutorial, we will generate synthetic data:
+data = {
+    "Age": [22, 35, 58, 41, 29, 63, 38, 47],
+    "Annual_Spend": [1200, 4500, 8900, 5200, 3100, 11200, 6400, 7100],
+    "Loyalty_Years": [1.0, 3.5, 7.0, 4.0, 2.0, 10.0, 4.5, 5.0]
+}
+df = pd.DataFrame(data)
+
+# Generate 5-number statistical summary
+df.describe()</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL F: Matplotlib Chart Creation -->
+<!-- ========================================================================= -->
+<section id="tut-f" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial F</span>
+      <span class="section-reading-time">5 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial F: Matplotlib Chart Creation</h2>
+    <p class="section-lead">
+      Generate an attractive comparative bar chart showing quarterly business revenue.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>import matplotlib.pyplot as plt
+
+quarters = ["Q1 2025", "Q2 2025", "Q3 2025", "Q4 2025", "Q1 2026"]
+revenue_millions = [3.2, 4.1, 4.8, 6.2, 6.9]
+colors = ["#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8"]
+
+plt.figure(figsize=(8, 4.5), dpi=100)
+bars = plt.bar(quarters, revenue_millions, color=colors, width=0.55)
+
+plt.title("Quarterly Revenue Growth (USD Millions)", fontsize=13, fontweight="bold", pad=12)
+plt.ylabel("Revenue ($M)", fontsize=11)
+plt.ylim(0, 8)
+plt.grid(axis="y", linestyle="--", alpha=0.5)
+
+# Add values above each bar
+for bar in bars:
+    height = bar.get_height()
+    plt.annotate(f"${height:.1f}M",
+                 xy=(bar.get_x() + bar.get_width() / 2, height),
+                 xytext=(0, 4), textcoords="offset points",
+                 ha="center", va="bottom", fontweight="bold")
+
+plt.tight_layout()
+plt.show()</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL G: Find & Fix Syntax Error -->
+<!-- ========================================================================= -->
+<section id="tut-g" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial G</span>
+      <span class="section-reading-time">4 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial G: Find & Fix Syntax Error</h2>
+    <p class="section-lead">
+      Experience Cloud Studio's real-time squiggly line diagnostics and learn how to resolve syntax mistakes.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <p><strong>Scenario:</strong> You type code with an unclosed bracket. Notice the red squiggly line appears in the editor.</p>
+
+    <div class="code-container">
+      <div class="code-header"><span class="code-lang">Python (Corrected)</span></div>
+      <pre class="code-pre"><code># Notice how brackets must always balance in pairs () [] {}
+temperatures = [72, 68, 75, 79, 81]  # All brackets closed
+
+avg_temp = sum(temperatures) / len(temperatures)
+print(f"Average temperature: {avg_temp:.1f}°F")</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL H: Debugging a Function -->
+<!-- ========================================================================= -->
+<section id="tut-h" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial H</span>
+      <span class="section-reading-time">5 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial H: Debugging a Function with breakpoint()</h2>
+    <p class="section-lead">
+      Step into a running function, inspect its local parameters, and confirm variable values before they cause bugs.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <div class="code-container">
+      <div class="code-header">
+        <span class="code-lang">Python</span>
+        <button class="code-copy-btn" onclick="copySnippet(this)">Copy</button>
+      </div>
+      <pre class="code-pre"><code>def calculate_bonus(salary, performance_score):
+    multiplier = 0.05
+    if performance_score &gt; 90:
+        multiplier = 0.15
+    elif performance_score &gt; 80:
+        multiplier = 0.10
+        
+    bonus = salary * multiplier
+    return bonus
+
+# Test with employee record
+bonus_payout = calculate_bonus(95000, 92)
+print(f"Calculated Bonus: ${bonus_payout:,.2f}")</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL I: Save & Download Your Work -->
+<!-- ========================================================================= -->
+<section id="tut-i" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial I</span>
+      <span class="section-reading-time">3 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial I: Save & Download Your Work</h2>
+    <p class="section-lead">
+      Protect your progress with keyboard shortcuts and export your notebook to your local computer.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <ol>
+      <li>Press <kbd>Ctrl</kbd> + <kbd>S</kbd> to save all recent cell additions and outputs.</li>
+      <li>Click the <strong>Notebooks</strong> button in the top navbar.</li>
+      <li>Find your current notebook card and click <strong>Download .ipynb</strong>.</li>
+      <li>The file is saved to your computer, ready to submit to an instructor or open in VS Code.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ========================================================================= -->
+<!-- TUTORIAL J: Multi-Cell Data Pipeline -->
+<!-- ========================================================================= -->
+<section id="tut-j" class="docs-section">
+  <div class="section-header">
+    <div class="section-meta">
+      <span class="badge badge-tutorial">Tutorial J</span>
+      <span class="section-reading-time">6 min practice</span>
+    </div>
+    <h2 class="section-title">Tutorial J: End-to-End Multi-Cell Data Pipeline</h2>
+    <p class="section-lead">
+      Connect three code cells together: Cell 1 ingests data, Cell 2 cleans and computes KPIs, and Cell 3 charts the results.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h4>Cell 1: Ingest Raw Data</h4>
+    <div class="code-container">
+      <pre class="code-pre"><code>import pandas as pd
+import matplotlib.pyplot as plt
+
+raw_data = {
+    "Month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+    "Signups": [1200, 1450, 1900, 2300, 2800, 3400],
+    "Churn": [45, 52, 60, 71, 80, 89]
+}
+df_metrics = pd.DataFrame(raw_data)
+print("✔ Cell 1 Complete: Raw metrics ingested.")</code></pre>
+    </div>
+
+    <h4>Cell 2: Compute Net Growth</h4>
+    <div class="code-container">
+      <pre class="code-pre"><code># Notice df_metrics is shared across cells!
+df_metrics["Net_Gain"] = df_metrics["Signups"] - df_metrics["Churn"]
+df_metrics["Growth_Pct"] = df_metrics["Net_Gain"].pct_change() * 100
+df_metrics</code></pre>
+    </div>
+
+    <h4>Cell 3: Visualize Growth Trend</h4>
+    <div class="code-container">
+      <pre class="code-pre"><code>plt.figure(figsize=(7.5, 3.8))
+plt.plot(df_metrics["Month"], df_metrics["Net_Gain"], marker="o", color="#2563eb", linewidth=2.5)
+plt.title("Net Monthly User Acquisition", fontweight="bold")
+plt.ylabel("Net New Users")
+plt.grid(True, linestyle=":", alpha=0.6)
+plt.tight_layout()
+plt.show()</code></pre>
+    </div>
+  </div>
+</section>
+
+    </div>
+
+    <footer class="docs-footer">
+      <p><strong>Python Cloud Studio</strong> &copy; 2026. Enterprise Cloud Notebook &amp; Data Analysis Platform.</p>
+      <p style="margin-top: 6px; font-size: 0.82rem; color: var(--text-muted);">
+        Completely self-contained offline documentation manual. Zero external CDNs or remote dependencies.
+      </p>
+    </footer>
+  </main>
+</div>
+
+<!-- Back to Top Button -->
+<button class="back-to-top-btn" id="backToTopBtn" aria-label="Back to top" title="Back to top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="18 15 12 9 6 15"></polyline>
+  </svg>
+</button>
+
+
+<script>
+(function() {
+  'use strict';
+
+  // --- 1. LOCAL SEARCH INDEX (28 Chapters + 10 Tutorials + Key Concepts) ---
+  const searchIndex = [
+    { title: "Chapter 1: Welcome to Python Cloud Studio", url: "#ch1", category: "Core", keywords: "cloud editor browser zero installation vscode monaco colab jupyter comparison" },
+    { title: "Chapter 2: First 5 Minutes Tutorial", url: "#ch2", category: "Getting Started", keywords: "quickstart first code print run execute shift enter" },
+    { title: "Chapter 3: Logging In, Logging Out, and Guest Mode", url: "#ch3", category: "Auth", keywords: "guest mode public workspace private workspace jwt authentication logout isolation security" },
+    { title: "Chapter 4: Understanding the Studio Interface", url: "#ch4", category: "Interface", keywords: "navbar files sidebar right panel code cells drag handle status pill" },
+    { title: "Chapter 5: Your First Notebook: Creation & Structure", url: "#ch5", category: "Notebooks", keywords: "ipynb new notebook cell markdown code gutter" },
+    { title: "Chapter 6: How to Write Python Code & IntelliSense", url: "#ch6", category: "Editing", keywords: "monaco intellisense autocomplete signature help diagnostics squiggly dropdown suggestions tab enter" },
+    { title: "Chapter 7: Executing Code & Execution Controls", url: "#ch7", category: "Execution", keywords: "run cell shift enter ctrl enter alt enter run all interrupt infinite loop" },
+    { title: "Chapter 8: Understanding Output", url: "#ch8", category: "Output", keywords: "stdout print return value ansi tracebacks html rich output" },
+    { title: "Chapter 9: Multi-Cell & Kernel State", url: "#ch9", category: "Kernel", keywords: "shared memory namespace out of order restart run all" },
+    { title: "Chapter 10: NumPy & Pandas DataFrames (Interactive DataTableView)", url: "#ch10", category: "Data", keywords: "datatableview table pandas sort filter search pagination csv tsv export" },
+    { title: "Chapter 11: Charts & Visualizations", url: "#ch11", category: "Charts", keywords: "matplotlib seaborn plot inline png figures" },
+    { title: "Chapter 12: Uploading & Using Datasets", url: "#ch12", category: "Files", keywords: "upload dataset csv read_csv drag drop tabbed editor" },
+    { title: "Chapter 13: Using the Python Debugger", url: "#ch13", category: "Debugging", keywords: "breakpoint pdb next step continue print variable dap" },
+    { title: "Chapter 14: Python Errors & How to Fix Them", url: "#ch14", category: "Errors", keywords: "syntaxerror nameerror typeerror modulenotfounderror fix traceback" },
+    { title: "Chapter 15: Saving & Managing Your Work", url: "#ch15", category: "Workspace", keywords: "save ctrl s notebooks modal download ipynb duplicate delete" },
+    { title: "Chapter 16: Python Runtime & Kernel Management", url: "#ch16", category: "Runtime", keywords: "ipykernel zeromq restart status idle busy disconnected websocket" },
+    { title: "Chapter 17: Installing Packages with %pip", url: "#ch17", category: "Packages", keywords: "pip install magic user site packages dynamic import sys path" },
+    { title: "Chapter 18: Terminal & Shell Magics", url: "#ch18", category: "Shell", keywords: "shell bang commands time timeit who pty terminal" },
+    { title: "Chapter 19: Profile, Secrets & Themes", url: "#ch19", category: "Settings", keywords: "secrets api key openai gemini env theme dark light system" },
+    { title: "Chapter 20: Sharing & Collaboration", url: "#ch20", category: "Sharing", keywords: "share export collaborate classrooms public workspace" },
+    { title: "Chapter 21: Student Features & Assignments", url: "#ch21", category: "Students", keywords: "classroom join code assignment autograding assert tests" },
+    { title: "Chapter 22: Instructor & SuperAdmin Console", url: "#ch22", category: "Admin", keywords: "superadmin dashboard users packages audit logs runtimes" },
+    { title: "Chapter 23: AI Coding Assistant", url: "#ch23", category: "AI", keywords: "ai assistant chat prompt code generator insert notebook" },
+    { title: "Chapter 24: Keyboard Shortcuts Matrix", url: "#ch24", category: "Shortcuts", keywords: "keyboard shortcuts windows mac hotkeys table" },
+    { title: "Chapter 25: Troubleshooting Knowledge Base", url: "#ch25", category: "Help", keywords: "troubleshooting kb disconnected hung loop sitecustomize" },
+    { title: "Chapter 26: Frequently Asked Questions (FAQ)", url: "#ch26", category: "FAQ", keywords: "faq questions beginner answers installation saving" },
+    { title: "Chapter 27: Quick Start Cheat Sheet", url: "#ch27", category: "Reference", keywords: "cheat sheet printable summary pandas matplotlib python" },
+    { title: "Chapter 28: Comprehensive Glossary", url: "#ch28", category: "Glossary", keywords: "glossary definitions kernel zeromq monaco datatableview ast" },
+    { title: "Tutorial A: Hello World & Modern String Formatting", url: "#tut-a", category: "Tutorial", keywords: "hello world f-strings datetime strings beginner" },
+    { title: "Tutorial B: Simple Calculator & Numerical Types", url: "#tut-b", category: "Tutorial", keywords: "calculator math float int tax installment" },
+    { title: "Tutorial C: Lists, Dictionaries, and Loops", url: "#tut-c", category: "Tutorial", keywords: "list dict dictionary for loop iteration grades" },
+    { title: "Tutorial D: Interactive Pandas Table Exploration", url: "#tut-d", category: "Tutorial", keywords: "pandas datatableview sort search filter revenue" },
+    { title: "Tutorial E: CSV Upload & Summary Statistics", url: "#tut-e", category: "Tutorial", keywords: "csv upload describe statistics metrics mean" },
+    { title: "Tutorial F: Matplotlib Chart Creation", url: "#tut-f", category: "Tutorial", keywords: "matplotlib bar chart plot revenue figures" },
+    { title: "Tutorial G: Find & Fix Syntax Error", url: "#tut-g", category: "Tutorial", keywords: "syntax error bracket colon squiggly fix" },
+    { title: "Tutorial H: Debugging a Function with breakpoint()", url: "#tut-h", category: "Tutorial", keywords: "breakpoint debug pdb function inspect" },
+    { title: "Tutorial I: Save & Download Your Work", url: "#tut-i", category: "Tutorial", keywords: "save download ipynb export notebook" },
+    { title: "Tutorial J: End-to-End Multi-Cell Data Pipeline", url: "#tut-j", category: "Tutorial", keywords: "pipeline multi cell data transform chart" }
+  ];
+
+  // --- 2. SEARCH MODAL LOGIC ---
+  const searchModal = document.getElementById('searchModalBackdrop');
+  const searchInput = document.getElementById('searchModalInput');
+  const searchResults = document.getElementById('searchResultsList');
+  const openSearchBtn = document.getElementById('openSearchBtn');
+  const closeSearchBtn = document.getElementById('closeSearchModalBtn');
+  let selectedSearchIndex = -1;
+
+  function openSearch() {
+    if (!searchModal) return;
+    searchModal.classList.add('open');
+    searchInput.value = '';
+    renderSearchResults('');
+    setTimeout(() => searchInput.focus(), 50);
+  }
+
+  function closeSearch() {
+    if (!searchModal) return;
+    searchModal.classList.remove('open');
+    selectedSearchIndex = -1;
+  }
+
+  function renderSearchResults(query) {
+    if (!searchResults) return;
+    const q = query.trim().toLowerCase();
+    let matches = [];
+
+    if (!q) {
+      matches = searchIndex.slice(0, 8); // show popular initial items
+    } else {
+      matches = searchIndex.filter(item => {
+        return item.title.toLowerCase().includes(q) ||
+               item.keywords.toLowerCase().includes(q) ||
+               item.category.toLowerCase().includes(q);
+      });
+    }
+
+    if (matches.length === 0) {
+      searchResults.innerHTML = '<li class="no-results">No matching guides or tutorials found for "' + escapeHtml(q) + '".</li>';
+      selectedSearchIndex = -1;
+      return;
+    }
+
+    searchResults.innerHTML = matches.map((item, idx) => `
+      <li class="search-result-item ${idx === 0 ? 'highlighted' : ''}" data-url="${item.url}">
+        <div class="result-title">${escapeHtml(item.title)}</div>
+        <div class="result-meta">
+          <span class="result-badge">${escapeHtml(item.category)}</span>
+          <span class="result-url">${item.url}</span>
+        </div>
+      </li>
+    `).join('');
+
+    selectedSearchIndex = 0;
+
+    // Attach click events
+    searchResults.querySelectorAll('.search-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const url = item.getAttribute('data-url');
+        if (url) {
+          closeSearch();
+          window.location.hash = url;
+        }
+      });
+    });
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  if (openSearchBtn) openSearchBtn.addEventListener('click', openSearch);
+  if (closeSearchBtn) closeSearchBtn.addEventListener('click', closeSearch);
+  if (searchModal) {
+    searchModal.addEventListener('click', (e) => {
+      if (e.target === searchModal) closeSearch();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => renderSearchResults(e.target.value));
+    searchInput.addEventListener('keydown', (e) => {
+      const items = searchResults.querySelectorAll('.search-result-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (items.length > 0) {
+          selectedSearchIndex = (selectedSearchIndex + 1) % items.length;
+          updateHighlightedSearchItem(items);
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (items.length > 0) {
+          selectedSearchIndex = (selectedSearchIndex - 1 + items.length) % items.length;
+          updateHighlightedSearchItem(items);
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (items.length > 0 && selectedSearchIndex >= 0 && items[selectedSearchIndex]) {
+          const url = items[selectedSearchIndex].getAttribute('data-url');
+          if (url) {
+            closeSearch();
+            window.location.hash = url;
+          }
+        }
+      } else if (e.key === 'Escape') {
+        closeSearch();
+      }
+    });
+  }
+
+  function updateHighlightedSearchItem(items) {
+    items.forEach((item, idx) => {
+      if (idx === selectedSearchIndex) {
+        item.classList.add('highlighted');
+        item.scrollIntoView({ block: 'nearest' });
+      } else {
+        item.classList.remove('highlighted');
+      }
+    });
+  }
+
+  // Global search hotkeys (Ctrl+K, Cmd+K, /)
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      openSearch();
+    } else if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+      openSearch();
+    }
+  });
+
+
+  // --- 3. THEME TOGGLE (System / Dark / Light) ---
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  const themeIconSun = document.getElementById('themeIconSun');
+  const themeIconMoon = document.getElementById('themeIconMoon');
+  const themeLabel = document.getElementById('themeLabel');
+
+  function initTheme() {
+    const savedTheme = localStorage.getItem('pcs_guide_theme') || 'dark';
+    applyTheme(savedTheme);
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('pcs_guide_theme', theme);
+
+    if (theme === 'light') {
+      if (themeIconSun) themeIconSun.style.display = 'none';
+      if (themeIconMoon) themeIconMoon.style.display = 'inline-block';
+      if (themeLabel) themeLabel.textContent = 'Light';
+    } else {
+      if (themeIconSun) themeIconSun.style.display = 'inline-block';
+      if (themeIconMoon) themeIconMoon.style.display = 'none';
+      if (themeLabel) themeLabel.textContent = 'Dark';
+    }
+  }
+
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      const nextTheme = current === 'dark' ? 'light' : 'dark';
+      applyTheme(nextTheme);
+    });
+  }
+
+  initTheme();
+
+
+  // --- 4. CLIPBOARD COPY WITH FILE:// RESTRICTION FALLBACK ---
+  window.copySnippet = function(button) {
+    const container = button.closest('.code-container');
+    if (!container) return;
+    const codePre = container.querySelector('code');
+    if (!codePre) return;
+    const textToCopy = codePre.innerText || codePre.textContent;
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        showCopySuccess(button);
+      }).catch(() => {
+        fallbackCopy(textToCopy, button);
+      });
+    } else {
+      fallbackCopy(textToCopy, button);
+    }
+  };
+
+  function fallbackCopy(text, button) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    textArea.style.top = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      showCopySuccess(button);
+    } catch (err) {
+      button.textContent = 'Failed';
+      setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+    }
+    document.body.removeChild(textArea);
+  }
+
+  function showCopySuccess(button) {
+    const originalText = button.textContent;
+    button.textContent = '✔ Copied!';
+    button.classList.add('copied');
+    setTimeout(() => {
+      button.textContent = originalText;
+      button.classList.remove('copied');
+    }, 2000);
+  }
+
+
+  // --- 5. PRINT TRIGGER ---
+  const printDocBtn = document.getElementById('printDocBtn');
+  if (printDocBtn) {
+    printDocBtn.addEventListener('click', () => window.print());
+  }
+
+
+  // --- 6. MOBILE MENU TOGGLE ---
+  const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+  const docsSidebar = document.getElementById('docsSidebar');
+
+  if (mobileMenuBtn && docsSidebar) {
+    mobileMenuBtn.addEventListener('click', () => {
+      docsSidebar.classList.toggle('open');
+    });
+
+    // Close when clicking any nav link on mobile
+    docsSidebar.querySelectorAll('.sidebar-nav-link').forEach(link => {
+      link.addEventListener('click', () => {
+        if (window.innerWidth <= 1024) {
+          docsSidebar.classList.remove('open');
+        }
+      });
+    });
+  }
+
+
+  // --- 7. READING PROGRESS BAR & SCROLLSPY ---
+  const progressBar = document.getElementById('readingProgress');
+  const navLinks = document.querySelectorAll('.sidebar-nav-link');
+  const sections = document.querySelectorAll('.docs-section');
+
+  window.addEventListener('scroll', () => {
+    // Progress Bar
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    const docHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+    if (progressBar && docHeight > 0) {
+      const progressPercent = (scrollTop / docHeight) * 100;
+      progressBar.style.width = progressPercent + '%';
+    }
+
+    // Scrollspy Highlight
+    let currentSectionId = '';
+    sections.forEach(section => {
+      const rect = section.getBoundingClientRect();
+      if (rect.top <= 140 && rect.bottom >= 140) {
+        currentSectionId = section.getAttribute('id');
+      }
+    });
+
+    if (currentSectionId) {
+      navLinks.forEach(link => {
+        if (link.getAttribute('href') === '#' + currentSectionId) {
+          link.classList.add('active');
+        } else {
+          link.classList.remove('active');
+        }
+      });
+    }
+  });
+
+})();
+</script>
+
+</body>
+</html>

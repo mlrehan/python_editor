@@ -40,12 +40,14 @@ class KernelSession:
         session_id: str,
         user_id: str,
         workspace_dir: str,
-        kernel_name: str = "python3"
+        kernel_name: str = "python3",
+        is_admin: bool = False
     ):
         self.session_id = session_id
         self.user_id = user_id
         self.workspace_dir = os.path.abspath(workspace_dir)
         self.kernel_name = kernel_name
+        self.is_admin = is_admin
         self.km: Optional[AsyncKernelManager] = None
         self.kc = None
         self.created_at = time.time()
@@ -58,14 +60,21 @@ class KernelSession:
         os.makedirs(self.workspace_dir, exist_ok=True)
 
     async def start(self, timeout: float = 25.0) -> None:
-        """Starts the kernel process inside the isolated workspace directory."""
+        """Starts the kernel process inside the isolated workspace directory with a sanitized environment."""
         async with self._lock:
             if self.is_running:
                 return
 
             self.km = AsyncKernelManager(kernel_name=self.kernel_name)
-            # Launch kernel with cwd set to the user's workspace directory
-            await self.km.start_kernel(cwd=self.workspace_dir)
+            # Build sanitized environment stripping server secrets and injecting user's .env
+            try:
+                from services.api.package_security import get_sanitized_kernel_env
+            except ImportError:
+                from ..api.package_security import get_sanitized_kernel_env
+            clean_env = get_sanitized_kernel_env(self.workspace_dir, self.user_id, self.is_admin)
+
+            # Launch kernel with cwd set to the user's workspace directory and isolated environment
+            await self.km.start_kernel(cwd=self.workspace_dir, env=clean_env)
             self.kc = self.km.client()
             self.kc.start_channels()
             await self.kc.wait_for_ready(timeout=timeout)
@@ -172,6 +181,34 @@ class KernelSession:
 
             result.execution_time = time.time() - start_time
             self.last_active_at = time.time()
+
+            # If a package was installed, refresh kernel runtime paths so new modules import immediately
+            if "%pip" in code or "!pip" in code or "pip install" in code:
+                try:
+                    refresh_code = (
+                        "import sys, os, site, importlib\n"
+                        f"_local_dir = {repr(os.path.join(self.workspace_dir, '.local'))}\n"
+                        "if os.path.exists(_local_dir):\n"
+                        "    for _root, _dirs, _ in os.walk(_local_dir):\n"
+                        "        if os.path.basename(_root) == 'site-packages':\n"
+                        "            if _root not in sys.path:\n"
+                        "                sys.path.insert(0, _root)\n"
+                        "            site.addsitedir(_root)\n"
+                        "importlib.invalidate_caches()\n"
+                    )
+                    ref_msg_id = self.kc.execute(refresh_code, silent=True, store_history=False)
+                    ref_deadline = time.time() + 5.0
+                    while time.time() < ref_deadline:
+                        try:
+                            ref_msg = await asyncio.wait_for(self.kc.get_iopub_msg(), timeout=0.2)
+                            if ref_msg.get("parent_header", {}).get("msg_id") == ref_msg_id:
+                                if ref_msg.get("header", {}).get("msg_type") == "status" and ref_msg.get("content", {}).get("execution_state") == "idle":
+                                    break
+                        except asyncio.TimeoutError:
+                            break
+                except Exception:
+                    pass
+
             return result
 
     async def interrupt(self) -> None:
@@ -179,13 +216,40 @@ class KernelSession:
         if self.km:
             await self.km.interrupt_kernel()
 
-    async def restart(self) -> None:
-        """Restarts the kernel, resetting all variable definitions and execution counters."""
+    async def restart(self, timeout: float = 25.0) -> None:
+        """Restarts the kernel cleanly, resetting all variable definitions and execution counters."""
         async with self._lock:
+            if self.kc:
+                try:
+                    self.kc.stop_channels()
+                except Exception:
+                    pass
+                self.kc = None
+
             if self.km:
-                await self.km.restart_kernel()
-                self.execution_count = 0
-                self.last_active_at = time.time()
+                try:
+                    await self.km.shutdown_kernel(now=True)
+                except Exception:
+                    pass
+                self.km = None
+
+            self.is_running = False
+            self.execution_count = 0
+
+            # Start fresh kernel instance with updated environment
+            self.km = AsyncKernelManager(kernel_name=self.kernel_name)
+            try:
+                from services.api.package_security import get_sanitized_kernel_env
+            except ImportError:
+                from ..api.package_security import get_sanitized_kernel_env
+            clean_env = get_sanitized_kernel_env(self.workspace_dir, self.user_id, self.is_admin)
+
+            await self.km.start_kernel(cwd=self.workspace_dir, env=clean_env)
+            self.kc = self.km.client()
+            self.kc.start_channels()
+            await self.kc.wait_for_ready(timeout=timeout)
+            self.is_running = True
+            self.last_active_at = time.time()
 
     async def shutdown(self) -> None:
         """Gracefully halts the kernel and releases resources."""

@@ -369,6 +369,44 @@ export class ApiClient {
     });
   }
 
+  // Workspace Environment & Secrets (.env)
+  async getWorkspaceEnv(): Promise<{ env: Record<string, string>; has_env_file: boolean }> {
+    return this.request<{ env: Record<string, string>; has_env_file: boolean }>('/files/env');
+  }
+
+  async saveWorkspaceEnv(env: Record<string, string>): Promise<{ status: string; keys: string[] }> {
+    return this.request<{ status: string; keys: string[] }>('/files/env', {
+      method: 'PUT',
+      body: JSON.stringify({ env }),
+    });
+  }
+
+  // Admin Notebooks & Workspace Inspections
+  async getAdminNotebooks(): Promise<any[]> {
+    return this.request<any[]>('/admin/notebooks');
+  }
+
+  async deleteAdminNotebook(id: string): Promise<any> {
+    return this.request<any>(`/admin/notebooks/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getAdminUserFiles(userId: string): Promise<any[]> {
+    return this.request<any[]>(`/admin/workspaces/${userId}/files`);
+  }
+
+  async getAdminIntegrations(): Promise<any> {
+    return this.request<any>('/admin/settings/integrations');
+  }
+
+  async updateAdminIntegrations(integrations: any): Promise<any> {
+    return this.request<any>('/admin/settings/integrations', {
+      method: 'PUT',
+      body: JSON.stringify({ integrations }),
+    });
+  }
+
   // Language Service / Autocomplete / Diagnostics
   async getCompletions(code: string, line: number, column: number, notebookContext: string[] = [], sessionId?: string) {
     return this.request<{ completions: Array<{ label: string; type: string; detail?: string; documentation?: string; insert_text?: string }>; signatures: any[] }>('/editor/complete', {
