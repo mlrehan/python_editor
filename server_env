@@ -1,0 +1,73 @@
+# ========================================================
+# ENTERPRISE PYTHON CLOUD STUDIO — PRODUCTION TEMPLATE
+# Copy to .env on your Linux production server:
+# cp .env.production.example .env
+#
+# ARCHITECTURE NOTE:
+# - Production server (root@vmi3043660) already has host Nginx installed.
+# - Existing sites like /etc/nginx/sites-available/lms are completely untouched.
+# - Python Cloud Studio backend runs in Docker and binds ONLY to 127.0.0.1:8765.
+# - NO Docker Nginx container is run.
+# - STRICT ZERO DEFAULT PORTS: 5432, 6379, 8000, 3000, 80, 443 are NEVER exposed by Docker.
+# ========================================================
+
+# --------------------------------------------------------
+# 1. Network & Host Port Binding
+# --------------------------------------------------------
+HOST_BIND_IP=127.0.0.1
+HOST_PORT=8765
+DOMAIN_NAME=py.lait.co
+
+# --------------------------------------------------------
+# 2. Application Identity
+# --------------------------------------------------------
+APP_NAME=Enterprise Python Cloud Studio
+APP_ENV=production
+APP_DEBUG=false
+
+# --------------------------------------------------------
+# 3. Security & Cryptographic Secrets (CRITICAL)
+# Generate a 64-char key using: openssl rand -hex 32
+# --------------------------------------------------------
+SECRET_KEY=706c573986904cd8fcb58ffc889411d8fbb748c3783c0d70ffda057ee38c24c9
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+
+# --------------------------------------------------------
+# 4. Super Admin Initial Bootstrap
+# --------------------------------------------------------
+ADMIN_BOOTSTRAP_EMAIL=admin@lait.co
+ADMIN_BOOTSTRAP_PASSWORD=RJ4Y*uUny%v4Rpa%
+
+# --------------------------------------------------------
+# 5. Production PostgreSQL Database (Internal Docker Network)
+# --------------------------------------------------------
+POSTGRES_USER=pcs_user
+POSTGRES_PASSWORD=pg_py--_adminCo
+POSTGRES_DB=python_cloud_studio
+
+# --------------------------------------------------------
+# 6. Redis Broker (Internal Docker Network)
+# --------------------------------------------------------
+REDIS_URL=redis://redis:6379/0
+
+# --------------------------------------------------------
+# 7. Runtime Sandbox & Resource Quotas
+# --------------------------------------------------------
+DEFAULT_KERNEL_NAME=python3
+MAX_CONCURRENT_KERNELS_PER_USER=5
+KERNEL_IDLE_TIMEOUT_SECONDS=3600
+
+API_CPU_LIMIT=1.5
+API_MEM_LIMIT=2G
+DB_CPU_LIMIT=1.0
+DB_MEM_LIMIT=1G
+REDIS_CPU_LIMIT=0.5
+REDIS_MEM_LIMIT=512M
+
+# --------------------------------------------------------
+# 8. Storage Volumes
+# --------------------------------------------------------
+WORKSPACES_ROOT=/app/storage/workspaces
+STORAGE_BACKEND=local
+LOCAL_STORAGE_PATH=/app/storage/artifacts

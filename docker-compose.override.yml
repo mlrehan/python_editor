@@ -1,6 +1,6 @@
 # ========================================================
 # ENTERPRISE PYTHON CLOUD STUDIO - LOCAL DEVELOPMENT OVERRIDE
-# STRICT ZERO DEFAULT PORTS: 5432, 6379, 8000, 3000, 80, 443 are NEVER bound on host.
+# CUSTOM PORTS ONLY: API=8765, Frontend Dev=3765, Postgres=5476, Redis=6395
 # NO NGINX IN LOCAL DEV: Application runs directly on http://localhost:8765
 # ========================================================
 
@@ -14,8 +14,7 @@ services:
       - APP_ENV=development
 
   # ------------------------------------------------------
-  # Database & Redis: Internal ONLY (NO host ports bound)
-  # Zero collision with local PostgreSQL (5432) or Redis (6379)
+  # Database (5476) & Redis (6395): Internal Docker Network Only
   # ------------------------------------------------------
   postgres:
     ports: []

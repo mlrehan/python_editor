@@ -27,6 +27,7 @@ fi
 
 DB_USER="${POSTGRES_USER:-pcs_user}"
 DB_NAME="${POSTGRES_DB:-python_cloud_studio}"
+DB_PORT="${POSTGRES_PORT:-5476}"
 
 echo "=========================================================="
 echo "Restoring Python Cloud Studio from: ${ARCHIVE_PATH}"
@@ -49,7 +50,7 @@ docker compose stop api
 # 3. Restore PostgreSQL Database
 echo "[3/4] Restoring PostgreSQL database..."
 if [ -f "${BACKUP_FOLDER}/database.sql" ]; then
-    docker compose exec -T postgres psql -U "${DB_USER}" -d "${DB_NAME}" < "${BACKUP_FOLDER}/database.sql"
+    docker compose exec -T postgres psql -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" < "${BACKUP_FOLDER}/database.sql"
 else
     echo "Warning: database.sql not found in archive. Skipping DB restore."
 fi

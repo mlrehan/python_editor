@@ -127,11 +127,15 @@ nano .env
 ### Key Production Variables:
 
 ```ini
-# Network Binding (Internal Host Loopback)
-# Binds strictly to 127.0.0.1 so only the host Nginx reverse proxy can reach it.
+# Custom Non-Default Application Ports
+# Binds strictly to 127.0.0.1:8765 so only the host Nginx reverse proxy can reach it.
 # Python Cloud Studio is NEVER exposed directly to the public internet on port 8765.
 HOST_BIND_IP=127.0.0.1
 HOST_PORT=8765
+API_PORT=8765
+WEB_PORT=3765
+POSTGRES_PORT=5476
+REDIS_PORT=6395
 DOMAIN_NAME=studio.example.com
 
 # Critical: Generate a secure 64-character secret key:
@@ -142,10 +146,13 @@ SECRET_KEY=e839c4d8721ab5092a47834bc671981249fa6b2185437890bc4123985721ad45
 ADMIN_BOOTSTRAP_EMAIL=admin@example.com
 ADMIN_BOOTSTRAP_PASSWORD=SuperSecurePassword2026!#
 
-# PostgreSQL Database Credentials (Internal to Docker network pcs-network)
+# PostgreSQL Database Credentials (Custom Port 5476 on internal Docker network pcs-network)
 POSTGRES_USER=pcs_user
 POSTGRES_PASSWORD=PcsProdDbPassword_Secure9982!
 POSTGRES_DB=python_cloud_studio
+
+# Redis Broker (Custom Port 6395 on internal Docker network pcs-network)
+REDIS_URL=redis://redis:6395/0
 
 # Storage & Quotas
 WORKSPACES_ROOT=/app/storage/workspaces
@@ -160,7 +167,7 @@ KERNEL_IDLE_TIMEOUT_SECONDS=3600
 
 ## 7. Starting Application Backend Services
 
-The Docker Compose configuration deploys the application backend (`api`, `postgres`, `redis`).
+The Docker Compose configuration deploys the application backend (`api`, `postgres`, `redis`) using strictly dedicated custom ports (`8765`, `5476`, `6395`).
 Notice that **no Nginx container and no Certbot container are deployed in Docker** — the existing host Nginx installation on `root@vmi3043660` handles reverse proxying.
 
 ```bash
@@ -174,15 +181,17 @@ docker compose ps
 Expected healthy output:
 ```text
 NAME           IMAGE                             COMMAND                  SERVICE    STATUS                    PORTS
-pcs-postgres   postgres:16-alpine                "docker-entrypoint.s…"   postgres   Up (healthy)              5432/tcp
-pcs-redis      redis:7-alpine                    "docker-entrypoint.s…"   redis      Up (healthy)              6379/tcp
+pcs-postgres   postgres:16-alpine                "docker-entrypoint.s…"   postgres   Up (healthy)              5476/tcp
+pcs-redis      redis:7-alpine                    "docker-entrypoint.s…"   redis      Up (healthy)              6395/tcp
 pcs-api        python-cloud-studio-api           "uvicorn services.ap…"   api        Up (healthy)              127.0.0.1:8765->8765/tcp
 ```
 
 > [!IMPORTANT]
-> **Strict Zero Default Host Ports Policy:**
-> - Neither PostgreSQL (`5432`) nor Redis (`6379`) publishes any port to the host. They communicate strictly over the internal Docker bridge network (`pcs-network`).
-> - The API service publishes **only** to `127.0.0.1:8765`, remaining completely inaccessible from external networks until reverse-proxied by the host Nginx.
+> **Custom Non-Default Ports Policy:**
+> - **API / Web Studio:** `8765` (bound strictly to `127.0.0.1:8765`)
+> - **Frontend Dev Server:** `3765`
+> - **PostgreSQL 16:** `5476` (internal to `pcs-network`, zero host port binding)
+> - **Redis 7:** `6395` (internal to `pcs-network`, zero host port binding)
 
 ---
 

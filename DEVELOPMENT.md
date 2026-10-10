@@ -139,26 +139,26 @@ tests/integration/test_feature_enhancements.py::test_05_theme_preference_persist
 
 ---
 
-## 🔌 Custom Non-Colliding Ports & Zero Default Ports Policy
+## 🔌 Custom Non-Colliding Ports Policy
 
-The application strictly avoids all common default ports (`8000`, `3000`, `5432`, `6379`, `80`, `443`):
+The application uses dedicated custom ports everywhere:
 
-- **FastAPI Control Plane & Production Web Dashboard**: `http://localhost:8765`
-- **Frontend Vite Dev Server (HMR development)**: `http://localhost:3765`
-- **PostgreSQL Database**: Isolated inside internal Docker network (never bound to host port 5432)
-- **Redis Cache & Broker**: Isolated inside internal Docker network (never bound to host port 6379)
-- **Host Nginx**: Not used in local development (zero host port 80/443 conflicts)
+- **FastAPI Control Plane & Production Web Dashboard**: `http://localhost:8765` (Port `8765`)
+- **Frontend Vite Dev Server (HMR development)**: `http://localhost:3765` (Port `3765`)
+- **PostgreSQL 16 Database**: Port `5476` (isolated inside internal Docker network `pcs-network`)
+- **Redis 7 Cache & Broker**: Port `6395` (isolated inside internal Docker network `pcs-network`)
+- **Host Nginx**: Not used in local development
 
 ---
 
 ## 🐳 Local Docker Testing (Windows 11 + Docker Desktop)
 
-You can run the entire multi-container stack inside Docker Desktop on Windows 11 with **Zero Nginx** and **Zero Default Ports**.
+You can run the entire multi-container stack inside Docker Desktop on Windows 11 with **Zero Nginx** and **Dedicated Custom Ports (`8765`, `5476`, `6395`)**.
 
 ### Architecture for Local Development
 - **No Nginx Container**: FastAPI directly serves the compiled React frontend, WebSocket execution gateway, and REST API.
 - **Single Host Port**: Only `http://localhost:8765` is bound on the host (`127.0.0.1:8765`).
-- **Internal Database & Cache**: PostgreSQL 16 and Redis 7 communicate over the private bridge network `pcs-network`. Your host's native PostgreSQL (5432) and Redis (6379) remain completely untouched and conflict-free.
+- **Internal Database & Cache on Custom Ports**: PostgreSQL 16 runs on port `5476` and Redis 7 runs on port `6395` inside the private bridge network `pcs-network`.
 
 ### Step-by-Step Commands (PowerShell)
 
@@ -177,8 +177,8 @@ Expected output:
 ```text
 NAME           IMAGE                     COMMAND                  SERVICE    STATUS                    PORTS
 pcs-api        python-cloud-studio-api   "uvicorn services.ap…"   api        Up (healthy)              127.0.0.1:8765->8765/tcp
-pcs-postgres   postgres:16-alpine        "docker-entrypoint.s…"   postgres   Up (healthy)              5432/tcp
-pcs-redis      redis:7-alpine            "docker-entrypoint.s…"   redis      Up (healthy)              6379/tcp
+pcs-postgres   postgres:16-alpine        "docker-entrypoint.s…"   postgres   Up (healthy)              5476/tcp
+pcs-redis      redis:7-alpine            "docker-entrypoint.s…"   redis      Up (healthy)              6395/tcp
 ```
 
 ### Accessing the Platform Locally

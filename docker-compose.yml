@@ -1,31 +1,36 @@
 # ========================================================
 # ENTERPRISE PYTHON CLOUD STUDIO - PRODUCTION COMPOSE
-# Complete Multi-Container Stack: Nginx Reverse Proxy,
-# FastAPI Control Plane, PostgreSQL 16, Redis 7, Certbot SSL
+# Complete Multi-Container Stack:
+# FastAPI Control Plane (8765), PostgreSQL 16 (5476), Redis 7 (6395)
+# Custom Non-Default Ports Only (Zero Default Ports)
 # ========================================================
 
 name: python-cloud-studio
 
 services:
   # ------------------------------------------------------
-  # Database Service: PostgreSQL 16 Alpine
+  # Database Service: PostgreSQL 16 Alpine (Custom Port 5476)
   # Isolated to internal network; persistent storage volume
   # ------------------------------------------------------
   postgres:
     image: postgres:16-alpine
     container_name: pcs-postgres
     restart: unless-stopped
+    command: ["postgres", "-p", "${POSTGRES_PORT:-5476}"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-pcs_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pcs_password_secure_2026}
       POSTGRES_DB: ${POSTGRES_DB:-python_cloud_studio}
+      PGPORT: ${POSTGRES_PORT:-5476}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "${POSTGRES_PORT:-5476}"
     networks:
       - pcs-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pcs_user} -d ${POSTGRES_DB:-python_cloud_studio}"]
+      test: ["CMD-SHELL", "pg_isready -p ${POSTGRES_PORT:-5476} -U ${POSTGRES_USER:-pcs_user} -d ${POSTGRES_DB:-python_cloud_studio}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -39,20 +44,22 @@ services:
       - no-new-privileges:true
 
   # ------------------------------------------------------
-  # Cache & Broker Service: Redis 7 Alpine
+  # Cache & Broker Service: Redis 7 Alpine (Custom Port 6395)
   # Isolated to internal network; persistent storage volume
   # ------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: pcs-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--loglevel", "warning"]
+    command: ["redis-server", "--port", "${REDIS_PORT:-6395}", "--appendonly", "yes", "--loglevel", "warning"]
     volumes:
       - redis_data:/data
+    expose:
+      - "${REDIS_PORT:-6395}"
     networks:
       - pcs-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "${REDIS_PORT:-6395}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -66,7 +73,7 @@ services:
       - no-new-privileges:true
 
   # ------------------------------------------------------
-  # Application Service: FastAPI API & Execution Engine
+  # Application Service: FastAPI API & Execution Engine (Port 8765)
   # Multi-stage built image with compiled React frontend
   # ------------------------------------------------------
   api:
@@ -84,14 +91,15 @@ services:
       - APP_NAME=${APP_NAME:-Enterprise Python Cloud Studio}
       - APP_ENV=${APP_ENV:-production}
       - APP_DEBUG=${APP_DEBUG:-false}
-      - API_PORT=8765
+      - API_PORT=${API_PORT:-8765}
+      - WEB_PORT=${WEB_PORT:-3765}
       - SECRET_KEY=${SECRET_KEY:-pcs-super-secret-key-change-in-production-32chars-min!!}
       - ALGORITHM=${ALGORITHM:-HS256}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       - ADMIN_BOOTSTRAP_EMAIL=${ADMIN_BOOTSTRAP_EMAIL:-admin@example.com}
       - ADMIN_BOOTSTRAP_PASSWORD=${ADMIN_BOOTSTRAP_PASSWORD:-AdminSecurePassword2026!}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pcs_user}:${POSTGRES_PASSWORD:-pcs_password_secure_2026}@postgres:5432/${POSTGRES_DB:-python_cloud_studio}
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pcs_user}:${POSTGRES_PASSWORD:-pcs_password_secure_2026}@postgres:${POSTGRES_PORT:-5476}/${POSTGRES_DB:-python_cloud_studio}
+      - REDIS_URL=redis://redis:${REDIS_PORT:-6395}/0
       - DEFAULT_KERNEL_NAME=python3
       - MAX_CONCURRENT_KERNELS_PER_USER=${MAX_CONCURRENT_KERNELS_PER_USER:-5}
       - KERNEL_IDLE_TIMEOUT_SECONDS=${KERNEL_IDLE_TIMEOUT_SECONDS:-3600}

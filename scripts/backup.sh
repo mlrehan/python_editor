@@ -18,6 +18,7 @@ fi
 
 DB_USER="${POSTGRES_USER:-pcs_user}"
 DB_NAME="${POSTGRES_DB:-python_cloud_studio}"
+DB_PORT="${POSTGRES_PORT:-5476}"
 
 echo "=========================================================="
 echo "Starting Python Cloud Studio Backup [${TIMESTAMP}]"
@@ -26,7 +27,7 @@ echo "=========================================================="
 
 # 1. Backup PostgreSQL Database
 echo "[1/3] Dumping PostgreSQL database..."
-docker compose exec -T postgres pg_dump -U "${DB_USER}" "${DB_NAME}" > "${TARGET_DIR}/database.sql"
+docker compose exec -T postgres pg_dump -p "${DB_PORT}" -U "${DB_USER}" "${DB_NAME}" > "${TARGET_DIR}/database.sql"
 
 # 2. Backup User Workspaces & Notebooks
 echo "[2/3] Archiving user workspaces and notebooks..."
