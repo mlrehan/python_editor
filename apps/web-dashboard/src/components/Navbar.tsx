@@ -75,12 +75,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
   const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  const [mobileMenuPos, setMobileMenuPos] = useState<{ top: number; right: number }>({ top: 54, right: 8 });
+
+  const updateMobileMenuPosition = () => {
+    if (themeMenuRef.current && typeof window !== 'undefined') {
+      const rect = themeMenuRef.current.getBoundingClientRect();
+      setMobileMenuPos({
+        top: Math.round(rect.bottom + 6),
+        right: Math.max(8, Math.round(window.innerWidth - rect.right)),
+      });
+    }
+  };
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+      if (showThemeMenu) {
+        updateMobileMenuPosition();
+      }
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [showThemeMenu]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -102,7 +118,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         justifyContent: 'space-between',
         padding: isMobile ? '0 8px' : '0 16px',
         gap: isMobile ? '6px' : '12px',
-        zIndex: 30,
+        position: 'relative',
+        zIndex: 60,
         overflowX: isMobile ? 'auto' : 'visible',
         transition: 'background-color 0.15s ease, border-color 0.15s ease',
       }}
@@ -556,7 +573,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Theme Switcher */}
         <div style={{ position: 'relative' }} ref={themeMenuRef}>
           <button
-            onClick={() => setShowThemeMenu((prev) => !prev)}
+            onClick={() => {
+              updateMobileMenuPosition();
+              setShowThemeMenu((prev) => !prev);
+            }}
             data-testid="theme-toggle-btn"
             id="theme-switcher-btn"
             style={{
@@ -587,15 +607,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div
               data-testid="theme-dropdown-menu"
               style={{
-                position: 'absolute',
-                top: 'calc(100% + 6px)',
-                right: 0,
+                position: isMobile ? 'fixed' : 'absolute',
+                top: isMobile ? `${mobileMenuPos.top}px` : 'calc(100% + 6px)',
+                right: isMobile ? `${mobileMenuPos.right}px` : 0,
                 backgroundColor: 'var(--dropdown-bg)',
                 border: '1px solid var(--dropdown-border)',
                 borderRadius: '8px',
                 padding: '4px',
                 boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)',
-                zIndex: 50,
+                zIndex: 100,
                 minWidth: '130px',
                 display: 'flex',
                 flexDirection: 'column',

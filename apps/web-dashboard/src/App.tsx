@@ -395,10 +395,12 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateCellSource = (cellId: string, newSource: string) => {
-    if (!notebook) return;
-    setNotebook({
-      ...notebook,
-      cells: notebook.cells.map((c) => (c.id === cellId ? { ...c, source: newSource } : c)),
+    setNotebook((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        cells: prev.cells.map((c) => (c.id === cellId ? { ...c, source: newSource } : c)),
+      };
     });
   };
 
@@ -589,7 +591,7 @@ export const App: React.FC = () => {
     const newCell: NotebookCell = {
       id: `cell-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       cell_type: cellType,
-      source: cellType === 'code' ? 'print("New cell")' : '### New Notes',
+      source: '',
       outputs: [],
     };
     const updated = [...notebook.cells];
@@ -938,7 +940,7 @@ export const App: React.FC = () => {
       )}
 
       {/* 3-Panel Resizable Workspace */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: 1, isolation: 'isolate' }}>
         {/* Left Sidebar (Files) */}
         {isLeftSidebarOpen && (
           <div

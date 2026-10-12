@@ -408,10 +408,18 @@ export class ApiClient {
   }
 
   // Language Service / Autocomplete / Diagnostics
-  async getCompletions(code: string, line: number, column: number, notebookContext: string[] = [], sessionId?: string) {
+  async getCompletions(
+    code: string,
+    line: number,
+    column: number,
+    notebookContext: string[] = [],
+    sessionId?: string,
+    signal?: AbortSignal
+  ) {
     return this.request<{ completions: Array<{ label: string; type: string; detail?: string; documentation?: string; insert_text?: string }>; signatures: any[] }>('/editor/complete', {
       method: 'POST',
       body: JSON.stringify({ code, line, column, notebook_context: notebookContext, session_id: sessionId }),
+      signal,
     });
   }
 
@@ -422,10 +430,11 @@ export class ApiClient {
     });
   }
 
-  async getDiagnostics(code: string, notebookContext: string[] = [], sessionId?: string) {
+  async getDiagnostics(code: string, notebookContext: string[] = [], sessionId?: string, signal?: AbortSignal) {
     return this.request<{ diagnostics: Array<{ from_line: number; from_col: number; to_line: number; to_col: number; message: string; severity: string }> }>('/editor/diagnostics', {
       method: 'POST',
       body: JSON.stringify({ code, notebook_context: notebookContext, session_id: sessionId }),
+      signal,
     });
   }
 }

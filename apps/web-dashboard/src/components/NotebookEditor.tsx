@@ -428,6 +428,9 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
         backgroundColor: 'var(--bg-panel)',
         padding: '12px 16px 80px 16px',
         boxSizing: 'border-box',
+        position: 'relative',
+        zIndex: 1,
+        isolation: 'isolate',
       }}
     >
       <div
@@ -803,6 +806,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                     <PythonCellEditor
                       cellId={cell.id}
                       code={cell.source}
+                      isActive={isActive}
                       customHeight={cell.metadata?.custom_height}
                       onHeightChange={(id, height) => onUpdateCellMetadata && onUpdateCellMetadata(id, { custom_height: height })}
                       onChange={(newCode) => onUpdateCellSource(cell.id, newCode)}
