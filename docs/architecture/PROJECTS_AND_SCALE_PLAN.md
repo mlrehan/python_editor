@@ -1,6 +1,6 @@
 # Projects Workspace & 100-User Scale Plan
 
-Status: **proposal, awaiting approval** · Written 2026-10-26 · Covers: VS Code–style projects, running 100 concurrent users safely on one Docker host.
+Status: **Phase 0 code complete (not deployed); Phase 1+ awaiting server specs** · Written 2026-10-26 · Covers: VS Code–style projects, running 100 concurrent users safely on one Docker host.
 
 Requirements agreed with the product owner:
 - Long-term goal is a VS Code–like IDE next to the notebook.
@@ -109,7 +109,30 @@ Each phase ends with automated tests plus a load test against the agreed targets
 
 ---
 
-## 5. Decisions needed before Phase 0/1
+## 5. Phase 0 status (code changes done 2026-10-26, not yet deployed)
+
+Implemented and covered by `tests/integration/test_kernel_capacity.py`:
+- Server-wide (`MAX_TOTAL_KERNELS`), guest (`MAX_GUEST_KERNELS`) and per-user (`MAX_CONCURRENT_KERNELS_PER_USER`, now 3) kernel caps. When full, abandoned kernels (no browser attached, not executing) are evicted oldest-first; otherwise the user gets a clear "server is at full capacity" message and the browser retries slowly.
+- Background maintenance every 30 s: kernels with no browser for `KERNEL_DETACHED_TIMEOUT_SECONDS` (10 min) or no execution for `KERNEL_IDLE_TIMEOUT_SECONDS` (1 h) are shut down; executing kernels never are.
+- Memory watchdog: a kernel whose process tree exceeds `KERNEL_MAX_MEMORY_MB` (1 GB) is killed; the running cell reports why and the kernel restarts on the next run.
+- Crashed kernels are detected within ~1 s (previously the cell waited for the 60 s timeout) and restarted on the next run.
+- Kernel start-up is queued (`KERNEL_START_CONCURRENCY`, default one per CPU core) so bursts of logins no longer all time out.
+- Auth no longer holds a database connection for the whole request (pool exhaustion under load); pool sized via `DB_POOL_SIZE`/`DB_MAX_OVERFLOW`; bcrypt and admin `pip` run off the event loop.
+- `/editor/complete` no longer imports user-named modules into the API process (anonymous code execution), Jedi no longer searches other users' workspaces, and kernel introspection only uses the caller's own kernel. `get_session` no longer returns another user's (or an admin's) kernel, and two guests no longer share one kernel.
+- REST execution timeout is capped at 600 s. `/health` reports kernel capacity (`kernels` field).
+- Compose: refuses to start without `SECRET_KEY`, `ADMIN_BOOTSTRAP_PASSWORD`, `POSTGRES_PASSWORD`; the API also refuses public default secrets when `APP_ENV=production`. API limits are configurable (`API_MEM_LIMIT`, `API_CPU_LIMIT`, `API_PIDS_LIMIT`) and `init: true` reaps zombie processes.
+- `server_env` and SQLite journal files are no longer tracked or copied into images. They remain in git history.
+
+Load test (`tests/load/capacity_load_test.py`), dev machine with 2 CPUs, caps scaled down to 12 kernels, 30 users at once: before the fixes 15 hard errors (DB pool timeouts, kernel start timeouts) and p95 31 s; after: **0 hard errors**, p95 3.3 s, over-capacity users rejected gracefully, server healthy. A 100-user run must be done on the production-sized host.
+
+**Required on the server before/when deploying Phase 0 (by you):**
+1. **Rotate every secret that was in `server_env`** (`SECRET_KEY`, `ADMIN_BOOTSTRAP_PASSWORD`/admin password, `POSTGRES_PASSWORD`). They are in git history, so removing the file is not enough. Rotating `SECRET_KEY` signs everyone out once.
+2. Update the server `.env` with the new capacity settings (see `.env.production.example` section 7), sized to the host: currently it sets `API_MEM_LIMIT=2G`, which caps the platform at ~12 active kernels.
+3. Rebuild and redeploy the image, then run `python tests/load/capacity_load_test.py --base-url https://<your-domain> --users 100` and watch `docker stats pcs-api`.
+
+Still open from Phase 0: confirming the production outage cause (diagnostics above); stored XSS in notebook HTML outputs (render them in a sandboxed iframe); the API container still runs as root (moving kernels to non-root per-user containers in Phase 1 fixes this without a risky volume ownership migration now).
+
+## 6. Decisions needed before Phase 1
 
 1. **Server specs**: CPU cores, RAM, disk, OS, Docker version. Other sites on the host (LMS) also need headroom.
 2. **Domain/TLS**: is Cloudflare in front? Can we use a wildcard subdomain for previews?
