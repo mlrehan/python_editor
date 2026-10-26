@@ -137,3 +137,33 @@ async def test_diagnostics_missing_module_error():
         assert len(data["diagnostics"]) > 0
         assert "Unresolved import" in data["diagnostics"][0]["message"]
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [
+    "!python main.py",
+    "%run main.py",
+    "!pip list",
+    "files = !ls",
+    "%timeit sum(range(10))",
+    "import os\nfor i in range(2):\n    !echo {i}\nprint(os.getcwd())",
+    "len?",
+    "?len",
+    "%%bash\necho this is not python (",
+])
+async def test_diagnostics_ignore_ipython_magics_and_shell_escapes(code):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
+        assert response.status_code == 200
+        assert response.json()["diagnostics"] == []
+
+@pytest.mark.asyncio
+async def test_diagnostics_real_error_next_to_magic_keeps_line_number():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        code = "!python main.py\nx = (1, \nprint('after')"
+        response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
+        diagnostics = response.json()["diagnostics"]
+        assert len(diagnostics) == 1
+        assert "Syntax Error" in diagnostics[0]["message"]
+        assert diagnostics[0]["from_line"] >= 2
+

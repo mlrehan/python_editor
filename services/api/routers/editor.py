@@ -860,6 +860,37 @@ async def get_signatures(
 
 
 
+# IPython-only syntax that ast.parse rejects but the kernel runs fine
+_IPY_ASSIGNED_ESCAPE = re.compile(r"^(\s*[A-Za-z_][\w.,\s]*=\s*)(?:!(?!=)|%[A-Za-z])")  # files = !ls, t = %timeit f()
+_IPY_ESCAPE_LINE = re.compile(r"^(\s*)(?:!(?!=)|%{1,2}[A-Za-z]|\?)")  # !pip ..., %run x.py, ?obj
+_IPY_HELP_SUFFIX = re.compile(r"^(\s*)[A-Za-z_][\w.]*\?{1,2}\s*$")  # obj? / obj??
+
+
+def _mask_ipython_syntax(code: str) -> Optional[str]:
+    """
+    Replaces IPython shell escapes, line magics and help syntax with placeholder Python so the
+    AST parser does not report them as syntax errors. Line numbers are preserved.
+    Returns None for cell magics (%%time, %%bash, ...), whose body is not necessarily Python.
+    """
+    lines = code.split("\n")
+    first_line = next((l for l in lines if l.strip()), "")
+    if first_line.lstrip().startswith("%%"):
+        return None
+
+    masked = []
+    for line in lines:
+        m = _IPY_ASSIGNED_ESCAPE.match(line)
+        if m:
+            masked.append(m.group(1) + "None")
+            continue
+        m = _IPY_ESCAPE_LINE.match(line) or _IPY_HELP_SUFFIX.match(line)
+        if m:
+            masked.append(m.group(1) + "pass")
+            continue
+        masked.append(line)
+    return "\n".join(masked)
+
+
 @router.post("/diagnostics", response_model=DiagnosticsResponse)
 async def get_diagnostics(
     req: DiagnosticsRequest,
@@ -877,6 +908,10 @@ async def get_diagnostics(
     if not code.strip():
         return DiagnosticsResponse(diagnostics=[])
 
+    parse_code = _mask_ipython_syntax(code)
+    if parse_code is None:
+        return DiagnosticsResponse(diagnostics=[])
+
     lines = code.split("\n")
     diagnostics: List[DiagnosticItem] = []
 
@@ -890,7 +925,7 @@ async def get_diagnostics(
 
     # 1. Genuine Syntax Error Detection via Python's AST parser
     try:
-        tree = ast.parse(code)
+        tree = ast.parse(parse_code)
     except SyntaxError as e:
         err_line = e.lineno or 1
         # Suppress transient syntax errors on the line currently being typed if it ends with a dot or operator
