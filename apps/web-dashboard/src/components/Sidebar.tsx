@@ -239,7 +239,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       x,
       y,
       target: null, // empty background
-      targetDir: activeDirectory || '',
+      // Like VS Code: right-clicking empty space acts on the workspace root, not the last selected folder
+      targetDir: '',
     });
   };
 
@@ -253,7 +254,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const uploadedFiles = Array.from(e.target.files);
-    const targetFolder = uploadTargetFolder || activeDirectory || '';
+    // Every trigger passes its folder explicitly; '' means the workspace root
+    const targetFolder = uploadTargetFolder;
 
     for (const file of uploadedFiles) {
       try {
