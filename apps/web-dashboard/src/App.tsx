@@ -312,6 +312,24 @@ export const App: React.FC = () => {
     };
   }, [notebook?.id, user?.id]);
 
+  // Keep open editor tabs pointing at files that were moved or renamed in the File Explorer
+  useEffect(() => {
+    const remap = (path: string, oldPath: string, newPath: string) =>
+      path === oldPath || path.startsWith(`${oldPath}/`) ? newPath + path.substring(oldPath.length) : path;
+    const handleMoved = (e: Event) => {
+      const { oldPath, newPath } = (e as CustomEvent<{ oldPath: string; newPath: string }>).detail;
+      setOpenFiles((prev) =>
+        prev.map((f) => {
+          const path = remap(f.path, oldPath, newPath);
+          return path === f.path ? f : { ...f, path, name: path.split('/').pop() || f.name };
+        })
+      );
+      setActiveFilePath((prev) => (prev ? remap(prev, oldPath, newPath) : prev));
+    };
+    window.addEventListener('pcs-file-moved', handleMoved);
+    return () => window.removeEventListener('pcs-file-moved', handleMoved);
+  }, []);
+
   // Open file in right sidebar (called on double-click from File Explorer)
   const handleOpenFile = async (fileItem: FileItem) => {
     // If file is already open in tabs, select its tab

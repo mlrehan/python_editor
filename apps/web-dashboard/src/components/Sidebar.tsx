@@ -65,6 +65,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [uploadTargetFolder, setUploadTargetFolder] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Contents of expanded folders, keyed by folder path (root items live in `files`)
+  const [folderChildren, setFolderChildren] = useState<Record<string, FileItem[]>>({});
+  const expandedFoldersRef = useRef(expandedFolders);
+  expandedFoldersRef.current = expandedFolders;
+
+  const loadFolder = async (folderPath: string) => {
+    try {
+      const items = await api.listFiles(folderPath);
+      setFolderChildren((prev) => ({ ...prev, [folderPath]: items }));
+    } catch (err) {
+      // Folder was moved or deleted: forget it
+      setFolderChildren((prev) => {
+        const next = { ...prev };
+        delete next[folderPath];
+        return next;
+      });
+      setExpandedFolders((prev) => {
+        const next = { ...prev };
+        delete next[folderPath];
+        return next;
+      });
+    }
+  };
+
   const loadFiles = async () => {
     try {
       const items = await api.listFiles();
@@ -72,12 +96,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } catch (err) {
       console.warn('Failed to load files:', err);
     }
+    const openFolders = Object.keys(expandedFoldersRef.current).filter((p) => expandedFoldersRef.current[p]);
+    await Promise.all(openFolders.map((p) => loadFolder(p)));
   };
+
+  const toggleFolder = (folderPath: string) => {
+    const willExpand = !expandedFolders[folderPath];
+    setExpandedFolders((prev) => ({ ...prev, [folderPath]: willExpand }));
+    if (willExpand) loadFolder(folderPath);
+  };
+
+  // Expands a folder and (re)loads its contents; no-op for the root
+  const revealFolder = async (folderPath: string) => {
+    if (!folderPath) return;
+    setExpandedFolders((prev) => ({ ...prev, [folderPath]: true }));
+    await loadFolder(folderPath);
+  };
+
+  // Items directly inside a folder ('' is the workspace root)
+  const itemsIn = (folderPath: string): FileItem[] => (folderPath ? folderChildren[folderPath] || [] : files);
 
   useEffect(() => {
     setSelectedPath(null);
     setActiveDirectory('');
     setExpandedFolders({});
+    setFolderChildren({});
+    expandedFoldersRef.current = {};
     loadFiles();
   }, [user]);
 
@@ -141,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleItemDoubleClick = (file: FileItem) => {
     if (file.is_dir) {
-      setExpandedFolders((prev) => ({ ...prev, [file.path]: !prev[file.path] }));
+      toggleFolder(file.path);
       setActiveDirectory(file.path);
     } else if (file.name.endsWith('.ipynb')) {
       onOpenNotebookFile(file.path);
@@ -236,7 +280,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const fullPath = folder ? `${folder}/${inputName}` : inputName;
 
         // Check if file already exists
-        if (files.some((f) => f.path.toLowerCase() === fullPath.toLowerCase())) {
+        if (itemsIn(folder).some((f) => f.path.toLowerCase() === fullPath.toLowerCase())) {
           alert(`A file or folder named "${inputName}" already exists.`);
           return;
         }
@@ -281,6 +325,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         await api.writeFile(fullPath, initialContent);
         await loadFiles();
+        await revealFolder(folder);
         setSelectedPath(fullPath);
 
         if (fullPath.endsWith('.ipynb')) {
@@ -304,14 +349,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const folder = targetFolder !== undefined ? targetFolder : activeDirectory;
         const fullPath = folder ? `${folder}/${folderName}` : folderName;
 
-        if (files.some((f) => f.path.toLowerCase() === fullPath.toLowerCase())) {
+        if (itemsIn(folder).some((f) => f.path.toLowerCase() === fullPath.toLowerCase())) {
           alert(`A folder named "${folderName}" already exists.`);
           return;
         }
 
         await api.createFolder(fullPath);
         await loadFiles();
-        setExpandedFolders((prev) => ({ ...prev, [fullPath]: true }));
+        await revealFolder(folder);
+        await revealFolder(fullPath);
       } else if (type === 'rename' && target && inputValue?.trim()) {
         const newName = inputValue.trim();
         if (newName.includes('/') || newName.includes('\\') || newName.includes('..')) {
@@ -325,6 +371,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const newPath = parent ? `${parent}/${newName}` : newName;
 
         await api.renameFile(target.path, newPath);
+        notifyPathMoved(target.path, newPath);
         await loadFiles();
       } else if (type === 'delete' && target) {
         await api.deleteFile(target.path);
@@ -339,28 +386,136 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  // Drag and drop upload
+  // Tells the rest of the app (open editor tabs) that a file or folder changed path
+  const notifyPathMoved = (oldPath: string, newPath: string) => {
+    window.dispatchEvent(new CustomEvent('pcs-file-moved', { detail: { oldPath, newPath } }));
+  };
+
+  const parentOf = (path: string) => (path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '');
+
+  // Moves a file or folder into targetFolder ('' = workspace root), VS Code explorer style
+  const moveItem = async (sourcePath: string, targetFolder: string) => {
+    const name = sourcePath.split('/').pop() || sourcePath;
+    if (targetFolder === sourcePath || targetFolder.startsWith(`${sourcePath}/`)) {
+      alert('A folder cannot be moved into itself.');
+      return;
+    }
+    if (parentOf(sourcePath) === targetFolder) return;
+    const newPath = targetFolder ? `${targetFolder}/${name}` : name;
+    try {
+      await api.renameFile(sourcePath, newPath);
+    } catch (err: any) {
+      alert(err.message || 'Move failed');
+      return;
+    }
+    notifyPathMoved(sourcePath, newPath);
+    // Carry expanded state of a moved folder (and its subfolders) over to the new location
+    setExpandedFolders((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const [p, open] of Object.entries(prev)) {
+        if (p === sourcePath || p.startsWith(`${sourcePath}/`)) {
+          next[newPath + p.substring(sourcePath.length)] = open;
+        } else {
+          next[p] = open;
+        }
+      }
+      expandedFoldersRef.current = next;
+      return next;
+    });
+    if (selectedPath === sourcePath) setSelectedPath(newPath);
+    if (activeDirectory === sourcePath) setActiveDirectory(newPath);
+    await loadFiles();
+    await revealFolder(targetFolder);
+  };
+
+  const DRAG_MIME = 'application/x-pcs-path';
+  const [draggingPath, setDraggingPath] = useState<string | null>(null);
+  const [dropTargetFolder, setDropTargetFolder] = useState<string | null>(null);
+
+  const uploadFiles = async (fileList: FileList, targetFolder: string) => {
+    for (const file of Array.from(fileList)) {
+      try {
+        await api.uploadFile(file, targetFolder);
+      } catch (err) {
+        console.error('Upload failed:', err);
+      }
+    }
+    await loadFiles();
+    await revealFolder(targetFolder);
+  };
+
+  // Drop onto a folder row: move workspace items, or upload files from the computer into that folder
+  const handleFolderDragOver = (e: React.DragEvent, folder: FileItem) => {
+    const isInternal = e.dataTransfer.types.includes(DRAG_MIME);
+    const isExternal = e.dataTransfer.types.includes('Files');
+    if (!isInternal && !isExternal) return;
+    if (isInternal && draggingPath && (folder.path === draggingPath || folder.path.startsWith(`${draggingPath}/`))) {
+      // Invalid target (the folder itself or one of its subfolders): refuse the drop here and
+      // stop the event from reaching the sidebar background, which would move the item to the root
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'none';
+      if (dropTargetFolder !== null) setDropTargetFolder(null);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = isInternal ? 'move' : 'copy';
+    setIsDragOver(false);
+    if (dropTargetFolder !== folder.path) setDropTargetFolder(folder.path);
+  };
+
+  const handleFolderDrop = async (e: React.DragEvent, folder: FileItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTargetFolder(null);
+    setIsDragOver(false);
+    const sourcePath = e.dataTransfer.getData(DRAG_MIME);
+    setDraggingPath(null);
+    if (sourcePath) {
+      await moveItem(sourcePath, folder.path);
+    } else if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await uploadFiles(e.dataTransfer.files, folder.path);
+    }
+  };
+
+  // Drag and drop on the sidebar background: move to workspace root, or upload into the active folder
   const [isDragOver, setIsDragOver] = useState(false);
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+    setDropTargetFolder(null);
+    const sourcePath = e.dataTransfer.getData(DRAG_MIME);
+    setDraggingPath(null);
+    if (sourcePath) {
+      await moveItem(sourcePath, '');
+      return;
+    }
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      const targetFolder = activeDirectory || '';
-      for (const file of droppedFiles) {
-        try {
-          await api.uploadFile(file, targetFolder);
-        } catch (err) {
-          console.error('Upload failed:', err);
-        }
-      }
-      await loadFiles();
+      await uploadFiles(e.dataTransfer.files, activeDirectory || '');
     }
   };
 
-  const filteredFiles = files.filter((f) =>
-    f.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Visible rows: nested tree of expanded folders, or a flat list of loaded items while searching
+  const query = searchQuery.trim().toLowerCase();
+  const visibleRows: Array<{ file: FileItem; depth: number }> = [];
+  if (query) {
+    const all = [...files, ...Object.values(folderChildren).flat()];
+    const seen = new Set<string>();
+    for (const f of all) {
+      if (!seen.has(f.path) && f.name.toLowerCase().includes(query)) {
+        seen.add(f.path);
+        visibleRows.push({ file: f, depth: 0 });
+      }
+    }
+  } else {
+    const addRows = (items: FileItem[], depth: number) => {
+      for (const f of items) {
+        visibleRows.push({ file: f, depth });
+        if (f.is_dir && expandedFolders[f.path]) addRows(folderChildren[f.path] || [], depth + 1);
+      }
+    };
+    addRows(files, 0);
+  }
 
   return (
     <aside
@@ -381,7 +536,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }}
       onDragOver={(e) => {
         e.preventDefault();
-        setIsDragOver(true);
+        // Upload overlay only for files dragged in from the computer, not for moves inside the tree
+        if (e.dataTransfer.types.includes('Files')) setIsDragOver(true);
+        if (dropTargetFolder !== null) setDropTargetFolder(null);
       }}
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
@@ -591,7 +748,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           minHeight: '200px',
         }}
       >
-        {filteredFiles.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div
             style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}
           >
@@ -614,13 +771,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         ) : (
-          filteredFiles.map((file) => {
+          visibleRows.map(({ file, depth }) => {
             const isSelected = selectedPath === file.path;
             const isActive = activeFilePath === file.path;
+            const isDropTarget = file.is_dir && dropTargetFolder === file.path;
 
             return (
               <div
                 key={file.path}
+                data-testid="file-tree-item"
+                data-path={file.path}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(DRAG_MIME, file.path);
+                  e.dataTransfer.effectAllowed = 'move';
+                  setDraggingPath(file.path);
+                }}
+                onDragEnd={() => {
+                  setDraggingPath(null);
+                  setDropTargetFolder(null);
+                }}
+                onDragOver={file.is_dir ? (e) => handleFolderDragOver(e, file) : undefined}
+                onDrop={file.is_dir ? (e) => handleFolderDrop(e, file) : undefined}
                 onClick={() => handleItemClick(file)}
                 onDoubleClick={() => handleItemDoubleClick(file)}
                 onContextMenu={(e) => handleItemContextMenu(e, file)}
@@ -628,10 +800,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  padding: '5px 8px',
+                  padding: `5px 8px 5px ${8 + depth * 16}px`,
                   margin: '1px 0',
                   borderRadius: '4px',
-                  backgroundColor: isSelected || isActive ? 'var(--dropdown-item-selected)' : 'transparent',
+                  backgroundColor: isDropTarget
+                    ? 'rgba(37, 99, 235, 0.18)'
+                    : isSelected || isActive
+                    ? 'var(--dropdown-item-selected)'
+                    : 'transparent',
+                  outline: isDropTarget ? '1px dashed var(--border-accent)' : 'none',
+                  opacity: draggingPath === file.path ? 0.5 : 1,
                   borderLeft: isActive ? '3px solid var(--border-accent)' : '3px solid transparent',
                   cursor: 'pointer',
                   color: isSelected || isActive ? 'var(--dropdown-item-selected-text)' : 'var(--text-main)',
