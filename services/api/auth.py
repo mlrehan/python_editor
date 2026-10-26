@@ -74,6 +74,9 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
+    # End the read transaction now so the pooled connection is not held for the whole request
+    # (e.g. while a cell executes); the user object stays usable since expire_on_commit=False.
+    await db.commit()
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -117,6 +120,8 @@ async def get_current_user_or_guest(
             if user_id:
                 result = await db.execute(select(User).where(User.id == user_id))
                 user = result.scalar_one_or_none()
+                # Release the pooled connection immediately (see get_current_user)
+                await db.commit()
                 if user and user.is_active:
                     user.is_guest = False
                     user.guest_token = None

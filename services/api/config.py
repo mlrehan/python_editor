@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./studio_dev.db"
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
 
     # Runtime and Storage
     DEFAULT_KERNEL_NAME: str = "python3"

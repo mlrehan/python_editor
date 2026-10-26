@@ -3,6 +3,7 @@ import re
 import shutil
 import asyncio
 import subprocess
+import sys
 import importlib.metadata
 import psutil
 from datetime import datetime
@@ -210,7 +211,7 @@ async def create_user(
 
     new_user = User(
         email=req.email,
-        hashed_password=hash_password(req.password),
+        hashed_password=await asyncio.to_thread(hash_password, req.password),
         full_name=req.full_name,
         role=role,
         can_manage_packages=req.can_manage_packages or (role in ("super_admin", "admin")),
@@ -294,7 +295,7 @@ async def reset_user_password(
     if not target_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    target_user.hashed_password = hash_password(req.new_password)
+    target_user.hashed_password = await asyncio.to_thread(hash_password, req.new_password)
     target_user.updated_at = datetime.utcnow()
     await db.commit()
 
@@ -450,8 +451,10 @@ async def install_package(
         spec = f"{pkg}=={v}" if not v.startswith(("=", "<", ">", "~")) else f"{pkg}{v}"
 
     try:
-        proc = subprocess.run(
-            ["python", "-m", "pip", "install", "--no-input", spec],
+        # Off the event loop (pip can take minutes), using the interpreter the kernels run on
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, "-m", "pip", "install", "--no-input", spec],
             capture_output=True,
             text=True,
             timeout=120,
@@ -499,8 +502,9 @@ async def uninstall_package(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid package name.")
 
     try:
-        proc = subprocess.run(
-            ["python", "-m", "pip", "uninstall", "-y", pkg],
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, "-m", "pip", "uninstall", "-y", pkg],
             capture_output=True,
             text=True,
             timeout=60,
@@ -875,12 +879,12 @@ async def update_super_admin_credentials(
     Updates the database permanently, which remains authoritative across restarts.
     """
     if req.new_password:
-        if not req.current_password or not verify_password(req.current_password, current_user.hashed_password):
+        if not req.current_password or not await asyncio.to_thread(verify_password, req.current_password, current_user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Current password verification failed.",
             )
-        current_user.hashed_password = hash_password(req.new_password)
+        current_user.hashed_password = await asyncio.to_thread(hash_password, req.new_password)
 
     if req.email and req.email != current_user.email:
         existing = await db.execute(select(User).where(User.email == req.email))

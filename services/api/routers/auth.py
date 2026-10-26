@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +26,7 @@ async def register(req: UserRegister, db: AsyncSession = Depends(get_db)):
 
     user = User(
         email=req.email,
-        hashed_password=hash_password(req.password),
+        hashed_password=await asyncio.to_thread(hash_password, req.password),
         full_name=req.full_name,
         role=role,
     )
@@ -50,7 +51,8 @@ async def login(req: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == req.email))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(req.password, user.hashed_password):
+    # bcrypt is deliberately slow (~0.25s CPU); run it off the event loop so logins don't freeze other users
+    if not user or not await asyncio.to_thread(verify_password, req.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
