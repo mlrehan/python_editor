@@ -209,3 +209,53 @@ sys.stderr.write("standard error warning\\n")
     assert any("standard output message" in c for c in stdout_chunks)
     assert any("standard error warning" in c for c in stderr_chunks)
 
+
+async def test_16_input_round_trip_via_stdin(temp_kernel):
+    """TEST 16: input() prompts reach the caller and the reply is delivered to the kernel."""
+    session, _ = temp_kernel
+    prompts = []
+
+    async def on_input(prompt, password):
+        prompts.append((prompt, password))
+        assert session.input_pending
+        session.send_input("Ada")
+
+    result = await session.execute(
+        'name = input("Enter your name: ")\nprint("Hello", name)',
+        on_input_request=on_input,
+        timeout=20,
+    )
+    assert result.status == "ok"
+    assert prompts == [("Enter your name: ", False)]
+    assert "Hello Ada" in "".join(o.get("text", "") for o in result.outputs)
+    assert not session.input_pending
+
+
+async def test_17_input_wait_does_not_count_toward_timeout(temp_kernel):
+    """TEST 17: Time spent waiting for the user to type is excluded from the execution timeout."""
+    session, _ = temp_kernel
+
+    async def on_input(prompt, password):
+        async def reply_later():
+            await asyncio.sleep(2.5)
+            session.send_input("late answer")
+        asyncio.create_task(reply_later())
+
+    result = await session.execute(
+        'print(input("> "))', on_input_request=on_input, timeout=1.5
+    )
+    assert result.status == "ok"
+    assert "late answer" in "".join(o.get("text", "") for o in result.outputs)
+
+
+async def test_18_input_without_stdin_handler_fails_fast(temp_kernel):
+    """TEST 18: Without an input handler (REST execution), input() errors immediately instead of hanging."""
+    session, _ = temp_kernel
+    result = await session.execute('input("never answered: ")', timeout=20)
+    assert result.status == "error"
+    assert result.error["ename"] == "StdinNotImplementedError"
+    assert result.execution_time < 10
+    # The kernel stays usable afterwards
+    follow_up = await session.execute('print("still alive")')
+    assert "still alive" in "".join(o.get("text", "") for o in follow_up.outputs)
+

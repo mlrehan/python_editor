@@ -3,6 +3,7 @@ import os
 import sys
 import uuid
 import time
+from queue import Empty
 from typing import Dict, Any, List, Optional, Callable, Coroutine
 from jupyter_client.manager import AsyncKernelManager
 
@@ -55,6 +56,10 @@ class KernelSession:
         self.execution_count = 0
         self.is_running = False
         self._lock = asyncio.Lock()
+        # stdin state for the current execution: when the pending input_request started,
+        # and how long execution has spent waiting on the user (excluded from the timeout)
+        self._input_pending_since: Optional[float] = None
+        self._input_wait_total: float = 0.0
 
         # Ensure workspace directory exists
         os.makedirs(self.workspace_dir, exist_ok=True)
@@ -85,11 +90,14 @@ class KernelSession:
         self,
         code: str,
         on_output_chunk: Optional[Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]] = None,
-        timeout: Optional[float] = 60.0
+        timeout: Optional[float] = 60.0,
+        on_input_request: Optional[Callable[[str, bool], Coroutine[Any, Any, None]]] = None,
     ) -> KernelExecutionResult:
         """
         Executes arbitrary Python code within the kernel.
         Streams outputs in real time via on_output_chunk callback and returns full execution result.
+        If on_input_request is given, input()/getpass() prompts are forwarded to it and answered
+        via send_input(); otherwise stdin is disabled and input() raises StdinNotImplementedError.
         """
         if not self.is_running or not self.kc:
             raise RuntimeError(f"Kernel session {self.session_id} is not running.")
@@ -97,14 +105,16 @@ class KernelSession:
         async with self._lock:
             start_time = time.time()
             self.last_active_at = start_time
-            msg_id = self.kc.execute(code)
+            allow_stdin = on_input_request is not None
+            msg_id = self.kc.execute(code, allow_stdin=allow_stdin)
             result = KernelExecutionResult(msg_id=msg_id)
-
-            loop = asyncio.get_event_loop()
-            deadline = (start_time + timeout) if timeout else None
+            self._input_pending_since = None
+            self._input_wait_total = 0.0
 
             while True:
-                if deadline and time.time() > deadline:
+                # Time spent waiting for the user to answer input() does not count toward the timeout
+                deadline = (start_time + timeout + self._input_wait_total) if timeout else None
+                if deadline and self._input_pending_since is None and time.time() > deadline:
                     await self.interrupt()
                     result.status = "error"
                     timeout_output = {
@@ -119,10 +129,24 @@ class KernelSession:
                         await on_output_chunk(timeout_output)
                     break
 
+                if allow_stdin and self._input_pending_since is None:
+                    try:
+                        stdin_msg = await self.kc.get_stdin_msg(timeout=0)
+                    except Empty:
+                        stdin_msg = None
+                    if (
+                        stdin_msg
+                        and stdin_msg.get("header", {}).get("msg_type") == "input_request"
+                        and stdin_msg.get("parent_header", {}).get("msg_id") == msg_id
+                    ):
+                        self._input_pending_since = time.time()
+                        content = stdin_msg.get("content", {})
+                        await on_input_request(content.get("prompt", ""), bool(content.get("password", False)))
+
                 try:
-                    # Wait for message with short timeout to allow loop cancellation check
-                    msg = await asyncio.wait_for(self.kc.get_iopub_msg(), timeout=0.5)
-                except asyncio.TimeoutError:
+                    # Short poll so the loop can also service stdin requests and the deadline
+                    msg = await self.kc.get_iopub_msg(timeout=0.1)
+                except Empty:
                     continue
 
                 # Verify message belongs to our execution request
@@ -179,6 +203,7 @@ class KernelSession:
                     if on_output_chunk:
                         await on_output_chunk(chunk)
 
+            self._input_pending_since = None
             result.execution_time = time.time() - start_time
             self.last_active_at = time.time()
 
@@ -211,6 +236,20 @@ class KernelSession:
 
             return result
 
+    @property
+    def input_pending(self) -> bool:
+        return self._input_pending_since is not None
+
+    def send_input(self, value: str) -> bool:
+        """Answers the kernel's pending input_request. Returns False if nothing is waiting for input."""
+        if self._input_pending_since is None or not self.kc:
+            return False
+        self._input_wait_total += time.time() - self._input_pending_since
+        self._input_pending_since = None
+        self.kc.input(value)
+        self.last_active_at = time.time()
+        return True
+
     async def interrupt(self) -> None:
         """Interrupts currently executing calculation in the kernel."""
         if self.km:
@@ -218,6 +257,12 @@ class KernelSession:
 
     async def restart(self, timeout: float = 25.0) -> None:
         """Restarts the kernel cleanly, resetting all variable definitions and execution counters."""
+        # A running cell (possibly blocked on input()) holds the lock; interrupt it so restart can proceed
+        if self._lock.locked() and self.km:
+            try:
+                await self.interrupt()
+            except Exception:
+                pass
         async with self._lock:
             if self.kc:
                 try:

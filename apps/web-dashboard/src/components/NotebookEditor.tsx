@@ -16,7 +16,7 @@ import {
   X,
   Download,
 } from 'lucide-react';
-import { NotebookCell, KernelOutput } from '../types';
+import { NotebookCell, KernelOutput, PendingInput } from '../types';
 import { PythonCellEditor } from './PythonCellEditor';
 import { DataTableView } from './DataTableView';
 
@@ -37,7 +37,68 @@ interface NotebookEditorProps {
   onSelectCell: (cellId: string) => void;
   sessionId?: string;
   onUpdateCellMetadata?: (cellId: string, metadata: Record<string, any>) => void;
+  pendingInput?: PendingInput | null;
+  onSubmitInput?: (value: string) => void;
 }
+
+// Inline stdin box shown under a cell while its code is blocked on input() / getpass()
+const StdinPrompt: React.FC<{ prompt: string; password: boolean; onSubmit: (value: string) => void }> = ({
+  prompt,
+  password,
+  onSubmit,
+}) => {
+  const [value, setValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  return (
+    <div
+      data-testid="stdin-prompt"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        margin: '4px 0',
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+        fontSize: '13px',
+        color: 'var(--text-main)',
+      }}
+    >
+      {prompt && <span style={{ whiteSpace: 'pre' }}>{prompt}</span>}
+      <input
+        ref={inputRef}
+        type={password ? 'password' : 'text'}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            onSubmit(value);
+          }
+        }}
+        aria-label={prompt ? `Input: ${prompt}` : 'Program input'}
+        placeholder="Type a value and press Enter"
+        autoComplete="off"
+        spellCheck={false}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: '4px 8px',
+          backgroundColor: 'var(--bg-cell)',
+          border: '1px solid var(--border-accent)',
+          borderRadius: '4px',
+          outline: 'none',
+          color: 'var(--text-main)',
+          font: 'inherit',
+        }}
+      />
+    </div>
+  );
+};
 
 export const NotebookEditor: React.FC<NotebookEditorProps> = ({
   cells,
@@ -56,6 +117,8 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
   onSelectCell,
   sessionId,
   onUpdateCellMetadata,
+  pendingInput,
+  onSubmitInput,
 }) => {
   const [markdownPreviews, setMarkdownPreviews] = useState<Record<string, boolean>>({});
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
@@ -544,6 +607,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           const isActive = cell.id === activeCellId;
           const isMarkdownPreview = cell.cell_type === 'markdown' && !!markdownPreviews[cell.id];
           const hasOutputs = cell.outputs && cell.outputs.length > 0;
+          const cellInput = pendingInput && pendingInput.cellId === cell.id ? pendingInput : null;
 
           return (
             <div
@@ -858,7 +922,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
               </div>
 
               {/* Cell Output Area (Beneath the code editor) */}
-              {hasOutputs && (
+              {(hasOutputs || cellInput) && (
                 <div
                   data-testid="cell-output-container"
                   style={{
@@ -868,6 +932,13 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                   }}
                 >
                   {cell.outputs.map((out, oIdx) => renderOutput(out, oIdx))}
+                  {cellInput && onSubmitInput && (
+                    <StdinPrompt
+                      prompt={cellInput.prompt}
+                      password={cellInput.password}
+                      onSubmit={onSubmitInput}
+                    />
+                  )}
                 </div>
               )}
             </div>

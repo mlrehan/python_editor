@@ -8,7 +8,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { RightPanel } from './components/RightPanel';
 import { NotebooksModal } from './components/NotebooksModal';
 import { SecretsModal } from './components/SecretsModal';
-import { NotebookDocument, NotebookCell, KernelStatus, UserProfile, FileItem } from './types';
+import { NotebookDocument, NotebookCell, KernelStatus, UserProfile, FileItem, PendingInput } from './types';
 import { api } from './services/api';
 import { KernelWebSocketClient } from './services/websocket';
 import { Globe, X, Lock, LogIn, RotateCcw, CheckCircle, AlertCircle } from 'lucide-react';
@@ -33,6 +33,7 @@ export const App: React.FC = () => {
   const [kernelStatus, setKernelStatus] = useState<KernelStatus>('disconnected');
   const [isRestartingKernel, setIsRestartingKernel] = useState(false);
   const [kernelToast, setKernelToast] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
+  const [pendingInput, setPendingInput] = useState<PendingInput | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isDirtyRef = useRef(false);
@@ -240,10 +241,12 @@ export const App: React.FC = () => {
       // onStatus
       (status) => {
         setKernelStatus(status);
+        if (status === 'disconnected') setPendingInput(null);
       },
       // onComplete
       (cellId, reply) => {
         window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
+        setPendingInput((prev) => (prev && prev.cellId === cellId ? null : prev));
         setNotebook((prev) => {
           if (!prev) return prev;
           return {
@@ -260,6 +263,10 @@ export const App: React.FC = () => {
             }),
           };
         });
+      },
+      // onInputRequest: the running cell called input() / getpass()
+      (cellId, prompt, password) => {
+        setPendingInput({ cellId, prompt, password });
       }
     );
 
@@ -500,6 +507,7 @@ export const App: React.FC = () => {
   const handleRestartKernel = async () => {
     if (!notebook) return;
     setIsRestartingKernel(true);
+    setPendingInput(null);
     setKernelStatus('restarting');
     setKernelToast({ text: 'Restarting Python kernel...', type: 'info' });
 
@@ -537,6 +545,36 @@ export const App: React.FC = () => {
       setIsRestartingKernel(false);
       setTimeout(() => setKernelToast(null), 3500);
     }
+  };
+
+  // Answer a pending input() prompt; echo prompt + answer into the cell output like Jupyter does
+  const handleSubmitInput = (value: string) => {
+    if (!pendingInput || !wsClientRef.current) return;
+    const { cellId, prompt, password } = pendingInput;
+    try {
+      wsClientRef.current.sendInput(value);
+    } catch (err) {
+      console.warn('Failed to send input to kernel:', err);
+      return;
+    }
+    setPendingInput(null);
+    setNotebook((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        cells: prev.cells.map((c) =>
+          c.id === cellId
+            ? {
+                ...c,
+                outputs: [
+                  ...c.outputs,
+                  { output_type: 'stream', name: 'stdout', text: `${prompt}${password ? '' : value}\n` },
+                ],
+              }
+            : c
+        ),
+      };
+    });
   };
 
   const handleInterruptKernel = () => {
@@ -1015,6 +1053,8 @@ export const App: React.FC = () => {
               onSelectCell={setActiveCellId}
               sessionId={notebook ? getKernelSessionId(notebook.id) : undefined}
               onUpdateCellMetadata={handleUpdateCellMetadata}
+              pendingInput={pendingInput}
+              onSubmitInput={handleSubmitInput}
             />
           </div>
         )}

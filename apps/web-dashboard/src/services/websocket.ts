@@ -6,6 +6,7 @@ export type ExecutionCompleteHandler = (
   cellId: string,
   reply: { status: string; execution_count?: number; execution_time?: number }
 ) => void;
+export type InputRequestHandler = (cellId: string, prompt: string, password: boolean) => void;
 
 export class KernelWebSocketClient {
   private ws: WebSocket | null = null;
@@ -14,6 +15,7 @@ export class KernelWebSocketClient {
   private onOutput: OutputHandler;
   private onStatus: StatusHandler;
   private onComplete: ExecutionCompleteHandler;
+  private onInputRequest?: InputRequestHandler;
   private isConnected = false;
 
   constructor(
@@ -21,13 +23,15 @@ export class KernelWebSocketClient {
     token: string,
     onOutput: OutputHandler,
     onStatus: StatusHandler,
-    onComplete: ExecutionCompleteHandler
+    onComplete: ExecutionCompleteHandler,
+    onInputRequest?: InputRequestHandler
   ) {
     this.sessionId = sessionId;
     this.token = token;
     this.onOutput = onOutput;
     this.onStatus = onStatus;
     this.onComplete = onComplete;
+    this.onInputRequest = onInputRequest;
   }
 
   connect() {
@@ -68,6 +72,8 @@ export class KernelWebSocketClient {
             execution_count: msg.execution_count,
             execution_time: msg.execution_time,
           });
+        } else if (msg.type === 'input_request') {
+          this.onInputRequest?.(msg.cell_id, msg.prompt ?? '', !!msg.password);
         } else if (msg.type === 'status') {
           this.onStatus(msg.execution_state === 'busy' ? 'busy' : 'idle');
         } else if (msg.type === 'restarted') {
@@ -104,6 +110,13 @@ export class KernelWebSocketClient {
         code,
       })
     );
+  }
+
+  sendInput(value: string) {
+    if (!this.isOpen() || !this.ws) {
+      throw new Error('WebSocket is not connected');
+    }
+    this.ws.send(JSON.stringify({ type: 'input_reply', value }));
   }
 
   interrupt() {

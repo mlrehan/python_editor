@@ -22,6 +22,13 @@ export interface NotebookCell {
   metadata?: Record<string, any>;
 }
 
+// A running cell's input()/getpass() prompt waiting for the user to answer
+export interface PendingInput {
+  cellId: string;
+  prompt: string;
+  password: boolean;
+}
+
 export interface NotebookDocument {
   id: string;
   title: string;
