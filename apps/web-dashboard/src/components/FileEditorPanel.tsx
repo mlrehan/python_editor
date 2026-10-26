@@ -66,6 +66,71 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
     filesList.find((f) => f.path === activeFilePath) ||
     (filesList.length > 0 ? filesList[0] : file || null);
 
+  // Editor keys: Tab / Shift+Tab indent and dedent (whole lines when a multi-line selection exists),
+  // Enter keeps the current indentation and adds a level after a trailing ':' in Python files.
+  const INDENT = '    ';
+  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!currentFile || e.nativeEvent.isComposing) return;
+    const el = e.currentTarget;
+    const value = el.value;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+
+    const applyEdit = (newValue: string, selStart: number, selEnd: number) => {
+      e.preventDefault();
+      el.value = newValue;
+      el.selectionStart = selStart;
+      el.selectionEnd = selEnd;
+      onContentChange(newValue, currentFile.path);
+    };
+
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+      const selectedText = value.substring(start, end);
+
+      // Plain Tab with no multi-line selection: insert spaces at the cursor
+      if (!e.shiftKey && !selectedText.includes('\n')) {
+        applyEdit(value.substring(0, start) + INDENT + value.substring(end), start + INDENT.length, start + INDENT.length);
+        return;
+      }
+
+      // Indent or dedent every line touched by the selection
+      const blockEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
+      const lines = value.substring(lineStart, blockEnd).split('\n');
+      let firstLineDelta = 0;
+      let totalDelta = 0;
+      const changed = lines.map((line, i) => {
+        let delta: number;
+        let next: string;
+        if (e.shiftKey) {
+          const removable = line.match(/^( {1,4}|\t)/)?.[0].length ?? 0;
+          next = line.substring(removable);
+          delta = -removable;
+        } else {
+          next = INDENT + line;
+          delta = INDENT.length;
+        }
+        if (i === 0) firstLineDelta = delta;
+        totalDelta += delta;
+        return next;
+      });
+      const newValue = value.substring(0, lineStart) + changed.join('\n') + value.substring(blockEnd);
+      applyEdit(newValue, Math.max(lineStart, start + firstLineDelta), Math.max(lineStart, end + totalDelta));
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const lineBeforeCursor = value.substring(0, start).split('\n').pop() || '';
+      const currentIndent = lineBeforeCursor.match(/^[ \t]*/)?.[0] ?? '';
+      const isPython = currentFile.path.toLowerCase().endsWith('.py');
+      const extraIndent = isPython && lineBeforeCursor.trimEnd().endsWith(':') ? INDENT : '';
+      if (currentIndent || extraIndent) {
+        const insertText = '\n' + currentIndent + extraIndent;
+        applyEdit(value.substring(0, start) + insertText + value.substring(end), start + insertText.length, start + insertText.length);
+      }
+    }
+  };
+
   // Handle Ctrl+S / Cmd+S
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -544,6 +609,7 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
               className="code-font"
               value={currentFile.content}
               onChange={(e) => onContentChange(e.target.value, currentFile.path)}
+              onKeyDown={handleEditorKeyDown}
               style={{
                 flex: 1,
                 padding: '12px',
