@@ -97,3 +97,8 @@ storage/
 *.sqlite3
 
 
+
+# Real deployment secrets and local SQLite journals must never be committed
+server_env
+*.db-shm
+*.db-wal

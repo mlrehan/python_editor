@@ -75,3 +75,8 @@ Thumbs.db
 scratch/
 tests/
 
+
+# Real deployment secrets and local databases
+server_env
+studio_dev.db*
+cloud_studio.db

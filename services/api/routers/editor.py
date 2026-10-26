@@ -151,39 +151,28 @@ def _get_workspace_search_paths(
     candidate_dirs: List[str] = []
     primary_ws: Optional[str] = None
 
-    if session_id:
-        session = kernel_pool.get_session(session_id)
+    # Only the caller's own kernel session may decide the workspace (never another user's)
+    if session_id and current_user:
+        session = kernel_pool.get_session(session_id, user_key)
         if session and session.workspace_dir:
             primary_ws = session.workspace_dir
-            candidate_dirs.append(primary_ws)
 
     if not primary_ws and current_user:
-        target_uid = (
-            f"guest_{current_user.guest_token}"
-            if getattr(current_user, "is_guest", False)
-            else getattr(current_user, "id", "public")
-        )
-        primary_ws = kernel_pool.get_user_workspace_path(target_uid)
-        candidate_dirs.append(primary_ws)
+        primary_ws = kernel_pool.get_user_workspace_path(user_key)
 
     if not primary_ws:
         primary_ws = kernel_pool.get_public_workspace_path()
-        candidate_dirs.append(primary_ws)
-
-    # In multi-tenant environments, also discover existing workspaces under workspaces_root
-    if hasattr(kernel_pool, "workspaces_root") and os.path.isdir(kernel_pool.workspaces_root):
-        try:
-            for entry in os.listdir(kernel_pool.workspaces_root):
-                full_entry = os.path.join(kernel_pool.workspaces_root, entry)
-                if os.path.isdir(full_entry):
-                    candidate_dirs.append(full_entry)
-                    default_sub = os.path.join(full_entry, "default")
-                    if os.path.isdir(default_sub):
-                        candidate_dirs.append(default_sub)
-        except Exception:
-            pass
+    candidate_dirs.append(primary_ws)
 
     search_paths: List[str] = []
+    # Shared packages installed in the public workspace are visible to every kernel, so offer them too.
+    # Other users' private workspaces are never searched.
+    public_local = os.path.join(kernel_pool.workspaces_root, "public", ".local")
+    if os.path.isdir(public_local):
+        for root, dirs, _ in os.walk(public_local):
+            if os.path.basename(root) == "site-packages":
+                search_paths.append(os.path.abspath(root))
+
     for cdir in candidate_dirs:
         abs_cdir = os.path.abspath(cdir)
         if os.path.isdir(abs_cdir) and abs_cdir not in search_paths:
@@ -265,6 +254,16 @@ def _inspect_object_completions(obj: Any, cache_key: str) -> List[CompletionItem
     return items
 
 
+# Installed libraries whose import is side-effect free and safe to introspect in the API process
+_SAFE_INTROSPECTION_ROOTS = frozenset({
+    "numpy", "pandas", "matplotlib", "scipy", "sklearn", "seaborn", "statsmodels", "plotly",
+    "requests", "PIL", "pyarrow", "openpyxl", "xlsxwriter",
+    "math", "cmath", "json", "re", "os", "sys", "datetime", "time", "collections", "itertools",
+    "functools", "random", "statistics", "string", "pathlib", "typing", "csv", "io", "decimal",
+    "fractions", "textwrap", "copy", "uuid", "hashlib", "base64", "enum", "dataclasses",
+})
+
+
 def _resolve_runtime_target(target_key: str) -> Optional[Any]:
     try:
         if target_key == "pandas.DataFrame":
@@ -294,6 +293,10 @@ def _resolve_runtime_target(target_key: str) -> Optional[Any]:
             return tuple
         if target_key in sys.modules:
             return sys.modules[target_key]
+        # Never import arbitrary user-named modules into the API process: importing runs module code,
+        # and a module path can point at files users upload (e.g. storage.workspaces.public.<file>).
+        if target_key.split(".")[0] not in _SAFE_INTROSPECTION_ROOTS:
+            return None
         return importlib.import_module(target_key)
     except Exception:
         return None
@@ -796,9 +799,12 @@ async def get_completions(
             signatures_list = jedi_sigs
 
     # 4. Non-blocking Kernel Runtime Introspection (only if static/fast analysis returned no matches and kernel is idle)
-    if not completions_list and req.session_id and req.session_id in kernel_pool.sessions:
-        session = kernel_pool.sessions[req.session_id]
-        if session.is_running and session.kc and not session._lock.locked():
+    owner_id = (
+        f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else str(current_user.id)
+    )
+    session = kernel_pool.get_session(req.session_id, owner_id) if req.session_id else None
+    if not completions_list and session is not None:
+        if session.is_running and session.kc and not session.is_busy:
             try:
                 cursor_pos = sum(len(l) + 1 for l in code_lines[: req.line - 1]) + req.column
                 msg_id = session.kc.complete(req.code, cursor_pos)

@@ -47,3 +47,22 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+_DEFAULT_SECRET_KEY = "pcs-super-secret-key-change-in-production-32chars-min!!"
+_DEFAULT_ADMIN_PASSWORD = "AdminSecurePassword2026!"
+
+
+def assert_production_secrets(s: Settings) -> None:
+    """Refuses to run in production with the public default secrets (anyone could forge admin tokens)."""
+    if s.APP_ENV.lower() != "production":
+        return
+    problems = []
+    if s.SECRET_KEY == _DEFAULT_SECRET_KEY or len(s.SECRET_KEY) < 32:
+        problems.append("SECRET_KEY is the public default or shorter than 32 characters")
+    if s.ADMIN_BOOTSTRAP_PASSWORD == _DEFAULT_ADMIN_PASSWORD:
+        problems.append("ADMIN_BOOTSTRAP_PASSWORD is the public default")
+    if problems:
+        raise RuntimeError("Insecure production configuration: " + "; ".join(problems) + ". Set them in .env.")
+
+
+assert_production_secrets(settings)
+
