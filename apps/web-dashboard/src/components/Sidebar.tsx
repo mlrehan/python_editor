@@ -176,17 +176,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // Click & Double Click Handlers
-  const handleItemClick = (file: FileItem) => {
+  // clickCount is MouseEvent.detail: 1 for a single click, 2 for the second click of a double-click
+  const handleItemClick = (file: FileItem, clickCount = 1) => {
     setSelectedPath(file.path);
     if (file.is_dir) {
       setActiveDirectory(file.path);
+      // One click opens or closes a folder (VS Code / Colab behaviour); ignore the extra
+      // clicks of a double-click so it does not open and immediately close again
+      if (clickCount <= 1) toggleFolder(file.path);
     }
   };
 
   const handleItemDoubleClick = (file: FileItem) => {
     if (file.is_dir) {
-      toggleFolder(file.path);
-      setActiveDirectory(file.path);
+      return;
     } else if (file.name.endsWith('.ipynb')) {
       onOpenNotebookFile(file.path);
     } else {
@@ -793,7 +796,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 onDragOver={file.is_dir ? (e) => handleFolderDragOver(e, file) : undefined}
                 onDrop={file.is_dir ? (e) => handleFolderDrop(e, file) : undefined}
-                onClick={() => handleItemClick(file)}
+                onClick={(e) => handleItemClick(file, e.detail)}
                 onDoubleClick={() => handleItemDoubleClick(file)}
                 onContextMenu={(e) => handleItemContextMenu(e, file)}
                 style={{
@@ -890,10 +893,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   triggerUpload(contextMenu.targetDir);
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -912,10 +916,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -934,10 +939,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -947,24 +953,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <FolderPlus size={14} color="#f59e0b" /> New Folder
               </div>
 
-              <div style={{ height: '1px', backgroundColor: '#334155', margin: '4px 0' }} />
+              <div style={{ height: '1px', backgroundColor: 'var(--dropdown-border)', margin: '4px 0' }} />
 
               <div
                 onClick={() => {
                   loadFiles();
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#cbd5e1',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                 }}
               >
-                <RefreshCw size={13} color="#94a3b8" /> Refresh
+                <RefreshCw size={13} color="var(--text-secondary)" /> Refresh
               </div>
             </>
           )}
@@ -974,13 +981,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <>
               <div
                 onClick={() => {
-                  handleItemDoubleClick(contextMenu.target!);
+                  toggleFolder(contextMenu.target!.path);
+                  setActiveDirectory(contextMenu.target!.path);
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -999,10 +1008,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1021,10 +1031,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1039,10 +1050,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   triggerUpload(contextMenu.target!.path);
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1052,7 +1064,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Upload size={14} color="#38bdf8" /> Upload File Here
               </div>
 
-              <div style={{ height: '1px', backgroundColor: '#334155', margin: '4px 0' }} />
+              <div style={{ height: '1px', backgroundColor: 'var(--dropdown-border)', margin: '4px 0' }} />
 
               <div
                 onClick={() => {
@@ -1063,10 +1075,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#cbd5e1',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1084,6 +1097,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
@@ -1097,24 +1111,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Trash2 size={14} color="#ef4444" /> Delete Folder
               </div>
 
-              <div style={{ height: '1px', backgroundColor: '#334155', margin: '4px 0' }} />
+              <div style={{ height: '1px', backgroundColor: 'var(--dropdown-border)', margin: '4px 0' }} />
 
               <div
                 onClick={() => {
                   loadFiles();
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#cbd5e1',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                 }}
               >
-                <RefreshCw size={13} color="#94a3b8" /> Refresh
+                <RefreshCw size={13} color="var(--text-secondary)" /> Refresh
               </div>
             </>
           )}
@@ -1127,10 +1142,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   handleItemDoubleClick(contextMenu.target!);
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#f8fafc',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1149,10 +1165,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#cbd5e1',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1166,10 +1183,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 href={api.getDownloadUrl(contextMenu.target.path)}
                 download={contextMenu.target.name}
                 onClick={() => setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' })}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#cbd5e1',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1180,7 +1198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Download size={14} /> Download
               </a>
 
-              <div style={{ height: '1px', backgroundColor: '#334155', margin: '4px 0' }} />
+              <div style={{ height: '1px', backgroundColor: 'var(--dropdown-border)', margin: '4px 0' }} />
 
               <div
                 onClick={() => {
@@ -1190,6 +1208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   });
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
@@ -1203,24 +1222,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Trash2 size={14} color="#ef4444" /> Delete
               </div>
 
-              <div style={{ height: '1px', backgroundColor: '#334155', margin: '4px 0' }} />
+              <div style={{ height: '1px', backgroundColor: 'var(--dropdown-border)', margin: '4px 0' }} />
 
               <div
                 onClick={() => {
                   loadFiles();
                   setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
                 }}
+                className="pcs-menu-item"
                 style={{
                   padding: '7px 12px',
                   fontSize: '12px',
-                  color: '#cbd5e1',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                 }}
               >
-                <RefreshCw size={13} color="#94a3b8" /> Refresh
+                <RefreshCw size={13} color="var(--text-secondary)" /> Refresh
               </div>
             </>
           )}

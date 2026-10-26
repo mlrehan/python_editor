@@ -132,6 +132,11 @@ code, pre, textarea.code-font {
   }
 }
 
+/* File explorer context menu items */
+.pcs-menu-item:hover {
+  background-color: var(--dropdown-item-hover);
+}
+
 .animate-spin {
   animation: spin 0.8s linear infinite;
 }
