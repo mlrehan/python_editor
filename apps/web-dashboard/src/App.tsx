@@ -78,6 +78,8 @@ export const App: React.FC = () => {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
   const wsClientRef = useRef<KernelWebSocketClient | null>(null);
+  // Cells whose execution was sent over the WebSocket and has not replied yet
+  const wsRunningCellsRef = useRef<Set<string>>(new Set());
 
   // Mouse drag handler for vertical resizers
   useEffect(() => {
@@ -241,10 +243,42 @@ export const App: React.FC = () => {
       // onStatus
       (status) => {
         setKernelStatus(status);
-        if (status === 'disconnected') setPendingInput(null);
+        if (status === 'disconnected') {
+          setPendingInput(null);
+          // Results of cells sent over the dropped socket will never arrive; stop their spinners
+          const lostCellIds = new Set(wsRunningCellsRef.current);
+          wsRunningCellsRef.current.clear();
+          if (lostCellIds.size > 0) {
+            setNotebook((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                cells: prev.cells.map((c) =>
+                  lostCellIds.has(c.id) && c.is_running
+                    ? {
+                        ...c,
+                        is_running: false,
+                        outputs: [
+                          ...c.outputs,
+                          {
+                            output_type: 'error',
+                            ename: 'ConnectionLost',
+                            evalue:
+                              'The connection to the Python kernel was lost while this cell was running. Reconnecting automatically; run the cell again once the kernel is idle.',
+                            traceback: [],
+                          },
+                        ],
+                      }
+                    : c
+                ),
+              };
+            });
+          }
+        }
       },
       // onComplete
       (cellId, reply) => {
+        wsRunningCellsRef.current.delete(cellId);
         window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
         setPendingInput((prev) => (prev && prev.cellId === cellId ? null : prev));
         setNotebook((prev) => {
@@ -411,7 +445,7 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleRunCell = (cellId: string, sourceOverride?: string) => {
+  const handleRunCell = async (cellId: string, sourceOverride?: string) => {
     if (!notebook) return;
     const targetCell = notebook.cells.find((c) => c.id === cellId);
     if (!targetCell || targetCell.cell_type !== 'code') return;
@@ -439,9 +473,15 @@ export const App: React.FC = () => {
       };
     });
 
-    if (wsClientRef.current && wsClientRef.current.isOpen()) {
+    const wsClient = wsClientRef.current;
+    // The socket may be reconnecting after a network blip; give it a moment before using REST
+    if (wsClient && !wsClient.isOpen()) {
+      await wsClient.waitUntilOpen(5000);
+    }
+    if (wsClient && wsClient.isOpen()) {
       try {
-        wsClientRef.current.execute(cellId, codeToExecute);
+        wsClient.execute(cellId, codeToExecute);
+        wsRunningCellsRef.current.add(cellId);
         return;
       } catch (err) {
         console.warn('WebSocket execution failed, using REST fallback:', err);

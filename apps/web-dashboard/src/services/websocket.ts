@@ -8,6 +8,12 @@ export type ExecutionCompleteHandler = (
 ) => void;
 export type InputRequestHandler = (cellId: string, prompt: string, password: boolean) => void;
 
+// Heartbeat keeps proxies (nginx, Cloudflare) from closing an idle socket and detects dead connections
+const HEARTBEAT_INTERVAL_MS = 25000;
+const HEARTBEAT_TIMEOUT_MS = 10000;
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 15000;
+
 export class KernelWebSocketClient {
   private ws: WebSocket | null = null;
   private sessionId: string;
@@ -17,6 +23,11 @@ export class KernelWebSocketClient {
   private onComplete: ExecutionCompleteHandler;
   private onInputRequest?: InputRequestHandler;
   private isConnected = false;
+  private closedByClient = false;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private pongDeadline: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     sessionId: string,
@@ -38,20 +49,27 @@ export class KernelWebSocketClient {
     if (this.ws) {
       this.disconnect();
     }
+    this.closedByClient = false;
+    this.open();
+  }
 
+  private open() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws/kernels/${this.sessionId}?token=${encodeURIComponent(this.token)}`;
 
     this.onStatus('connecting');
-    this.ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
       this.isConnected = true;
+      this.reconnectAttempts = 0;
+      this.startHeartbeat();
       this.onStatus('idle');
     };
 
-    this.ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'output') {
@@ -78,25 +96,88 @@ export class KernelWebSocketClient {
           this.onStatus(msg.execution_state === 'busy' ? 'busy' : 'idle');
         } else if (msg.type === 'restarted') {
           this.onStatus('idle');
+        } else if (msg.type === 'pong') {
+          this.clearPongDeadline();
+        } else if (msg.type === 'error') {
+          console.warn('Kernel WebSocket error message:', msg.message);
         }
       } catch (err) {
         console.error('Error parsing WebSocket message:', err);
       }
     };
 
-    this.ws.onerror = (err) => {
+    ws.onerror = (err) => {
       console.warn('Kernel WebSocket error:', err);
-      this.onStatus('disconnected');
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      // Ignore close events from a socket that has already been replaced
+      if (this.ws !== ws) return;
       this.isConnected = false;
+      this.ws = null;
+      this.stopHeartbeat();
       this.onStatus('disconnected');
+      if (!this.closedByClient) {
+        this.scheduleReconnect();
+      }
     };
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    const delay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempts);
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.closedByClient) this.open();
+    }, delay);
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      this.ws.send(JSON.stringify({ type: 'ping' }));
+      if (!this.pongDeadline) {
+        // No pong in time: the connection is dead even if the browser has not noticed; force a reconnect
+        this.pongDeadline = setTimeout(() => {
+          this.pongDeadline = null;
+          this.ws?.close();
+        }, HEARTBEAT_TIMEOUT_MS);
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private clearPongDeadline() {
+    if (this.pongDeadline) {
+      clearTimeout(this.pongDeadline);
+      this.pongDeadline = null;
+    }
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.clearPongDeadline();
   }
 
   isOpen(): boolean {
     return this.isConnected && this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  // Resolves true once the socket is open, or false after timeoutMs (or if the client was closed)
+  waitUntilOpen(timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const check = () => {
+        if (this.isOpen()) return resolve(true);
+        if (this.closedByClient || Date.now() - started >= timeoutMs) return resolve(false);
+        setTimeout(check, 100);
+      };
+      check();
+    });
   }
 
   execute(cellId: string, code: string) {
@@ -132,12 +213,16 @@ export class KernelWebSocketClient {
   }
 
   disconnect() {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    this.closedByClient = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+    this.stopHeartbeat();
+    const ws = this.ws;
+    this.ws = null;
     this.isConnected = false;
+    ws?.close();
     this.onStatus('disconnected');
   }
 }
-

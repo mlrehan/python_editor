@@ -47,15 +47,27 @@ export class ApiClient {
       headers['X-Guest-Token'] = this.guestToken;
     }
 
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers,
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+      throw new Error('Network error: the server could not be reached. Check your connection and try again.');
+    }
 
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ detail: res.statusText }));
+      // Proxies (nginx, Cloudflare) answer with HTML error pages, and HTTP/2 has no statusText
+      const errorData = await res.json().catch(() => ({ detail: '' }));
       let msg = 'Request failed';
-      if (typeof errorData.detail === 'string') {
+      if (typeof errorData.detail === 'string' && !errorData.detail) {
+        msg =
+          res.status === 502 || res.status === 503 || res.status === 504 || res.status >= 520
+            ? `Server unavailable (HTTP ${res.status}). The execution service may be restarting or overloaded; please retry shortly.`
+            : `Request failed with status ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`;
+      } else if (typeof errorData.detail === 'string') {
         msg = errorData.detail;
       } else if (Array.isArray(errorData.detail)) {
         msg = errorData.detail.map((e: any) => e.msg || JSON.stringify(e)).join(', ');
