@@ -1,4 +1,5 @@
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +17,12 @@ async def lifespan(app: FastAPI):
     # Ensure storage paths exist
     os.makedirs(settings.WORKSPACES_ROOT, exist_ok=True)
     os.makedirs(settings.LOCAL_STORAGE_PATH, exist_ok=True)
+    # Reap idle/abandoned kernels and enforce the per-kernel memory limit in the background
+    maintenance = asyncio.create_task(
+        kernel_pool.run_maintenance(settings.KERNEL_MAINTENANCE_INTERVAL_SECONDS)
+    )
     yield
+    maintenance.cancel()
     # Shutdown: clean up any running kernels
     await kernel_pool.shutdown_all()
 

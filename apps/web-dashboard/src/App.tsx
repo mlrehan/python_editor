@@ -301,6 +301,11 @@ export const App: React.FC = () => {
       // onInputRequest: the running cell called input() / getpass()
       (cellId, prompt, password) => {
         setPendingInput({ cellId, prompt, password });
+      },
+      // onServerError: e.g. kernel quota or server capacity reached
+      (message) => {
+        setKernelToast({ text: message, type: 'error' });
+        setTimeout(() => setKernelToast(null), 6000);
       }
     );
 

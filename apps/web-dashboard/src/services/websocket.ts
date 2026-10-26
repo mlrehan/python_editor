@@ -7,6 +7,7 @@ export type ExecutionCompleteHandler = (
   reply: { status: string; execution_count?: number; execution_time?: number }
 ) => void;
 export type InputRequestHandler = (cellId: string, prompt: string, password: boolean) => void;
+export type ServerErrorHandler = (message: string, code?: string) => void;
 
 // Heartbeat keeps proxies (nginx, Cloudflare) from closing an idle socket and detects dead connections
 const HEARTBEAT_INTERVAL_MS = 25000;
@@ -22,6 +23,7 @@ export class KernelWebSocketClient {
   private onStatus: StatusHandler;
   private onComplete: ExecutionCompleteHandler;
   private onInputRequest?: InputRequestHandler;
+  private onServerError?: ServerErrorHandler;
   private isConnected = false;
   private closedByClient = false;
   private reconnectAttempts = 0;
@@ -35,7 +37,8 @@ export class KernelWebSocketClient {
     onOutput: OutputHandler,
     onStatus: StatusHandler,
     onComplete: ExecutionCompleteHandler,
-    onInputRequest?: InputRequestHandler
+    onInputRequest?: InputRequestHandler,
+    onServerError?: ServerErrorHandler
   ) {
     this.sessionId = sessionId;
     this.token = token;
@@ -43,6 +46,7 @@ export class KernelWebSocketClient {
     this.onStatus = onStatus;
     this.onComplete = onComplete;
     this.onInputRequest = onInputRequest;
+    this.onServerError = onServerError;
   }
 
   connect() {
@@ -100,6 +104,11 @@ export class KernelWebSocketClient {
           this.clearPongDeadline();
         } else if (msg.type === 'error') {
           console.warn('Kernel WebSocket error message:', msg.message);
+          if (msg.code === 'capacity') {
+            // Server is full: retry at the slowest pace instead of hammering it
+            this.reconnectAttempts = Math.max(this.reconnectAttempts, 4);
+          }
+          if (msg.message) this.onServerError?.(msg.message, msg.code);
         }
       } catch (err) {
         console.error('Error parsing WebSocket message:', err);

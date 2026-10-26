@@ -23,8 +23,19 @@ class Settings(BaseSettings):
 
     # Runtime and Storage
     DEFAULT_KERNEL_NAME: str = "python3"
-    MAX_CONCURRENT_KERNELS_PER_USER: int = 5
+    MAX_CONCURRENT_KERNELS_PER_USER: int = 3
+    # Server-wide caps: size these to the host (each active kernel uses ~150-400 MB)
+    MAX_TOTAL_KERNELS: int = 40
+    MAX_GUEST_KERNELS: int = 10
+    # No execution for this long -> kernel is shut down (variables are lost, like Colab's idle timeout)
     KERNEL_IDLE_TIMEOUT_SECONDS: int = 3600
+    # No browser attached (tab closed / notebook switched) for this long -> kernel is shut down
+    KERNEL_DETACHED_TIMEOUT_SECONDS: int = 600
+    # A kernel whose process tree exceeds this is killed so it cannot starve other users (0 = no limit)
+    KERNEL_MAX_MEMORY_MB: int = 1024
+    KERNEL_MAINTENANCE_INTERVAL_SECONDS: int = 30
+    # Kernels allowed to start at the same time (0 = one per CPU core); others wait their turn
+    KERNEL_START_CONCURRENCY: int = 0
     WORKSPACES_ROOT: str = "./storage/workspaces"
     STORAGE_BACKEND: str = "local"
     LOCAL_STORAGE_PATH: str = "./storage/artifacts"

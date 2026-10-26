@@ -15,7 +15,8 @@ async def health_check():
         status="healthy",
         app_name=settings.APP_NAME,
         environment=settings.APP_ENV,
-        active_kernels=len(kernel_pool._sessions),
+        active_kernels=len(kernel_pool.sessions),
+        kernels=kernel_pool.stats(),
         python_version=sys.version.split(" ")[0],
         timestamp=datetime.utcnow(),
     )

@@ -265,6 +265,7 @@ class SystemHealthResponse(BaseModel):
     app_name: str
     environment: str
     active_kernels: int
+    kernels: Optional[Dict[str, int]] = None  # capacity breakdown: guest, busy, detached, limits
     python_version: str
     timestamp: datetime
 

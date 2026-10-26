@@ -1,24 +1,46 @@
 import asyncio
+import logging
 import time
 import os
-from typing import Dict, List, Optional
-from .kernel_session import KernelSession
+from typing import Callable, Dict, List, Optional
+from .kernel_session import KernelSession, set_start_concurrency
+
+logger = logging.getLogger(__name__)
+
+
+class KernelCapacityError(ValueError):
+    """Raised when a new kernel cannot be started because a quota or the server capacity is reached."""
+
+
+def is_guest_user_id(user_id: str) -> bool:
+    return not user_id or user_id in ("public", "guest", "public_guest") or user_id.startswith("guest_")
 
 
 class KernelPoolManager:
     """
     Manages multi-tenant kernel instances.
-    Enforces user quotas, idle timeouts, and workspace directory routing.
+    Enforces per-user, guest and server-wide quotas, reaps idle or abandoned kernels,
+    enforces a per-kernel memory limit, and routes workspace directories.
     """
     def __init__(
         self,
         workspaces_root: str = "./storage/workspaces",
         max_kernels_per_user: int = 5,
-        idle_timeout_seconds: int = 3600
+        idle_timeout_seconds: int = 3600,
+        max_total_kernels: int = 40,
+        max_guest_kernels: int = 10,
+        detached_timeout_seconds: int = 600,
+        max_kernel_memory_mb: int = 1024,
+        start_concurrency: int = 0,
     ):
         self.workspaces_root = os.path.abspath(workspaces_root)
         self.max_kernels_per_user = max_kernels_per_user
         self.idle_timeout_seconds = idle_timeout_seconds
+        self.max_total_kernels = max_total_kernels
+        self.max_guest_kernels = max_guest_kernels
+        self.detached_timeout_seconds = detached_timeout_seconds
+        self.max_kernel_memory_mb = max_kernel_memory_mb
+        set_start_concurrency(start_concurrency)
         self._sessions: Dict[str, KernelSession] = {}
         self._lock = asyncio.Lock()
         os.makedirs(self.workspaces_root, exist_ok=True)
@@ -106,28 +128,21 @@ class KernelPoolManager:
         kernel_name: str = "python3",
         is_admin: bool = False
     ) -> KernelSession:
-        """Retrieves an existing session or provisions a new isolated kernel."""
+        """Retrieves an existing session or provisions a new isolated kernel within the quotas."""
+        evicted: List[KernelSession] = []
         async with self._lock:
-            # Resolve actual session key: if session_id is already held by another user and caller is not admin,
-            # namespace the session so every user receives their own isolated kernel process.
+            # Resolve actual session key: if session_id is already held by another user (including another
+            # guest) and caller is not admin, namespace the session so every user gets their own kernel process.
             effective_id = session_id
             if effective_id in self._sessions:
                 existing = self._sessions[effective_id]
-                is_both_guest = (existing.user_id.startswith("guest_") or existing.user_id == "public_guest") and \
-                                (user_id.startswith("guest_") or user_id == "public_guest")
-                if existing.user_id != user_id and not is_admin and not is_both_guest:
+                if existing.user_id != user_id and not is_admin:
                     effective_id = f"{session_id}::{user_id}"
 
             if effective_id in self._sessions:
                 session = self._sessions[effective_id]
             else:
-                # Check user concurrency limit
-                user_sessions = [s for s in self._sessions.values() if s.user_id == user_id]
-                if len(user_sessions) >= self.max_kernels_per_user:
-                    raise ValueError(
-                        f"User quota exceeded: Maximum {self.max_kernels_per_user} concurrent kernels reached."
-                    )
-
+                evicted = self._make_room_locked(user_id)
                 workspace = self.get_user_workspace_path(user_id, project_id)
                 session = KernelSession(
                     session_id=effective_id,
@@ -138,24 +153,89 @@ class KernelPoolManager:
                 )
                 self._sessions[effective_id] = session
 
+        await self._shutdown_quietly(evicted)
+
         if not session.is_running:
-            await session.start()
+            try:
+                await session.start()
+            except Exception:
+                # A kernel that failed to start must not keep counting against the quotas
+                async with self._lock:
+                    if self._sessions.get(session.session_id) is session:
+                        del self._sessions[session.session_id]
+                await self._shutdown_quietly([session])
+                raise
         return session
+
+    def _make_room_locked(self, user_id: str) -> List[KernelSession]:
+        """
+        Checks the per-user, guest and server-wide quotas for one more kernel (caller holds the lock).
+        Abandoned kernels (no browser attached, not executing) are evicted oldest-first to make room.
+        Returns the evicted sessions, already unregistered, for the caller to shut down outside the lock.
+        Raises KernelCapacityError if there is still no room.
+        """
+        guest = is_guest_user_id(user_id)
+        quotas: List[tuple] = [
+            (
+                lambda s: s.user_id == user_id,
+                self.max_kernels_per_user,
+                f"You already have {self.max_kernels_per_user} active Python kernels. "
+                "Close notebooks you are not using, or restart an existing kernel.",
+            ),
+            (
+                lambda s: True,
+                self.max_total_kernels,
+                "The server is at full capacity right now. Please try again in a few minutes.",
+            ),
+        ]
+        if guest:
+            quotas.insert(1, (
+                lambda s: is_guest_user_id(s.user_id),
+                self.max_guest_kernels,
+                "All guest kernels are in use right now. Please sign in, or try again in a few minutes.",
+            ))
+
+        evicted: List[KernelSession] = []
+        for in_scope, limit, message in quotas:
+            while sum(1 for s in self._sessions.values() if in_scope(s)) >= limit:
+                victim = self._oldest_detached_locked(in_scope)
+                if victim is None:
+                    raise KernelCapacityError(message)
+                del self._sessions[victim.session_id]
+                evicted.append(victim)
+                logger.info("Evicted abandoned kernel %s (user %s) to make room", victim.session_id, victim.user_id)
+        return evicted
+
+    def _oldest_detached_locked(self, in_scope: Callable[[KernelSession], bool]) -> Optional[KernelSession]:
+        candidates = [
+            s for s in self._sessions.values()
+            if in_scope(s) and s.attached_clients == 0 and not s.is_busy
+        ]
+        return min(candidates, key=lambda s: s.last_active_at, default=None)
+
+    @staticmethod
+    async def _shutdown_quietly(sessions: List[KernelSession]) -> None:
+        for session in sessions:
+            try:
+                await session.shutdown()
+            except Exception:
+                logger.exception("Failed to shut down kernel %s", session.session_id)
 
     @property
     def sessions(self) -> Dict[str, KernelSession]:
         return self._sessions
 
     def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[KernelSession]:
-        if session_id in self._sessions:
-            sess = self._sessions[session_id]
-            if user_id is None or sess.user_id == user_id or sess.is_admin:
-                return sess
-        if user_id:
-            scoped_id = f"{session_id}::{user_id}"
-            if scoped_id in self._sessions:
-                return self._sessions[scoped_id]
-        return self._sessions.get(session_id)
+        """
+        Looks up a session. With user_id, only a session owned by that user (or its per-user
+        namespaced variant) is returned; without user_id (admin/internal use) any session is returned.
+        """
+        sess = self._sessions.get(session_id)
+        if user_id is None:
+            return sess
+        if sess is not None and sess.user_id == user_id:
+            return sess
+        return self._sessions.get(f"{session_id}::{user_id}")
 
     async def restart_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
         """Restarts a running kernel session, clearing its memory."""
@@ -166,42 +246,84 @@ class KernelPoolManager:
         return False
 
     async def shutdown_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
-        """Halts and unregisters a kernel session."""
+        """Halts and unregisters a kernel session (only the caller's own session when user_id is given)."""
         async with self._lock:
-            effective_id = session_id
-            if effective_id not in self._sessions and user_id:
-                scoped_id = f"{session_id}::{user_id}"
-                if scoped_id in self._sessions:
-                    effective_id = scoped_id
-            session = self._sessions.pop(effective_id, None)
-            if session:
-                await session.shutdown()
-                return True
-            return False
+            session = self.get_session(session_id, user_id)
+            if session is None:
+                return False
+            del self._sessions[session.session_id]
+        await self._shutdown_quietly([session])
+        return True
 
     async def shutdown_all(self) -> None:
         """Halts all active kernels (used during server shutdown)."""
         async with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
-            for session in sessions:
-                try:
-                    await session.shutdown()
-                except Exception:
-                    pass
+        await self._shutdown_quietly(sessions)
 
-    async def reap_idle_sessions(self) -> List[str]:
-        """Terminates kernels that have been idle longer than idle_timeout_seconds."""
-        now = time.time()
-        reaped: List[str] = []
+    async def reap_idle_sessions(self, now: Optional[float] = None) -> List[str]:
+        """
+        Shuts down kernels that are no longer worth keeping:
+          - dead kernels (process gone) with no browser attached,
+          - kernels with no browser attached for detached_timeout_seconds (tab closed, notebook switched),
+          - kernels that have not executed anything for idle_timeout_seconds.
+        Kernels that are currently executing are never reaped.
+        """
+        now = time.time() if now is None else now
         async with self._lock:
             to_remove = []
             for s_id, s in self._sessions.items():
-                if now - s.last_active_at > self.idle_timeout_seconds:
+                if s.is_busy:
+                    continue
+                last_used = max(s.last_active_at, s.detached_at or 0)
+                abandoned = s.attached_clients == 0 and now - last_used > self.detached_timeout_seconds
+                dead = s.attached_clients == 0 and not s.is_running
+                if abandoned or dead or now - s.last_active_at > self.idle_timeout_seconds:
                     to_remove.append(s_id)
+            removed = [self._sessions.pop(s_id) for s_id in to_remove]
+        await self._shutdown_quietly(removed)
+        if removed:
+            logger.info("Reaped %d idle kernel(s): %s", len(removed), ", ".join(to_remove))
+        return to_remove
 
-            for s_id in to_remove:
-                session = self._sessions.pop(s_id)
-                await session.shutdown()
-                reaped.append(s_id)
-        return reaped
+    async def enforce_memory_limits(self) -> List[str]:
+        """Kills kernels whose process tree uses more than max_kernel_memory_mb, so one user cannot starve the host."""
+        if not self.max_kernel_memory_mb:
+            return []
+        limit_bytes = self.max_kernel_memory_mb * 1024 * 1024
+        killed: List[str] = []
+        for s_id, s in list(self._sessions.items()):
+            usage = s.memory_usage_bytes()
+            if usage is not None and usage > limit_bytes:
+                await s.kill(
+                    f"The Python kernel was stopped because it used {usage // (1024 * 1024)} MB of memory, "
+                    f"above the {self.max_kernel_memory_mb} MB limit per kernel. It will restart on the next run; "
+                    "variables were lost."
+                )
+                killed.append(s_id)
+                logger.warning("Killed kernel %s (user %s) for using %d MB", s_id, s.user_id, usage // (1024 * 1024))
+        return killed
+
+    def stats(self) -> Dict[str, int]:
+        sessions = list(self._sessions.values())
+        return {
+            "active_kernels": len(sessions),
+            "guest_kernels": sum(1 for s in sessions if is_guest_user_id(s.user_id)),
+            "busy_kernels": sum(1 for s in sessions if s.is_busy),
+            "detached_kernels": sum(1 for s in sessions if s.attached_clients == 0),
+            "max_total_kernels": self.max_total_kernels,
+            "max_guest_kernels": self.max_guest_kernels,
+        }
+
+    async def run_maintenance(self, interval_seconds: float = 30.0) -> None:
+        """Background loop: reap idle/abandoned kernels and enforce the per-kernel memory limit."""
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                await self.reap_idle_sessions()
+                await self.enforce_memory_limits()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Kernel maintenance pass failed")

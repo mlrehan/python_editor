@@ -6,6 +6,28 @@ import time
 from queue import Empty
 from typing import Dict, Any, List, Optional, Callable, Coroutine
 from jupyter_client.manager import AsyncKernelManager
+import weakref
+
+# Kernel start-up is CPU heavy (~1-3 s of CPU each). Starting dozens at once on a few cores makes
+# every one of them miss the readiness timeout, so starts are queued to this many at a time.
+_start_concurrency = max(2, os.cpu_count() or 2)
+_start_semaphores: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
+
+
+def set_start_concurrency(limit: int) -> None:
+    """Sets how many kernels may start simultaneously (0 or less = one per CPU core, minimum 2)."""
+    global _start_concurrency
+    _start_concurrency = limit if limit > 0 else max(2, os.cpu_count() or 2)
+    _start_semaphores.clear()
+
+
+def _start_slots() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = _start_semaphores.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(_start_concurrency)
+        _start_semaphores[loop] = sem
+    return sem
 
 
 
@@ -60,6 +82,11 @@ class KernelSession:
         # and how long execution has spent waiting on the user (excluded from the timeout)
         self._input_pending_since: Optional[float] = None
         self._input_wait_total: float = 0.0
+        # Browser connections currently using this kernel, and when the last one left
+        self.attached_clients = 0
+        self.detached_at: Optional[float] = None
+        # Why the kernel was stopped from outside (e.g. memory limit); reported to the running cell
+        self.death_reason: Optional[str] = None
 
         # Ensure workspace directory exists
         os.makedirs(self.workspace_dir, exist_ok=True)
@@ -79,12 +106,75 @@ class KernelSession:
             clean_env = get_sanitized_kernel_env(self.workspace_dir, self.user_id, self.is_admin)
 
             # Launch kernel with cwd set to the user's workspace directory and isolated environment
-            await self.km.start_kernel(cwd=self.workspace_dir, env=clean_env)
-            self.kc = self.km.client()
-            self.kc.start_channels()
-            await self.kc.wait_for_ready(timeout=timeout)
+            async with _start_slots():
+                await self.km.start_kernel(cwd=self.workspace_dir, env=clean_env)
+                self.kc = self.km.client()
+                self.kc.start_channels()
+                await self.kc.wait_for_ready(timeout=timeout)
             self.is_running = True
+            self.death_reason = None
             self.last_active_at = time.time()
+
+    @property
+    def is_busy(self) -> bool:
+        """True while a cell is executing (or a restart is in progress)."""
+        return self._lock.locked()
+
+    def attach_client(self) -> None:
+        self.attached_clients += 1
+        self.detached_at = None
+
+    def detach_client(self) -> None:
+        self.attached_clients = max(0, self.attached_clients - 1)
+        if self.attached_clients == 0:
+            self.detached_at = time.time()
+
+    def _kernel_pid(self) -> Optional[int]:
+        provisioner = getattr(self.km, "provisioner", None) if self.km else None
+        pid = getattr(provisioner, "pid", None)
+        if pid is None:
+            process = getattr(provisioner, "process", None)
+            pid = getattr(process, "pid", None)
+        return pid
+
+    def memory_usage_bytes(self) -> Optional[int]:
+        """Resident memory of the kernel process and its children (e.g. !pip, subprocesses)."""
+        pid = self._kernel_pid()
+        if not pid or not self.is_running:
+            return None
+        try:
+            import psutil
+            proc = psutil.Process(pid)
+            total = proc.memory_info().rss
+            for child in proc.children(recursive=True):
+                try:
+                    total += child.memory_info().rss
+                except psutil.Error:
+                    pass
+            return total
+        except Exception:
+            return None
+
+    async def kill(self, reason: str) -> None:
+        """
+        Force-stops the kernel from outside (does not wait for a running cell).
+        A cell that is executing reports `reason`; the next execution restarts the kernel.
+        """
+        self.death_reason = reason
+        self.is_running = False
+        self._input_pending_since = None
+        if self.km:
+            try:
+                await self.km.shutdown_kernel(now=True)
+            except Exception:
+                pass
+
+    async def ensure_running(self) -> bool:
+        """Restarts a kernel that died or was killed. Returns True if a restart was needed."""
+        if self.is_running and self.km and await self.km.is_alive():
+            return False
+        await self.restart()
+        return True
 
     async def execute(
         self,
@@ -110,8 +200,31 @@ class KernelSession:
             result = KernelExecutionResult(msg_id=msg_id)
             self._input_pending_since = None
             self._input_wait_total = 0.0
+            next_liveness_check = start_time + 1.0
 
             while True:
+                # A crashed or killed kernel never sends "idle"; detect it instead of waiting for the timeout
+                if time.time() >= next_liveness_check:
+                    next_liveness_check = time.time() + 1.0
+                    if self.death_reason or not self.km or not await self.km.is_alive():
+                        self.is_running = False
+                        self._input_pending_since = None
+                        result.status = "error"
+                        died_output = {
+                            "output_type": "error",
+                            "ename": "KernelDied",
+                            "evalue": self.death_reason or (
+                                "The Python kernel stopped unexpectedly (it crashed or ran out of memory). "
+                                "It will restart on the next run; variables were lost."
+                            ),
+                            "traceback": [],
+                        }
+                        result.outputs.append(died_output)
+                        result.error = died_output
+                        if on_output_chunk:
+                            await on_output_chunk(died_output)
+                        break
+
                 # Time spent waiting for the user to answer input() does not count toward the timeout
                 deadline = (start_time + timeout + self._input_wait_total) if timeout else None
                 if deadline and self._input_pending_since is None and time.time() > deadline:
@@ -208,7 +321,7 @@ class KernelSession:
             self.last_active_at = time.time()
 
             # If a package was installed, refresh kernel runtime paths so new modules import immediately
-            if "%pip" in code or "!pip" in code or "pip install" in code:
+            if self.is_running and ("%pip" in code or "!pip" in code or "pip install" in code):
                 try:
                     refresh_code = (
                         "import sys, os, site, importlib\n"
@@ -289,11 +402,13 @@ class KernelSession:
                 from ..api.package_security import get_sanitized_kernel_env
             clean_env = get_sanitized_kernel_env(self.workspace_dir, self.user_id, self.is_admin)
 
-            await self.km.start_kernel(cwd=self.workspace_dir, env=clean_env)
-            self.kc = self.km.client()
-            self.kc.start_channels()
-            await self.kc.wait_for_ready(timeout=timeout)
+            async with _start_slots():
+                await self.km.start_kernel(cwd=self.workspace_dir, env=clean_env)
+                self.kc = self.km.client()
+                self.kc.start_channels()
+                await self.kc.wait_for_ready(timeout=timeout)
             self.is_running = True
+            self.death_reason = None
             self.last_active_at = time.time()
 
     async def shutdown(self) -> None:

@@ -3,7 +3,7 @@ import asyncio
 from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
 from ..auth import decode_access_token
-from ..kernel_bridge import kernel_pool
+from ..kernel_bridge import kernel_pool, KernelCapacityError
 
 router = APIRouter(tags=["WebSockets"])
 
@@ -53,10 +53,17 @@ async def kernel_websocket(
             user_id=user_id,
             is_admin=is_admin,
         )
+    except KernelCapacityError as e:
+        # Quota or server capacity reached: the client shows the message and retries later
+        await websocket.send_json({"type": "error", "code": "capacity", "message": str(e)})
+        await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
+        return
     except Exception as e:
         await websocket.send_json({"type": "error", "message": f"Failed to start kernel: {str(e)}"})
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         return
+
+    session.attach_client()
 
     # Broadcast initial ready state
     await websocket.send_json({
@@ -141,6 +148,15 @@ async def kernel_websocket(
             })
 
         try:
+            # The kernel may have crashed or been stopped for using too much memory
+            if await session.ensure_running():
+                await send_safe({
+                    "type": "output",
+                    "cell_id": cell_id,
+                    "output_type": "stream",
+                    "name": "stderr",
+                    "text": "Kernel restarted: the previous Python kernel had stopped, so all variables were reset.\n",
+                })
             result = await session.execute(
                 final_code,
                 on_output_chunk=stream_callback,
@@ -240,6 +256,7 @@ async def kernel_websocket(
     except Exception as e:
         await send_safe({"type": "error", "message": str(e)})
     finally:
+        session.detach_client()
         worker.cancel()
         # Nobody is left to answer a pending input(); interrupt so the kernel is not stuck waiting
         if session.input_pending:

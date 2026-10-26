@@ -3,9 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..models import User
 from ..schemas import CodeExecutionRequest, CodeExecutionResponse, KernelControlRequest
 from ..auth import get_current_user_or_guest, GuestUser
-from ..kernel_bridge import kernel_pool
+from ..kernel_bridge import kernel_pool, KernelCapacityError
 
 router = APIRouter(prefix="/execution", tags=["Execution"])
+
+MAX_REST_EXECUTION_TIMEOUT = 600.0
 
 
 @router.post("/run", response_model=CodeExecutionResponse)
@@ -75,7 +77,10 @@ async def run_code(
             detail=str(e),
         )
 
-    result = await session.execute(final_code, timeout=req.timeout)
+    await session.ensure_running()
+    # The client chooses the timeout, but never unbounded: a stuck request would hold the kernel forever
+    timeout = min(req.timeout, MAX_REST_EXECUTION_TIMEOUT) if req.timeout and req.timeout > 0 else 60.0
+    result = await session.execute(final_code, timeout=timeout)
 
     return CodeExecutionResponse(
         session_id=req.session_id,
@@ -96,21 +101,19 @@ async def control_kernel(
     """Controls kernel lifecycle: interrupt, restart, shutdown."""
     target_user_id = f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else current_user.id
     is_admin = getattr(current_user, "role", "") in ("super_admin", "admin") or target_user_id == "admin_super"
+    # Only the caller's own kernel is ever returned (admins manage other kernels via /admin/runtimes)
     session = kernel_pool.get_session(req.session_id, target_user_id)
-
-    if session:
-        is_both_guest = (session.user_id.startswith("guest_") or session.user_id == "public_guest") and \
-                        (target_user_id.startswith("guest_") or target_user_id == "public_guest")
-        if session.user_id != target_user_id and not is_admin and not is_both_guest:
-            session = None
 
     if not session:
         if req.action == "restart":
-            session = await kernel_pool.get_or_create_session(
-                session_id=req.session_id,
-                user_id=target_user_id,
-                is_admin=is_admin,
-            )
+            try:
+                session = await kernel_pool.get_or_create_session(
+                    session_id=req.session_id,
+                    user_id=target_user_id,
+                    is_admin=is_admin,
+                )
+            except KernelCapacityError as e:
+                raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
             return {"status": "ok", "action": "restarted"}
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kernel session not found")
 
