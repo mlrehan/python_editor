@@ -373,29 +373,140 @@ sudo tail -f /var/log/nginx/python_cloud_studio_error.log
 #### 3. Kernel Execution Times Out
 - **Cause:** Resource starvation or container out-of-memory (OOM).
 - **Diagnosis:** Run `docker stats` to check container CPU/RAM allocations.
-- **Fix:** Increase container memory limits in `docker-compose.yml` (`deploy.resources.limits.memory: 8G`).
+- **Fix:** Raise `API_MEM_LIMIT` (and `MAX_TOTAL_KERNELS` to match) in `.env`, then `docker compose up -d`. See the capacity sizing in section 13.
 
 ---
 
-## 13. Zero-Downtime Updates & Upgrades
+## 13. Updating Production (Go-Live Procedure)
 
-To deploy new versions of Python Cloud Studio without losing user data:
+Run these on the production server, in a quiet period. Workspace files, notebooks and the database are kept, but every running Python kernel restarts once, so open notebooks lose their in-memory variables. The default branch is **`master`**.
+
+### Step 0: Record the current state
 
 ```bash
 cd /opt/python-cloud-studio
+docker inspect pcs-api --format 'restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+docker stats --no-stream pcs-api
+nproc; free -g; df -h /var/lib/docker
+git rev-parse HEAD > ~/pcs-previous-commit
+```
 
-# 1. Pull latest code from Git
-git pull origin main
+`restarts`/`oom` show whether the API container has been crashing or running out of memory; `nproc` and `free -g` are needed for capacity sizing in Step 3.
 
-# 2. Rebuild images in background
-docker compose build --pull
+### Step 1: Back up
 
-# 3. Restart containers with zero workspace data loss
+```bash
+cp .env ~/pcs-env-backup-$(date +%F)
+[ -f server_env ] && cp server_env ~/pcs-server_env-backup-$(date +%F)
+docker compose exec -T postgres pg_dump -U pcs_user -p 5476 python_cloud_studio > ~/pcs-db-$(date +%F).sql
+```
+
+> `server_env` is no longer tracked in git, so pulling from a checkout that still tracks it **deletes the file**. Back it up first. The live configuration is `.env`, which git never touches.
+
+### Step 2: Pull the new code
+
+```bash
+git fetch origin
+git status
+git checkout master
+git pull --ff-only origin master
+```
+
+If `git status` shows local changes, resolve them before pulling (do not discard them blindly).
+
+### Step 3: Update `.env`
+
+Edit with `nano .env`.
+
+**a) Use only the production compose file.** The repository's `docker-compose.override.yml` is for local development and is loaded automatically by `docker compose`, switching the API to `APP_ENV=development` / `APP_DEBUG=true` (verbose SQL logging, production safety checks off). Add:
+
+```bash
+COMPOSE_FILE=docker-compose.yml
+```
+
+**b) Rotate secrets** whenever they may have been exposed (for example, if they were ever committed to git).
+
+- `SECRET_KEY`: set to the output of `openssl rand -hex 32`. All users are signed out once.
+- `ADMIN_BOOTSTRAP_PASSWORD`: set a new strong value. It is only used when the database is first created; change the existing admin password in the Admin Console (Step 6).
+- `POSTGRES_PASSWORD`: the database keeps its original password, so change it **inside Postgres first**, then put the same value in `.env`:
+
+```bash
+NEW_DB_PASS=$(openssl rand -hex 24); echo "$NEW_DB_PASS"
+docker compose exec -T postgres psql -U pcs_user -d python_cloud_studio -p 5476 -c "ALTER USER pcs_user WITH PASSWORD '$NEW_DB_PASS';"
+```
+
+The API refuses to start with `APP_ENV=production` and the public default `SECRET_KEY` or admin password, and `docker compose` refuses to start without `SECRET_KEY`, `ADMIN_BOOTSTRAP_PASSWORD` and `POSTGRES_PASSWORD`.
+
+**c) Size capacity to the host.** Every user's Python kernel runs inside the API container, and an active kernel uses about 150–400 MB (plan for 250 MB). Leave memory for anything else on the host (e.g. the LMS).
+
+```bash
+MAX_CONCURRENT_KERNELS_PER_USER=3
+MAX_TOTAL_KERNELS=36            # ~ (API_MEM_LIMIT - 1 GB) / 250 MB
+MAX_GUEST_KERNELS=10
+KERNEL_IDLE_TIMEOUT_SECONDS=3600
+KERNEL_DETACHED_TIMEOUT_SECONDS=600
+KERNEL_MAX_MEMORY_MB=1024
+KERNEL_START_CONCURRENCY=0      # 0 = one kernel start at a time per CPU core
+API_CPU_LIMIT=6
+API_MEM_LIMIT=10G
+API_PIDS_LIMIT=4096
+```
+
+The values shown suit a 16 GB / 8-core host. **100 users executing at the same time need roughly `API_MEM_LIMIT=26G` and `MAX_TOTAL_KERNELS=100`.** On a smaller host the caps keep the server stable: extra users get a "server is at full capacity" message, and kernels with no browser attached are reclaimed first.
+
+### Step 4: Validate, build and start
+
+```bash
+docker compose config --quiet && echo CONFIG OK
+docker compose build --pull api
 docker compose up -d
-
-# 4. Clean up dangling images to save disk space
 docker image prune -f
 ```
+
+The host Nginx configuration does not change.
+
+### Step 5: Verify
+
+```bash
+docker compose ps
+curl -s http://127.0.0.1:8765/api/v1/health
+docker inspect pcs-api --format 'mem={{.HostConfig.Memory}} pids={{.HostConfig.PidsLimit}} init={{.HostConfig.Init}}'
+docker compose logs --tail=100 api
+```
+
+The health response must show `"environment":"production"` and a `kernels` object with your limits. Then in a browser:
+
+- Hard-refresh (`Ctrl+F5`) so the new frontend loads.
+- Sign in and run a cell.
+- Run `input("name: ")` and check that an input box appears.
+- Run `!python -c "import time; time.sleep(300)"` and press **Stop**; the cell should end within a few seconds.
+
+### Step 6: Change the admin password
+
+Sign in as the administrator and change the password in the Admin Console, especially if the previous one was ever committed to git.
+
+### Step 7 (optional): Load test
+
+Watch `docker stats pcs-api` in a second terminal while this runs:
+
+```bash
+python3 -m venv /tmp/lt && /tmp/lt/bin/pip install -q httpx websockets
+/tmp/lt/bin/python tests/load/capacity_load_test.py --base-url http://127.0.0.1:8765 --users 100
+```
+
+The script registers test accounts (`load_…@example.com`) in the production database; delete them afterwards under **Admin → Users**. A healthy result has zero hard errors; "capacity" rejections only mean the caps from Step 3 were reached.
+
+### Rollback
+
+Recent updates do not change the database schema, so rolling back the code is safe:
+
+```bash
+git checkout $(cat ~/pcs-previous-commit)
+cp ~/pcs-env-backup-YYYY-MM-DD .env
+docker compose build api && docker compose up -d
+```
+
+If `POSTGRES_PASSWORD` was already changed inside Postgres in Step 3, keep the **new** value in the restored `.env`.
 
 ---
 
