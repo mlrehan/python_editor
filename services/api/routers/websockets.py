@@ -63,15 +63,16 @@ async def kernel_websocket(
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         return
 
-    session.attach_client()
-
-    # Broadcast initial ready state
-    await websocket.send_json({
-        "type": "kernel_status",
-        "session_id": session_id,
-        "status": "ready" if session.is_running else "starting",
-        "execution_count": session.execution_count,
-    })
+    # Broadcast initial ready state (the browser may already be gone, e.g. a reload during kernel start)
+    try:
+        await websocket.send_json({
+            "type": "kernel_status",
+            "session_id": session_id,
+            "status": "ready" if session.is_running else "starting",
+            "execution_count": session.execution_count,
+        })
+    except Exception:
+        return
 
     from ..package_security import validate_code_security
     from ..audit import record_audit_log
@@ -195,9 +196,15 @@ async def kernel_websocket(
     # input replies, interrupts and restarts while a cell is running.
     exec_queue: "asyncio.Queue[tuple]" = asyncio.Queue()
 
+    # Cleared while a restart is in progress: cells requested meanwhile wait and then run on the
+    # new kernel (instead of racing the restart and triggering a second one)
+    restart_done = asyncio.Event()
+    restart_done.set()
+
     async def execution_worker():
         while True:
             cell_id, code = await exec_queue.get()
+            await restart_done.wait()
             await run_execution(cell_id, code)
 
     async def abort_queued() -> None:
@@ -208,14 +215,23 @@ async def kernel_websocket(
             await send_safe({"type": "status", "cell_id": cell_id, "execution_state": "idle"})
 
     async def restart_kernel():
-        await abort_queued()
-        await session.restart()
-        await send_safe({
-            "type": "restarted",
-            "session_id": session_id,
-            "execution_count": 0,
-        })
+        restart_done.clear()
+        try:
+            await abort_queued()
+            await session.restart()
+            await send_safe({
+                "type": "restarted",
+                "session_id": session_id,
+                "execution_count": 0,
+            })
+        except Exception as e:
+            await send_safe({"type": "error", "message": f"Kernel restart failed: {e}"})
+        finally:
+            restart_done.set()
 
+    # Count this browser as attached only where the finally below is guaranteed to detach it;
+    # a leaked count would make the kernel look in use forever (never reaped or evicted)
+    session.attach_client()
     worker = asyncio.create_task(execution_worker())
     background: set = set()
 

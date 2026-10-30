@@ -57,6 +57,30 @@ def test_interrupt_reaches_running_cell():
             assert errors and errors[0]["ename"] == "KeyboardInterrupt"
 
 
+def test_closed_connections_never_leave_a_kernel_marked_attached():
+    from services.api.kernel_bridge import kernel_pool
+
+    with TestClient(app) as client:
+        url = _ws_url()
+        session_id = url.split("/ws/kernels/")[1].split("?")[0]
+        token = url.split("token=")[1]
+        # Connect and drop immediately, several times, including before reading the first message
+        for read_first in (False, True, False):
+            with client.websocket_connect(url) as ws:
+                if read_first:
+                    _receive_until(ws, "kernel_status")
+        deadline = time.time() + 10
+        session = None
+        while time.time() < deadline:
+            session = kernel_pool.get_session(session_id, f"guest_{token}")
+            if session is not None and session.attached_clients == 0:
+                break
+            time.sleep(0.2)
+        assert session is not None
+        assert session.attached_clients == 0, "a closed connection left the kernel marked as in use"
+        assert session.detached_at is not None
+
+
 def test_interrupt_while_waiting_for_input_keeps_kernel_usable():
     with TestClient(app) as client:
         with client.websocket_connect(_ws_url()) as ws:
