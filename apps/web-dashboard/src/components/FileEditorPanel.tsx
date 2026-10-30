@@ -17,6 +17,8 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
+import { applyTabIndent, INDENT } from '../utils/indentation';
 
 export interface OpenFileInfo {
   path: string;
@@ -68,7 +70,6 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
 
   // Editor keys: Tab / Shift+Tab indent and dedent (whole lines when a multi-line selection exists),
   // Enter keeps the current indentation and adds a level after a trailing ':' in Python files.
-  const INDENT = '    ';
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!currentFile || e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
@@ -84,38 +85,17 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
       onContentChange(newValue, currentFile.path);
     };
 
+    // Ctrl+/ toggles Python comments on the selected lines or the current line
+    if (isToggleCommentShortcut(e) && currentFile.path.toLowerCase().endsWith('.py')) {
+      e.stopPropagation();
+      const edit = toggleLineComments(value, start, end);
+      applyEdit(edit.value, edit.selectionStart, edit.selectionEnd);
+      return;
+    }
+
     if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-      const selectedText = value.substring(start, end);
-
-      // Plain Tab with no multi-line selection: insert spaces at the cursor
-      if (!e.shiftKey && !selectedText.includes('\n')) {
-        applyEdit(value.substring(0, start) + INDENT + value.substring(end), start + INDENT.length, start + INDENT.length);
-        return;
-      }
-
-      // Indent or dedent every line touched by the selection
-      const blockEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
-      const lines = value.substring(lineStart, blockEnd).split('\n');
-      let firstLineDelta = 0;
-      let totalDelta = 0;
-      const changed = lines.map((line, i) => {
-        let delta: number;
-        let next: string;
-        if (e.shiftKey) {
-          const removable = line.match(/^( {1,4}|\t)/)?.[0].length ?? 0;
-          next = line.substring(removable);
-          delta = -removable;
-        } else {
-          next = INDENT + line;
-          delta = INDENT.length;
-        }
-        if (i === 0) firstLineDelta = delta;
-        totalDelta += delta;
-        return next;
-      });
-      const newValue = value.substring(0, lineStart) + changed.join('\n') + value.substring(blockEnd);
-      applyEdit(newValue, Math.max(lineStart, start + firstLineDelta), Math.max(lineStart, end + totalDelta));
+      const edit = applyTabIndent(value, start, end, e.shiftKey);
+      applyEdit(edit.value, edit.selectionStart, edit.selectionEnd);
       return;
     }
 
@@ -131,11 +111,14 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
     }
   };
 
-  // Handle Ctrl+S / Cmd+S
+  // Handle Ctrl+S / Cmd+S while focus is in this panel (elsewhere, Ctrl+S saves the notebook)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        if (isOpen && currentFile) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 's' || e.code === 'KeyS')) {
+        const focusInPanel = !!(document.activeElement as HTMLElement | null)?.closest(
+          '[data-testid="right-file-editor-panel"]'
+        );
+        if (isOpen && currentFile && focusInPanel) {
           e.preventDefault();
           handleSaveClick();
         }
@@ -239,7 +222,7 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
         borderLeft: '1px solid var(--border-main)',
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 56px)',
+        height: '100%',
         zIndex: 20,
         boxShadow: '-4px 0 16px rgba(0,0,0,0.3)',
         flexShrink: 0,

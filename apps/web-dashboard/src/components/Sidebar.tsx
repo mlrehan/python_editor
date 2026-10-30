@@ -533,7 +533,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         borderRight: '1px solid var(--border-main)',
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 56px)',
+        height: '100%',
         position: 'relative',
         userSelect: 'none',
         flexShrink: 0,

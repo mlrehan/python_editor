@@ -8,10 +8,32 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { RightPanel } from './components/RightPanel';
 import { NotebooksModal } from './components/NotebooksModal';
 import { SecretsModal } from './components/SecretsModal';
-import { NotebookDocument, NotebookCell, KernelStatus, UserProfile, FileItem, PendingInput } from './types';
+import { NotebookDocument, NotebookCell, KernelStatus, KernelOutput, UserProfile, FileItem, PendingInput } from './types';
 import { api } from './services/api';
 import { KernelWebSocketClient } from './services/websocket';
 import { Globe, X, Lock, LogIn, RotateCcw, CheckCircle, AlertCircle } from 'lucide-react';
+
+// After Stop, the server interrupts, then stops the cell's child processes ~3 s later (plus up to
+// ~4 s for them to exit). If a cell is still running after this, interrupting has failed.
+const STOP_RECOVERY_DELAY_MS = 8000;
+
+// A print loop can stream thousands of chunks; keep at most this much text per stream output
+const MAX_STREAM_CHARS = 200_000;
+const TRUNCATION_NOTICE = '[... earlier output truncated ...]\n';
+
+// Appends a streamed output to a cell, merging consecutive stdout/stderr chunks into one output
+// (as Jupyter does) so runaway printing cannot create thousands of output elements.
+function appendOutput(outputs: KernelOutput[], output: KernelOutput): KernelOutput[] {
+  const last = outputs[outputs.length - 1];
+  if (output.output_type !== 'stream' || !last || last.output_type !== 'stream' || last.name !== output.name) {
+    return [...outputs, output];
+  }
+  let text = (last.text ?? '') + (output.text ?? '');
+  if (text.length > MAX_STREAM_CHARS) {
+    text = TRUNCATION_NOTICE + text.slice(text.length - MAX_STREAM_CHARS);
+  }
+  return [...outputs.slice(0, -1), { ...last, text }];
+}
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -29,6 +51,9 @@ export const App: React.FC = () => {
 
   // Notebook State
   const [notebook, setNotebook] = useState<NotebookDocument | null>(null);
+  // Latest notebook for listeners and timers that outlive a render
+  const notebookRef = useRef<NotebookDocument | null>(null);
+  notebookRef.current = notebook;
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
   const [kernelStatus, setKernelStatus] = useState<KernelStatus>('disconnected');
   const [isRestartingKernel, setIsRestartingKernel] = useState(false);
@@ -80,6 +105,9 @@ export const App: React.FC = () => {
   const wsClientRef = useRef<KernelWebSocketClient | null>(null);
   // Cells whose execution was sent over the WebSocket and has not replied yet
   const wsRunningCellsRef = useRef<Set<string>>(new Set());
+  // Offered after Stop when code keeps running (interrupt could not stop it)
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
+  const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mouse drag handler for vertical resizers
   useEffect(() => {
@@ -135,6 +163,8 @@ export const App: React.FC = () => {
       return next;
     });
   };
+  const toggleLeftSidebarRef = useRef(toggleLeftSidebar);
+  toggleLeftSidebarRef.current = toggleLeftSidebar;
 
   const toggleRightSidebar = () => {
     setIsRightSidebarOpen((prev) => !prev);
@@ -230,10 +260,7 @@ export const App: React.FC = () => {
             ...prev,
             cells: prev.cells.map((c) => {
               if (c.id === cellId) {
-                return {
-                  ...c,
-                  outputs: [...c.outputs, output],
-                };
+                return { ...c, outputs: appendOutput(c.outputs, output) };
               }
               return c;
             }),
@@ -472,6 +499,8 @@ export const App: React.FC = () => {
     if (!notebook) return;
     const targetCell = notebook.cells.find((c) => c.id === cellId);
     if (!targetCell || targetCell.cell_type !== 'code') return;
+    // One execution per cell at a time: a second run would interleave both runs' outputs
+    if (targetCell.is_running || wsRunningCellsRef.current.has(cellId)) return;
 
     const codeToExecute =
       sourceOverride !== undefined && sourceOverride.trim().length > 0
@@ -570,39 +599,38 @@ export const App: React.FC = () => {
   const handleRestartKernel = async () => {
     if (!notebook) return;
     setIsRestartingKernel(true);
+    setShowRecoveryPrompt(false);
     setPendingInput(null);
     setKernelStatus('restarting');
-    setKernelToast({ text: 'Restarting Python kernel...', type: 'info' });
+    setKernelToast({ text: 'Restarting Python kernel... all variables will be cleared.', type: 'info' });
+    // Cells running now belong to the old kernel; cells started after this click run on the new one
+    const runningAtRestart = new Set(notebook.cells.filter((c) => c.is_running).map((c) => c.id));
 
-    const sessionId = getKernelSessionId(notebook.id);
     try {
-      // 1. Trigger reliable REST control API
-      await api.controlKernel(sessionId, 'restart');
-
-      // 2. Also notify active WebSocket client if connected
-      if (wsClientRef.current && wsClientRef.current.isOpen()) {
-        try {
-          wsClientRef.current.restart();
-        } catch (_) {}
+      const wsClient = wsClientRef.current;
+      if (wsClient && wsClient.isOpen()) {
+        // A single restart over the socket: the server first drops queued cells (they reply
+        // "abort"), so nothing queued before the restart runs on the fresh kernel
+        await wsClient.restart();
+      } else {
+        await api.controlKernel(getKernelSessionId(notebook.id), 'restart');
       }
-
+      // Cells that were running on the old kernel are finished, even if their reply was lost
+      runningAtRestart.forEach((id) => wsRunningCellsRef.current.delete(id));
+      setNotebook((prev) =>
+        prev
+          ? {
+              ...prev,
+              cells: prev.cells.map((c) => (runningAtRestart.has(c.id) && c.is_running ? { ...c, is_running: false } : c)),
+            }
+          : prev
+      );
       setKernelStatus('idle');
       setKernelToast({ text: 'Python kernel restarted successfully. Variables reset.', type: 'success' });
       window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
     } catch (err: any) {
-      console.warn('REST restart encountered issue, attempting WebSocket restart:', err);
-      if (wsClientRef.current && wsClientRef.current.isOpen()) {
-        try {
-          wsClientRef.current.restart();
-          setKernelStatus('idle');
-          setKernelToast({ text: 'Python kernel restarted successfully.', type: 'success' });
-          window.dispatchEvent(new CustomEvent('pcs-refresh-diagnostics'));
-          setIsRestartingKernel(false);
-          setTimeout(() => setKernelToast(null), 3500);
-          return;
-        } catch (_) {}
-      }
-      setKernelStatus('idle');
+      console.warn('Kernel restart failed:', err);
+      setKernelStatus(wsClientRef.current?.isOpen() ? 'idle' : 'disconnected');
       setKernelToast({ text: `Kernel restart failed: ${err.message || 'Unknown error'}`, type: 'error' });
     } finally {
       setIsRestartingKernel(false);
@@ -640,11 +668,53 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleInterruptKernel = () => {
-    if (wsClientRef.current) {
-      wsClientRef.current.interrupt();
+  // Stop: interrupt the running cell on the real kernel. The server stops processes the cell started
+  // if the interrupt alone does not end it; if code is still running afterwards (e.g. blocked in
+  // native code), offer a kernel restart instead of leaving the user stuck.
+  const handleInterruptKernel = async () => {
+    if (!notebook) return;
+    const wsClient = wsClientRef.current;
+    try {
+      if (wsClient && wsClient.isOpen()) {
+        wsClient.interrupt();
+      } else {
+        await api.controlKernel(getKernelSessionId(notebook.id), 'interrupt');
+      }
+    } catch (err: any) {
+      setKernelToast({ text: `Could not stop execution: ${err.message || 'Unknown error'}`, type: 'error' });
+      setTimeout(() => setKernelToast(null), 5000);
     }
+    if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    recoveryTimerRef.current = setTimeout(() => {
+      if (notebookRef.current?.cells.some((c) => c.is_running)) setShowRecoveryPrompt(true);
+    }, STOP_RECOVERY_DELAY_MS);
   };
+  const handleInterruptRef = useRef(handleInterruptKernel);
+  handleInterruptRef.current = handleInterruptKernel;
+
+  // Ctrl+C stops a running notebook, like a terminal, unless there is text selected to copy.
+  // Cmd+C on macOS is always copy.
+  useEffect(() => {
+    const handleCtrlC = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== 'c' && e.code !== 'KeyC') return;
+      if (!notebookRef.current?.cells.some((c) => c.is_running)) return;
+      const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+      const fieldSelection =
+        !!active && typeof active.selectionStart === 'number' && active.selectionStart !== active.selectionEnd;
+      const pageSelection = (window.getSelection()?.toString() ?? '').length > 0;
+      if (fieldSelection || pageSelection) return;
+      e.preventDefault();
+      handleInterruptRef.current();
+    };
+    window.addEventListener('keydown', handleCtrlC);
+    return () => window.removeEventListener('keydown', handleCtrlC);
+  }, []);
+
+  // Hide the recovery prompt once nothing is running any more
+  useEffect(() => {
+    if (showRecoveryPrompt && !notebook?.cells.some((c) => c.is_running)) setShowRecoveryPrompt(false);
+  }, [notebook, showRecoveryPrompt]);
 
   const handleSaveNotebook = async () => {
     if (!notebook) return;
@@ -658,6 +728,29 @@ export const App: React.FC = () => {
       setTimeout(() => setIsSaving(false), 500);
     }
   };
+  const handleSaveNotebookRef = useRef(handleSaveNotebook);
+  handleSaveNotebookRef.current = handleSaveNotebook;
+
+  // App-wide shortcuts: Ctrl/Cmd+S saves the notebook (the file editor panel handles it itself
+  // while focused) instead of the browser's "Save page"; Ctrl/Cmd+B shows or hides the Files sidebar
+  useEffect(() => {
+    const handleAppShortcuts = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 's' || e.code === 'KeyS') {
+        e.preventDefault();
+        const inFileEditor = !!(document.activeElement as HTMLElement | null)?.closest(
+          '[data-testid="right-file-editor-panel"]'
+        );
+        if (!inFileEditor) handleSaveNotebookRef.current();
+      } else if (key === 'b' || e.code === 'KeyB') {
+        e.preventDefault();
+        toggleLeftSidebarRef.current();
+      }
+    };
+    window.addEventListener('keydown', handleAppShortcuts);
+    return () => window.removeEventListener('keydown', handleAppShortcuts);
+  }, []);
 
   // Debounced auto-save effect (2.5 seconds)
   useEffect(() => {
@@ -887,6 +980,7 @@ export const App: React.FC = () => {
         onRunAll={handleRunAll}
         onRestartKernel={handleRestartKernel}
         onInterruptKernel={handleInterruptKernel}
+        isExecuting={!!notebook?.cells.some((c) => c.is_running)}
         onClearAllOutputs={handleClearAllOutputs}
         onSave={handleSaveNotebook}
         onLogout={handleLogout}
@@ -902,6 +996,69 @@ export const App: React.FC = () => {
       />
 
       {/* Kernel Toast Notification Banner */}
+      {showRecoveryPrompt && (
+        <div
+          data-testid="kernel-recovery-prompt"
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            flexWrap: 'wrap',
+            padding: '8px 16px',
+            backgroundColor: 'rgba(245, 158, 11, 0.15)',
+            borderBottom: '1px solid #f59e0b',
+            color: 'var(--text-main)',
+            fontSize: '12.5px',
+            zIndex: 40,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={14} color="#f59e0b" />
+            <span>
+              <strong>Python is not responding to Stop</strong> (it may be blocked inside native code). Restarting the
+              kernel stops it, but clears all variables and imports.
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              data-testid="recovery-restart-btn"
+              onClick={handleRestartKernel}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                backgroundColor: '#f59e0b',
+                color: '#1f2937',
+                border: 'none',
+                padding: '5px 11px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <RotateCcw size={13} /> Restart kernel
+            </button>
+            <button
+              onClick={() => setShowRecoveryPrompt(false)}
+              style={{
+                backgroundColor: 'var(--btn-secondary-bg)',
+                color: 'var(--btn-secondary-text)',
+                border: '1px solid var(--btn-secondary-border)',
+                padding: '5px 11px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                cursor: 'pointer',
+              }}
+            >
+              Keep waiting
+            </button>
+          </div>
+        </div>
+      )}
+
       {kernelToast && (
         <div
           data-testid="kernel-toast-banner"
@@ -1041,7 +1198,9 @@ export const App: React.FC = () => {
       )}
 
       {/* 3-Panel Resizable Workspace */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: 1, isolation: 'isolate' }}>
+      {/* Panels inside take height: 100% of this row, which already excludes the navbar and any
+          banners above it; minHeight: 0 lets the row shrink below its content in the column */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: 1, isolation: 'isolate' }}>
         {/* Left Sidebar (Files) */}
         {isLeftSidebarOpen && (
           <div
@@ -1053,7 +1212,7 @@ export const App: React.FC = () => {
               zIndex: 50,
               width: `${Math.min(320, window.innerWidth - 40)}px`,
               boxShadow: '4px 0 20px rgba(0, 0, 0, 0.5)',
-            } : undefined}
+            } : { height: '100%' }}
           >
             <Sidebar
               key={user ? `user-${user.id}` : 'guest-public'}
@@ -1116,6 +1275,7 @@ export const App: React.FC = () => {
               onSelectCell={setActiveCellId}
               sessionId={notebook ? getKernelSessionId(notebook.id) : undefined}
               onUpdateCellMetadata={handleUpdateCellMetadata}
+              onInterrupt={handleInterruptKernel}
               pendingInput={pendingInput}
               onSubmitInput={handleSubmitInput}
             />

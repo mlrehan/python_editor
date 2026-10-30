@@ -35,6 +35,8 @@ interface NavbarProps {
   onRunAll: () => void;
   onRestartKernel: () => void;
   onInterruptKernel: () => void;
+  // True while any cell is executing: Stop is highlighted
+  isExecuting?: boolean;
   onClearAllOutputs?: () => void;
   onSave: () => void;
   onLogout: () => void;
@@ -58,6 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRunAll,
   onRestartKernel,
   onInterruptKernel,
+  isExecuting = false,
   onClearAllOutputs,
   onSave,
   onLogout,
@@ -339,23 +342,26 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
+          data-testid="stop-execution-btn"
           onClick={onInterruptKernel}
+          aria-label="Stop execution"
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '5px',
-            backgroundColor: 'var(--btn-secondary-bg)',
-            color: 'var(--btn-secondary-text)',
-            border: '1px solid var(--btn-secondary-border)',
-            padding: '6px 8px',
+            backgroundColor: isExecuting ? 'rgba(239, 68, 68, 0.12)' : 'var(--btn-secondary-bg)',
+            color: isExecuting ? '#ef4444' : 'var(--btn-secondary-text)',
+            border: isExecuting ? '1px solid #ef4444' : '1px solid var(--btn-secondary-border)',
+            padding: '6px 10px',
             borderRadius: '6px',
             fontSize: '12.5px',
-            fontWeight: 500,
+            fontWeight: isExecuting ? 600 : 500,
             cursor: 'pointer',
           }}
-          title="Interrupt Execution"
+          title="Interrupt Execution (Ctrl+C while running)"
         >
-          <Square size={14} color="#ef4444" />
+          <Square size={13} color="#ef4444" fill={isExecuting ? '#ef4444' : 'none'} />
+          {!isMobile && <span>Stop</span>}
         </button>
 
         {onClearAllOutputs && !isMobile && (

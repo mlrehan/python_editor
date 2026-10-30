@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../services/api';
+import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
+import { applyTabIndent } from '../utils/indentation';
 import {
   Box,
   Layers,
@@ -374,6 +376,32 @@ function resolveReceiverType(receiver: string, aliases: Record<string, string>, 
   return null;
 }
 
+const SIGNATURE_WIDTH = 480;
+const SIGNATURE_MAX_HEIGHT = 360;
+const SIGNATURE_MIN_HEIGHT = 80;
+
+// The part of the viewport where an editor popup is actually visible: inside the nearest scrolling
+// ancestor (which clips the popup) and below any sticky overlay in it (the notebook toolbar).
+function getVisibleBounds(el: HTMLElement): { top: number; bottom: number; scroller: HTMLElement | null } {
+  let top = 0;
+  let bottom = window.innerHeight;
+  let scroller: HTMLElement | null = null;
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const overflowY = window.getComputedStyle(node).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') {
+      scroller = node;
+      const rect = node.getBoundingClientRect();
+      top = Math.max(top, rect.top);
+      bottom = Math.min(bottom, rect.bottom);
+      break;
+    }
+  }
+  scroller?.querySelectorAll<HTMLElement>('[data-sticky-overlay="top"]').forEach((overlay) => {
+    top = Math.max(top, overlay.getBoundingClientRect().bottom);
+  });
+  return { top, bottom, scroller };
+}
+
 // Compute caret (x, y) coordinates relative to the textarea
 function getCaretCoordinates(textarea: HTMLTextAreaElement, position: number) {
   const div = document.createElement('div');
@@ -522,10 +550,18 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
 
   // Signature help state
   const [activeSignature, setActiveSignature] = useState<SignatureItem | null>(null);
-  const [signaturePos, setSignaturePos] = useState<{ top: number; left: number; placement: 'above' | 'below' }>({
+  const [signaturePos, setSignaturePos] = useState<{
+    top: number;
+    left: number;
+    placement: 'above' | 'below';
+    maxHeight: number;
+    width: number;
+  }>({
     top: 0,
     left: 0,
     placement: 'above',
+    maxHeight: SIGNATURE_MAX_HEIGHT,
+    width: SIGNATURE_WIDTH,
   });
 
   // Diagnostics (real Python syntax errors and missing imports)
@@ -679,12 +715,13 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       const lineTop = cursorYInContainer;
       const lineBottom = cursorYInContainer + lineHeight;
 
-      // Viewport checks for vertical placement (above vs below cursor)
+      // Vertical placement (above vs below cursor) uses the space actually visible: the notebook's
+      // scroll area clips popups, and its sticky toolbar covers the top of it
       const cursorViewportY = textareaRect.top + coords.top - scrollTop;
-      const viewportHeight = window.innerHeight;
+      const visible = getVisibleBounds(containerRef.current ?? textarea);
       const dropdownHeight = 260; // Max height of autocomplete dropdown
-      const spaceBelow = viewportHeight - (cursorViewportY + lineHeight + 10);
-      const spaceAbove = cursorViewportY - 10;
+      const spaceBelow = visible.bottom - (cursorViewportY + lineHeight + 10);
+      const spaceAbove = cursorViewportY - visible.top - 10;
 
       // 1. Dropdown positioning (Google Colab style: below cursor if space permits, above if tight below)
       let dropTop: number;
@@ -720,16 +757,30 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         sigPlacement = 'below';
       }
 
+      // Flip the signature to the roomier side when its side is too small: always if it cannot fit
+      // its minimum height (being visible beats avoiding the dropdown), and without a dropdown
+      // competing for space whenever its side is too small for useful documentation
+      const sigSpace = () => (sigPlacement === 'above' ? spaceAbove : spaceBelow) - 6;
+      const otherSpace = () => (sigPlacement === 'above' ? spaceBelow : spaceAbove) - 6;
+      if ((sigSpace() < SIGNATURE_MIN_HEIGHT || (!isDropdownOpen && sigSpace() < 160)) && otherSpace() > sigSpace()) {
+        sigPlacement = sigPlacement === 'above' ? 'below' : 'above';
+        sigTop = sigPlacement === 'above' ? lineTop - 6 : lineBottom + 6;
+      }
+      // Fit the tooltip into the visible space (never taller than it); its content scrolls inside
+      const available = Math.floor(sigSpace());
+      const sigMaxHeight =
+        available >= SIGNATURE_MIN_HEIGHT ? Math.min(SIGNATURE_MAX_HEIGHT, available) : Math.max(40, available);
+
       const containerWidth = containerRef.current?.clientWidth || 600;
       const dropdownWidth = 320;
-      const sigWidth = 480;
+      const sigWidth = Math.min(SIGNATURE_WIDTH, Math.max(220, containerWidth - 20));
 
       // Clamp horizontal positions within container bounds
       const dropLeft = Math.max(10, Math.min(cursorXInContainer + 8, containerWidth - dropdownWidth - 16));
       const sigLeft = Math.max(10, Math.min(cursorXInContainer + 8, containerWidth - sigWidth - 16));
 
       setDropdownPos({ top: dropTop, left: dropLeft, placement: dropPlacement });
-      setSignaturePos({ top: sigTop, left: sigLeft, placement: sigPlacement });
+      setSignaturePos({ top: sigTop, left: sigLeft, placement: sigPlacement, maxHeight: sigMaxHeight, width: sigWidth });
     } catch {
       // Fallback
     }
@@ -790,7 +841,13 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       if (e.key === 'Escape') {
         if ((e as any).__pcsHandledEscape) return;
         (e as any).__pcsHandledEscape = true;
+        // Escape pressed while reading/selecting inside the tooltip: return focus to the code
+        const focusWasInPopup =
+          !!document.activeElement &&
+          (!!signatureRef.current?.contains(document.activeElement) ||
+            !!dropdownRef.current?.contains(document.activeElement));
         if (dismissTopmostPopup()) {
+          if (focusWasInPopup) textareaRef.current?.focus();
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
@@ -804,15 +861,30 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     };
   }, [isDropdownOpen, activeSignature, dismissTopmostPopup]);
 
-  // Reposition on window resize
+  // Re-place the signature when the dropdown opens or closes: it sits opposite the dropdown while
+  // both are shown, and can move to the roomier side and grow once the dropdown is gone
   useEffect(() => {
-    const handleWindowResize = () => {
-      if ((isDropdownOpen || activeSignature) && textareaRef.current) {
+    if (activeSignature && textareaRef.current) {
+      updatePopupPositions(textareaRef.current.selectionStart);
+    }
+    // updatePopupPositions is omitted on purpose: it changes with isDropdownOpen, already listed
+  }, [isDropdownOpen, activeSignature]);
+
+  // Reposition on window resize and when the notebook scrolls (the visible space changes)
+  useEffect(() => {
+    if (!isDropdownOpen && !activeSignature) return;
+    const reposition = () => {
+      if (textareaRef.current) {
         updatePopupPositions(textareaRef.current.selectionStart);
       }
     };
-    window.addEventListener('resize', handleWindowResize);
-    return () => window.removeEventListener('resize', handleWindowResize);
+    const scroller = containerRef.current ? getVisibleBounds(containerRef.current).scroller : null;
+    window.addEventListener('resize', reposition);
+    scroller?.addEventListener('scroll', reposition, { passive: true });
+    return () => {
+      window.removeEventListener('resize', reposition);
+      scroller?.removeEventListener('scroll', reposition);
+    };
   }, [isDropdownOpen, activeSignature, updatePopupPositions]);
 
   // 2. Trigger Autocomplete when cursor moves or code changes
@@ -1236,6 +1308,24 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       return;
     }
 
+    // Ctrl+/ (Cmd+/): toggle line comments on the selected lines or the current line
+    if (!readOnly && isToggleCommentShortcut(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const el = e.currentTarget;
+      const edit = toggleLineComments(el.value, el.selectionStart, el.selectionEnd);
+      autocompleteReqIdRef.current++;
+      abortControllerRef.current?.abort();
+      setIsDropdownOpen(false);
+      setActiveSignature(null);
+      el.value = edit.value;
+      el.selectionStart = edit.selectionStart;
+      el.selectionEnd = edit.selectionEnd;
+      lastInputEventRef.current = { val: edit.value, cursor: edit.selectionEnd, time: performance.now() };
+      onChange(edit.value);
+      return;
+    }
+
     // 2. Dropdown active keyboard handling
     if (isDropdownOpen && completions.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -1280,18 +1370,17 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       return;
     }
 
-    // 4. Tab key: Indent 4 spaces if dropdown is closed
-    if (e.key === 'Tab' && !isDropdownOpen) {
+    // 4. Tab / Shift+Tab (dropdown closed): insert 4 spaces, or indent/outdent the selected lines
+    if (e.key === 'Tab' && !isDropdownOpen && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
+      if (readOnly) return;
       const el = e.currentTarget;
-      const currentVal = el.value;
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      const newCode = currentVal.substring(0, start) + '    ' + currentVal.substring(end);
-      el.value = newCode;
-      el.selectionStart = el.selectionEnd = start + 4;
-      lastInputEventRef.current = { val: newCode, cursor: start + 4, time: performance.now() };
-      onChange(newCode);
+      const edit = applyTabIndent(el.value, el.selectionStart, el.selectionEnd, e.shiftKey);
+      el.value = edit.value;
+      el.selectionStart = edit.selectionStart;
+      el.selectionEnd = edit.selectionEnd;
+      lastInputEventRef.current = { val: edit.value, cursor: edit.selectionEnd, time: performance.now() };
+      onChange(edit.value);
       return;
     }
 
@@ -1637,11 +1726,24 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         <div
           ref={signatureRef}
           data-testid="signature-help-tooltip"
+          role="tooltip"
+          aria-label="Function signature and documentation"
+          // Focusable (not in tab order) so after clicking into it the arrow/Page keys scroll it
+          tabIndex={-1}
+          // Interactive like VS Code's hover: the pointer can enter it to scroll, select and copy.
+          // Clicks inside are ignored by the outside-click dismissal; Escape closes it.
           style={{
             position: 'absolute',
             top: `${signaturePos.top}px`,
             left: `${signaturePos.left}px`,
             transform: signaturePos.placement === 'above' ? 'translateY(-100%)' : 'none',
+            width: 'max-content',
+            maxWidth: `${signaturePos.width}px`,
+            maxHeight: `${signaturePos.maxHeight}px`,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            overscrollBehavior: 'contain',
+            boxSizing: 'border-box',
             backgroundColor: 'var(--bg-card)',
             border: '1px solid var(--border-accent)',
             borderRadius: '6px',
@@ -1651,13 +1753,15 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             fontSize: '12px',
             fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
             color: 'var(--text-main)',
-            maxWidth: '480px',
-            pointerEvents: 'none',
+            overflowWrap: 'anywhere',
+            userSelect: 'text',
+            cursor: 'text',
+            outline: 'none',
           }}
         >
           {renderSignatureHelp(activeSignature)}
           {activeSignature.docstring && (
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
               {activeSignature.docstring}
             </div>
           )}

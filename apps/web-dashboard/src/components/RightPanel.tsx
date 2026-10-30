@@ -53,7 +53,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ onInsertCodeSnippet, wid
         borderLeft: '1px solid var(--border-main)',
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 56px)',
+        height: '100%',
         flexShrink: 0,
       }}
     >

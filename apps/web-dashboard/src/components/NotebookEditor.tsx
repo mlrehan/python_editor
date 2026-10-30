@@ -15,6 +15,7 @@ import {
   Keyboard,
   X,
   Download,
+  Square,
 } from 'lucide-react';
 import { NotebookCell, KernelOutput, PendingInput } from '../types';
 import { PythonCellEditor } from './PythonCellEditor';
@@ -39,7 +40,68 @@ interface NotebookEditorProps {
   onUpdateCellMetadata?: (cellId: string, metadata: Record<string, any>) => void;
   pendingInput?: PendingInput | null;
   onSubmitInput?: (value: string) => void;
+  // Stops the running execution (the run button of a running cell becomes Stop)
+  onInterrupt?: () => void;
 }
+
+// Every keyboard shortcut the app handles, grouped for the Shortcuts dialog. Keep in sync with the
+// handlers (PythonCellEditor, NotebookEditor, FileEditorPanel, App) and the user guide (Chapter 24).
+interface ShortcutRow {
+  action: string;
+  keys: string[]; // Windows / Linux, alternatives
+  macKeys?: string[]; // macOS, when different
+}
+
+const SHORTCUT_SECTIONS: Array<{ title: string; rows: ShortcutRow[] }> = [
+  {
+    title: 'Run & control',
+    rows: [
+      { action: 'Run cell and stay on it', keys: ['Ctrl + Enter'], macKeys: ['⌘ + Enter'] },
+      { action: 'Run cell and move to the next one (adds a cell at the end)', keys: ['Shift + Enter'] },
+      { action: 'Run cell and insert a new code cell below', keys: ['Alt + Enter'], macKeys: ['⌥ + Enter'] },
+      { action: 'Render a Markdown cell', keys: ['Ctrl + Enter', 'Shift + Enter'], macKeys: ['⌘ + Enter', 'Shift + Enter'] },
+      { action: 'Stop running code (when no text is selected)', keys: ['Ctrl + C'], macKeys: ['⌃ + C'] },
+      { action: 'Submit a value typed into an input() box', keys: ['Enter'] },
+    ],
+  },
+  {
+    title: 'Editing code',
+    rows: [
+      { action: 'Comment / uncomment the current or selected lines', keys: ['Ctrl + /'], macKeys: ['⌘ + /'] },
+      { action: 'Indent: insert 4 spaces, or indent the selected lines', keys: ['Tab'] },
+      { action: 'Outdent the current or selected lines', keys: ['Shift + Tab'] },
+      { action: 'New line keeping indentation (one level deeper after ":")', keys: ['Enter'] },
+    ],
+  },
+  {
+    title: 'Suggestions & function help',
+    rows: [
+      { action: 'Show suggestions and function help', keys: ['Ctrl + Space'], macKeys: ['⌃ + Space'] },
+      { action: 'Move through suggestions', keys: ['↑', '↓'] },
+      { action: 'Accept the highlighted suggestion', keys: ['Enter', 'Tab'] },
+      { action: 'Close suggestions, then function help', keys: ['Esc'] },
+    ],
+  },
+  {
+    title: 'Notebook & workspace',
+    rows: [
+      { action: 'Save the notebook (or the open file while editing it)', keys: ['Ctrl + S'], macKeys: ['⌘ + S'] },
+      { action: 'Show / hide the Files sidebar', keys: ['Ctrl + B'], macKeys: ['⌘ + B'] },
+      { action: 'Close dialogs and menus', keys: ['Esc'] },
+    ],
+  },
+];
+
+const kbdStyle: React.CSSProperties = {
+  backgroundColor: 'var(--btn-secondary-bg)',
+  padding: '2px 6px',
+  borderRadius: '4px',
+  border: '1px solid var(--btn-secondary-border)',
+  color: 'var(--text-main)',
+  whiteSpace: 'nowrap',
+  fontFamily: 'inherit',
+  fontSize: '12px',
+};
 
 // Inline stdin box shown under a cell while its code is blocked on input() / getpass()
 const StdinPrompt: React.FC<{ prompt: string; password: boolean; onSubmit: (value: string) => void }> = ({
@@ -119,9 +181,20 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
   onUpdateCellMetadata,
   pendingInput,
   onSubmitInput,
+  onInterrupt,
 }) => {
   const [markdownPreviews, setMarkdownPreviews] = useState<Record<string, boolean>>({});
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+
+  // Esc closes the shortcuts dialog
+  useEffect(() => {
+    if (!showShortcutsModal) return;
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowShortcutsModal(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [showShortcutsModal]);
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   // Detect macOS
@@ -485,7 +558,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
         flex: 1,
         width: '100%',
         minWidth: 0,
-        height: 'calc(100vh - 56px)',
+        height: '100%',
         overflowY: 'auto',
         overflowX: 'hidden',
         backgroundColor: 'var(--bg-panel)',
@@ -505,7 +578,24 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           boxSizing: 'border-box',
         }}
       >
-        {/* Notebook Top Toolbar: Add Code, Add Text, Clear All Outputs, Keyboard Help */}
+        {/* Notebook Top Toolbar: Add Code, Add Text, Clear All Outputs, Keyboard Help.
+            Sticky inside this scroll container. The wrapper's opaque strip (it reaches up into the
+            container's top padding) keeps scrolled cells from showing above or around the toolbar's
+            rounded corners; zIndex 50 is above cells (1, active cell 40) and below modals (150). */}
+        <div
+          data-testid="notebook-sticky-toolbar"
+          data-sticky-overlay="top"
+          style={{
+            position: 'sticky',
+            // Sticky offsets are measured from the container's padding edge, so -12px (the
+            // container's top padding) pins the wrapper flush with the visible top
+            top: '-12px',
+            zIndex: 50,
+            margin: '-12px 0 0 0',
+            padding: '12px 0 4px 0',
+            backgroundColor: 'var(--bg-panel)',
+          }}
+        >
         <div
           style={{
             display: 'flex',
@@ -515,7 +605,6 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             backgroundColor: 'var(--bg-card)',
             border: '1px solid var(--border-main)',
             borderRadius: '8px',
-            marginBottom: '4px',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -601,6 +690,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             </button>
           </div>
         </div>
+        </div>
 
         {/* Cells List */}
         {cells.map((cell, index) => {
@@ -612,6 +702,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           return (
             <div
               key={cell.id}
+              data-testid="notebook-cell"
               onClick={() => onSelectCell(cell.id)}
               className={`cell-wrapper ${isActive ? 'active' : ''}`}
               style={{
@@ -799,10 +890,15 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       data-testid="cell-run-btn"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (cell.is_running) {
+                          onInterrupt?.();
+                          return;
+                        }
                         const currentSource = textareaRefs.current[cell.id]?.value ?? cell.source;
                         onRunCell(cell.id, currentSource);
                       }}
-                      disabled={cell.is_running}
+                      disabled={cell.is_running && !onInterrupt}
+                      aria-label={cell.is_running ? 'Stop execution' : 'Run cell'}
                       style={{
                         width: '30px',
                         height: '30px',
@@ -810,7 +906,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                         backgroundColor: cell.is_running ? 'var(--dropdown-item-selected)' : 'var(--btn-secondary-bg)',
                         border: cell.is_running ? '1px solid var(--border-accent)' : '1px solid var(--btn-secondary-border)',
                         color: 'var(--text-main)',
-                        cursor: cell.is_running ? 'default' : 'pointer',
+                        cursor: cell.is_running && !onInterrupt ? 'default' : 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -818,14 +914,17 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       }}
                       title={
                         cell.is_running
-                           ? 'Executing cell...'
+                           ? 'Running - click to stop (Ctrl+C)'
                            : isMac
                            ? 'Run cell (⌘+Enter)'
                            : 'Run cell (Ctrl+Enter)'
                       }
                     >
                       {cell.is_running ? (
-                        <Loader2 size={15} color="#60a5fa" className="animate-spin" />
+                        <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Loader2 size={22} color="#60a5fa" className="animate-spin" style={{ position: 'absolute' }} />
+                          <Square size={9} color="#ef4444" fill="#ef4444" />
+                        </span>
                       ) : (
                         <Play size={13} fill="currentColor" style={{ marginLeft: '2px' }} />
                       )}
@@ -1011,8 +1110,16 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           onClick={() => setShowShortcutsModal(false)}
         >
           <div
+            data-testid="shortcuts-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Keyboard shortcuts"
             style={{
-              width: '460px',
+              width: '560px',
+              maxWidth: 'calc(100vw - 32px)',
+              maxHeight: 'calc(100vh - 48px)',
+              overflowY: 'auto',
+              boxSizing: 'border-box',
               backgroundColor: 'var(--bg-modal)',
               border: '1px solid var(--border-secondary)',
               borderRadius: '8px',
@@ -1050,55 +1157,45 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-secondary)', textAlign: 'left', color: 'var(--text-secondary)' }}>
-                  <th style={{ padding: '8px 4px' }}>Action</th>
-                  <th style={{ padding: '8px 4px', textAlign: 'right' }}>Shortcut</th>
-                </tr>
-              </thead>
-              <tbody style={{ color: 'var(--text-main)' }}>
-                <tr style={{ borderBottom: '1px solid var(--border-main)' }}>
-                  <td style={{ padding: '8px 4px' }}>Run Current Cell (Keep Focus)</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>
-                    <kbd style={{ backgroundColor: 'var(--btn-secondary-bg)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--btn-secondary-border)', color: 'var(--text-main)' }}>
-                      {isMac ? '⌘ + Enter' : 'Ctrl + Enter'}
-                    </kbd>
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-main)' }}>
-                  <td style={{ padding: '8px 4px' }}>Run & Advance to Next Cell</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>
-                    <kbd style={{ backgroundColor: 'var(--btn-secondary-bg)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--btn-secondary-border)', color: 'var(--text-main)' }}>
-                      Shift + Enter
-                    </kbd>
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-main)' }}>
-                  <td style={{ padding: '8px 4px' }}>Run & Insert Code Cell Below</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>
-                    <kbd style={{ backgroundColor: 'var(--btn-secondary-bg)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--btn-secondary-border)', color: 'var(--text-main)' }}>
-                      {isMac ? '⌥ + Enter' : 'Alt + Enter'}
-                    </kbd>
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-main)' }}>
-                  <td style={{ padding: '8px 4px' }}>Save Notebook / File</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>
-                    <kbd style={{ backgroundColor: 'var(--btn-secondary-bg)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--btn-secondary-border)', color: 'var(--text-main)' }}>
-                      {isMac ? '⌘ + S' : 'Ctrl + S'}
-                    </kbd>
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: '8px 4px' }}>Toggle Files Sidebar</td>
-                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>
-                    <kbd style={{ backgroundColor: 'var(--btn-secondary-bg)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--btn-secondary-border)', color: 'var(--text-main)' }}>
-                      {isMac ? '⌘ + B' : 'Ctrl + B'}
-                    </kbd>
-                  </td>
-                </tr>
-              </tbody>
+              {SHORTCUT_SECTIONS.map((section) => (
+                <tbody key={section.title} style={{ color: 'var(--text-main)' }}>
+                  <tr>
+                    <th
+                      colSpan={2}
+                      style={{
+                        padding: '14px 4px 6px',
+                        textAlign: 'left',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        color: 'var(--text-secondary)',
+                        borderBottom: '1px solid var(--border-secondary)',
+                      }}
+                    >
+                      {section.title}
+                    </th>
+                  </tr>
+                  {section.rows.map((row) => (
+                    <tr key={row.action} style={{ borderBottom: '1px solid var(--border-main)' }}>
+                      <td style={{ padding: '7px 4px' }}>{row.action}</td>
+                      <td style={{ padding: '7px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {(isMac && row.macKeys ? row.macKeys : row.keys).map((k, i) => (
+                          <React.Fragment key={k}>
+                            {i > 0 && <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>or</span>}
+                            <kbd style={kbdStyle}>{k}</kbd>
+                          </React.Fragment>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
             </table>
+            <p style={{ margin: '14px 0 0', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {isMac ? '⌃ + C' : 'Ctrl + C'} copies as usual when text is selected; it only stops code while a cell
+              is running and nothing is selected. The Stop button in the top bar and on a running cell does the same.
+            </p>
           </div>
         </div>
       )}

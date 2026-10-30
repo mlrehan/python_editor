@@ -30,6 +30,8 @@ export class KernelWebSocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pongDeadline: ReturnType<typeof setTimeout> | null = null;
+  // Resolves the pending restart() once the server confirms the kernel restarted
+  private restartWaiter: { resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(
     sessionId: string,
@@ -100,6 +102,7 @@ export class KernelWebSocketClient {
           this.onStatus(msg.execution_state === 'busy' ? 'busy' : 'idle');
         } else if (msg.type === 'restarted') {
           this.onStatus('idle');
+          this.settleRestart();
         } else if (msg.type === 'pong') {
           this.clearPongDeadline();
         } else if (msg.type === 'error') {
@@ -109,6 +112,7 @@ export class KernelWebSocketClient {
             this.reconnectAttempts = Math.max(this.reconnectAttempts, 4);
           }
           if (msg.message) this.onServerError?.(msg.message, msg.code);
+          if (this.restartWaiter && /restart/i.test(msg.message ?? '')) this.settleRestart(new Error(msg.message));
         }
       } catch (err) {
         console.error('Error parsing WebSocket message:', err);
@@ -125,6 +129,7 @@ export class KernelWebSocketClient {
       this.isConnected = false;
       this.ws = null;
       this.stopHeartbeat();
+      this.settleRestart(new Error('Connection to the kernel was lost during restart'));
       this.onStatus('disconnected');
       if (!this.closedByClient) {
         this.scheduleReconnect();
@@ -215,10 +220,33 @@ export class KernelWebSocketClient {
     }
   }
 
-  restart() {
-    if (this.ws && this.isConnected) {
-      this.ws.send(JSON.stringify({ type: 'restart' }));
+  /**
+   * Restarts the kernel over the socket. The server first drops queued executions (they get an
+   * "abort" reply) so nothing from before the restart runs on the fresh kernel. Resolves when the
+   * server confirms the restart.
+   */
+  restart(timeoutMs = 90000): Promise<void> {
+    if (!this.isOpen() || !this.ws) {
+      return Promise.reject(new Error('WebSocket is not connected'));
     }
+    this.settleRestart(new Error('Superseded by a new restart request'));
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.restartWaiter = null;
+        reject(new Error('The kernel did not confirm the restart in time'));
+      }, timeoutMs);
+      this.restartWaiter = { resolve, reject, timer };
+      this.ws!.send(JSON.stringify({ type: 'restart' }));
+    });
+  }
+
+  private settleRestart(error?: Error) {
+    const waiter = this.restartWaiter;
+    if (!waiter) return;
+    this.restartWaiter = null;
+    clearTimeout(waiter.timer);
+    if (error) waiter.reject(error);
+    else waiter.resolve();
   }
 
   disconnect() {
@@ -232,6 +260,7 @@ export class KernelWebSocketClient {
     this.ws = null;
     this.isConnected = false;
     ws?.close();
+    this.settleRestart(new Error('Connection to the kernel was closed'));
     this.onStatus('disconnected');
   }
 }
