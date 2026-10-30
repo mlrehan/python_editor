@@ -1,12 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   Play,
   RotateCcw,
   Square,
   Save,
   Terminal,
-  User,
   CheckCircle2,
+  Loader2,
   PanelLeftClose,
   PanelLeft,
   PanelRightClose,
@@ -15,6 +15,7 @@ import {
   Lock,
   Globe,
   LogIn,
+  LogOut,
   Sun,
   Moon,
   Laptop,
@@ -22,6 +23,8 @@ import {
   BookOpen,
   Key,
   HelpCircle,
+  MoreHorizontal,
+  ChevronDown,
 } from 'lucide-react';
 import { KernelStatus, UserProfile } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -51,6 +54,73 @@ interface NavbarProps {
   onToggleRightSidebar: () => void;
 }
 
+/*
+ * Responsive tiers, measured on the bar itself (it spans the window, but measuring the element also
+ * covers browser zoom and embedded views). As space shrinks, labels disappear first, then the
+ * lower-priority groups move into the "More" menu; run controls, kernel status and account always stay.
+ * On phones (xxs) the theme switcher and workspace indicator move into the More menu as well.
+ */
+type Tier = 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+const TIER_MIN_WIDTH: Array<[Tier, number]> = [
+  ['xl', 1560],
+  ['lg', 1280],
+  ['md', 1024],
+  ['sm', 720],
+  ['xs', 480],
+  ['xxs', 0],
+];
+const TIER_RANK: Record<Tier, number> = { xxs: 0, xs: 1, sm: 2, md: 3, lg: 4, xl: 5 };
+
+function tierForWidth(width: number): Tier {
+  return (TIER_MIN_WIDTH.find(([, min]) => width >= min) ?? ['xxs', 0])[0];
+}
+
+const HELP_URL = '/python-cloud-studio-user-guide.html';
+
+const THEME_OPTIONS = [
+  { id: 'system', label: 'System', icon: Laptop },
+  { id: 'dark', label: 'Dark', icon: Moon },
+  { id: 'light', label: 'Light', icon: Sun },
+] as const;
+
+const KERNEL_TONE: Record<KernelStatus, 'success' | 'warning' | 'info' | 'danger'> = {
+  idle: 'success',
+  busy: 'warning',
+  restarting: 'info',
+  connecting: 'info',
+  disconnected: 'danger',
+};
+
+// Closes a popover on outside pointer-down or Escape
+function useDismiss(open: boolean, ref: React.RefObject<HTMLElement | null>, close: () => void) {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) closeRef.current();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeRef.current();
+        (ref.current?.querySelector('button') as HTMLButtonElement | null)?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, ref]);
+}
+
+function initialsOf(name: string, email: string): string {
+  const source = name.trim() || email;
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[1][0] : '')).toUpperCase() || '?';
+}
+
 export const Navbar: React.FC<NavbarProps> = ({
   title,
   onTitleChange,
@@ -75,614 +145,504 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleRightSidebar,
 }) => {
   const { themeMode, setThemeMode } = useTheme();
-  const [showThemeMenu, setShowThemeMenu] = useState(false);
-  const themeMenuRef = useRef<HTMLDivElement>(null);
-  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
-  const [mobileMenuPos, setMobileMenuPos] = useState<{ top: number; right: number }>({ top: 54, right: 8 });
+  const headerRef = useRef<HTMLElement>(null);
+  const [tier, setTier] = useState<Tier>(() =>
+    typeof window !== 'undefined' ? tierForWidth(window.innerWidth) : 'lg'
+  );
+  const [openMenu, setOpenMenu] = useState<'more' | 'account' | 'theme' | null>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const accountRef = useRef<HTMLDivElement>(null);
+  const themeRef = useRef<HTMLDivElement>(null);
 
-  const updateMobileMenuPosition = () => {
-    if (themeMenuRef.current && typeof window !== 'undefined') {
-      const rect = themeMenuRef.current.getBoundingClientRect();
-      setMobileMenuPos({
-        top: Math.round(rect.bottom + 6),
-        right: Math.max(8, Math.round(window.innerWidth - rect.right)),
-      });
-    }
-  };
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-      if (showThemeMenu) {
-        updateMobileMenuPosition();
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [showThemeMenu]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
-        setShowThemeMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const update = () => setTier(tierForWidth(header.getBoundingClientRect().width));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    return () => observer.disconnect();
   }, []);
+
+  const closeMenus = () => setOpenMenu(null);
+  useDismiss(openMenu === 'more', moreRef, closeMenus);
+  useDismiss(openMenu === 'account', accountRef, closeMenus);
+  useDismiss(openMenu === 'theme', themeRef, closeMenus);
+  const toggleMenu = (menu: 'more' | 'account' | 'theme') => setOpenMenu((current) => (current === menu ? null : menu));
+
+  const atLeast = (t: Tier) => TIER_RANK[tier] >= TIER_RANK[t];
+  const isAdmin = !!user && (user.role === 'super_admin' || user.role === 'admin') && !!onOpenAdminDashboard;
+
+  // What stays in the bar at this width; everything else goes into the More / account menus
+  const runLabels = atLeast('md');
+  const notebookActionsInBar = atLeast('md');
+  const notebookActionLabels = atLeast('lg');
+  const workspaceToolsInBar = atLeast('lg');
+  const workspaceToolLabels = atLeast('xl');
+  const adminInBar = isAdmin && atLeast('md');
+  const kernelLabel = atLeast('lg');
+  const workspaceLabel = atLeast('lg');
+  // Signed-in users also show the admin button and their name at xl, so only guests get the long label
+  const workspaceLabelFull = atLeast('xl') && !user;
+  const showBrand = atLeast('sm');
+  const showSaveState = atLeast('sm');
+  const statusChipsInBar = atLeast('xs');
+  const themeInBar = atLeast('xs');
+
+  const themeOptions = THEME_OPTIONS.map((t) => {
+    const Icon = t.icon;
+    return (
+      <MenuItem
+        key={t.id}
+        testId={`theme-option-${t.id}`}
+        icon={<Icon size={15} />}
+        selected={themeMode === t.id}
+        onClick={() => {
+          setThemeMode(t.id);
+          closeMenus();
+        }}
+      >
+        {t.label}
+      </MenuItem>
+    );
+  });
+
+  const moreItems: React.ReactNode[] = [];
+  if (!statusChipsInBar) {
+    moreItems.push(
+      <div
+        key="workspace"
+        className="tb-menu-status"
+        data-testid={user ? 'workspace-indicator-private' : 'workspace-indicator-public'}
+      >
+        {user ? <Lock size={13} /> : <Globe size={13} />}
+        {user ? 'Signed In — Private Workspace' : 'Guest Mode — Public Workspace'}
+      </div>,
+      <div key="sep-status" className="tb-menu-sep" role="separator" />
+    );
+  }
+  if (!notebookActionsInBar) {
+    if (onClearAllOutputs) {
+      moreItems.push(
+        <MenuItem key="clear" testId="clear-outputs-btn" icon={<Eraser size={15} />} onClick={() => { closeMenus(); onClearAllOutputs(); }}>
+          Clear Outputs
+        </MenuItem>
+      );
+    }
+    moreItems.push(
+      <MenuItem key="save" testId="save-btn" icon={<Save size={15} />} hint="Ctrl+S" onClick={() => { closeMenus(); onSave(); }}>
+        Save
+      </MenuItem>
+    );
+  }
+  if (!workspaceToolsInBar) {
+    if (moreItems.length) moreItems.push(<div key="sep-tools" className="tb-menu-sep" role="separator" />);
+    if (onOpenNotebooks) {
+      moreItems.push(
+        <MenuItem key="notebooks" testId="navbar-notebooks-btn" icon={<BookOpen size={15} />} onClick={() => { closeMenus(); onOpenNotebooks(); }}>
+          Notebooks
+        </MenuItem>
+      );
+    }
+    if (onOpenSecrets) {
+      moreItems.push(
+        <MenuItem key="secrets" testId="navbar-secrets-btn" icon={<Key size={15} />} onClick={() => { closeMenus(); onOpenSecrets(); }}>
+          Secrets
+        </MenuItem>
+      );
+    }
+    moreItems.push(
+      <a
+        key="help"
+        className="tb-menu-item"
+        role="menuitem"
+        href={HELP_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="navbar-help-btn"
+        onClick={closeMenus}
+      >
+        <HelpCircle size={15} />
+        <span className="tb-menu-item-label">Help</span>
+        <span className="tb-menu-item-hint">New tab</span>
+      </a>
+    );
+  }
+
+  if (!themeInBar) {
+    moreItems.push(
+      <div key="sep-theme" className="tb-menu-sep" role="separator" />,
+      <div key="theme-heading" className="tb-menu-heading">
+        Theme
+      </div>,
+      ...themeOptions
+    );
+  }
+
+  const kernelTone = KERNEL_TONE[kernelStatus] ?? 'info';
+  const kernelText = `Python 3 (${kernelStatus})`;
+
   return (
-    <header
-      style={{
-        height: '56px',
-        backgroundColor: 'var(--bg-navbar)',
-        borderBottom: '1px solid var(--border-main)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: isMobile ? '0 8px' : '0 16px',
-        gap: isMobile ? '6px' : '12px',
-        position: 'relative',
-        zIndex: 60,
-        overflowX: isMobile ? 'auto' : 'visible',
-        transition: 'background-color 0.15s ease, border-color 0.15s ease',
-      }}
-    >
-      {/* Brand & Left Toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px', flexShrink: 0 }}>
-        {/* Toggle Left Sidebar */}
+    <header ref={headerRef} className={`pcs-topbar pcs-topbar--${tier}`} data-tier={tier}>
+      {/* Left: panels, brand, notebook title and save state */}
+      <div className="tb-section tb-section--start">
         <button
+          type="button"
+          className={`tb-btn tb-btn--icon tb-btn--touch${isLeftSidebarOpen ? ' is-active' : ''}`}
           onClick={onToggleLeftSidebar}
-          style={{
-            backgroundColor: isLeftSidebarOpen ? 'var(--btn-secondary-bg)' : 'transparent',
-            border: '1px solid var(--border-secondary)',
-            color: isLeftSidebarOpen ? 'var(--border-accent)' : 'var(--text-secondary)',
-            borderRadius: '6px',
-            padding: '6px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          title={isLeftSidebarOpen ? 'Collapse Left Sidebar' : 'Expand Left Sidebar'}
+          aria-label={isLeftSidebarOpen ? 'Collapse Left Sidebar' : 'Expand Left Sidebar'}
+          aria-pressed={isLeftSidebarOpen}
+          data-tip={`${isLeftSidebarOpen ? 'Hide' : 'Show'} Files sidebar (Ctrl+B)`}
+          data-tip-align="start"
+          data-testid="left-sidebar-toggle"
         >
           {isLeftSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
         </button>
 
-        {!isMobile && (
-          <div
-            style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              backgroundColor: '#2563eb',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(37,99,235,0.4)',
-            }}
-          >
-            <Terminal size={18} color="#ffffff" />
+        {showBrand && (
+          <div className="tb-brand" aria-hidden="true">
+            <Terminal size={17} />
           </div>
         )}
 
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                color: '#3b82f6',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-              }}
-            >
-              Cloud Studio
-            </span>
-            <span style={{ fontSize: '11px', color: '#64748b' }}>•</span>
-            <span
-              style={{
-                fontSize: '11px',
-                color: isSaving ? '#f59e0b' : '#10b981',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              {isSaving ? 'Saving...' : <><CheckCircle2 size={12} /> Saved</>}
-            </span>
-          </div>
+        <div className="tb-title">
+          {showSaveState && (
+            <div className="tb-title-meta">
+              <span className="tb-app-name">Cloud Studio</span>
+              <span className={`tb-save-state${isSaving ? ' is-saving' : ''}`} role="status" aria-live="polite">
+                {isSaving ? (
+                  <>
+                    <Loader2 size={11} className="animate-spin" /> Saving…
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={11} /> Saved
+                  </>
+                )}
+              </span>
+            </div>
+          )}
           <input
             type="text"
+            className="tb-title-input"
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
-            style={{
-              backgroundColor: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: 'var(--text-main)',
-              fontSize: '13px',
-              fontWeight: 600,
-              padding: '2px 0',
-              cursor: 'text',
-              width: isMobile ? '80px' : '220px',
-            }}
+            aria-label="Notebook title"
+            spellCheck={false}
           />
         </div>
       </div>
 
-      {/* Center Execution & Notebook Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', flexShrink: 0 }}>
-        {onOpenNotebooks && (
+      {/* Center: execution and notebook actions */}
+      <div className="tb-section tb-section--center">
+        <div className="tb-group" role="group" aria-label="Run">
           <button
-            onClick={onOpenNotebooks}
-            data-testid="navbar-notebooks-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              backgroundColor: 'var(--btn-secondary-bg)',
-              color: 'var(--text-main)',
-              border: '1px solid var(--btn-secondary-border)',
-              padding: isMobile ? '6px 8px' : '6px 11px',
-              borderRadius: '6px',
-              fontSize: '12.5px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-            title="Manage Workspace Notebooks"
+            type="button"
+            className="tb-btn tb-btn--primary"
+            onClick={onRunAll}
+            disabled={isRestarting}
+            aria-label="Run All Cells"
+            data-tip="Run all cells"
+            data-testid="run-all-btn"
           >
-            <BookOpen size={14} color="#60a5fa" />
-            {!isMobile && <span>Notebooks</span>}
+            <Play size={14} fill="currentColor" />
+            {runLabels && <span>Run All</span>}
           </button>
-        )}
-
-        {onOpenSecrets && (
           <button
-            onClick={onOpenSecrets}
-            data-testid="navbar-secrets-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              backgroundColor: 'var(--btn-secondary-bg)',
-              color: 'var(--text-main)',
-              border: '1px solid var(--btn-secondary-border)',
-              padding: isMobile ? '6px 8px' : '6px 11px',
-              borderRadius: '6px',
-              fontSize: '12.5px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-            title="Manage Workspace Secrets & AI Credentials"
+            type="button"
+            className={`tb-btn${isExecuting ? ' tb-btn--danger-active' : ''}`}
+            onClick={onInterruptKernel}
+            aria-label="Stop execution"
+            data-tip={isExecuting ? 'Stop running code (Ctrl+C)' : 'Stop execution (Ctrl+C while running)'}
+            data-testid="stop-execution-btn"
           >
-            <Key size={14} color="#a78bfa" />
-            {!isMobile && <span>Secrets</span>}
+            <Square size={13} className="tb-stop-icon" fill={isExecuting ? 'currentColor' : 'none'} />
+            {runLabels && <span>Stop</span>}
           </button>
-        )}
-
-        <a
-          href="/python-cloud-studio-user-guide.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="navbar-help-btn"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            backgroundColor: 'var(--btn-secondary-bg)',
-            color: 'var(--text-main)',
-            border: '1px solid var(--btn-secondary-border)',
-            padding: isMobile ? '6px 8px' : '6px 11px',
-            borderRadius: '6px',
-            fontSize: '12.5px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            textDecoration: 'none',
-          }}
-          title="Open Python Cloud Studio User Guide (New Tab)"
-        >
-          <HelpCircle size={14} color="#38bdf8" />
-          {!isMobile && <span>Help</span>}
-        </a>
-
-        <button
-          onClick={onRunAll}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            backgroundColor: 'var(--btn-secondary-bg)',
-            color: 'var(--text-main)',
-            border: '1px solid var(--btn-secondary-border)',
-            padding: isMobile ? '6px 8px' : '6px 11px',
-            borderRadius: '6px',
-            fontSize: '12.5px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-          title="Run All Cells"
-        >
-          <Play size={14} color="#3b82f6" fill="#3b82f6" />
-          {!isMobile && <span>Run All</span>}
-        </button>
-
-        <button
-          onClick={onRestartKernel}
-          disabled={isRestarting}
-          data-testid="navbar-restart-btn"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            backgroundColor: isRestarting ? 'var(--btn-secondary-border)' : 'var(--btn-secondary-bg)',
-            color: 'var(--btn-secondary-text)',
-            border: '1px solid var(--btn-secondary-border)',
-            padding: isMobile ? '6px 8px' : '6px 11px',
-            borderRadius: '6px',
-            fontSize: '12.5px',
-            fontWeight: 500,
-            cursor: isRestarting ? 'not-allowed' : 'pointer',
-            opacity: isRestarting ? 0.75 : 1,
-            whiteSpace: 'nowrap',
-          }}
-          title={isRestarting ? 'Restarting Python Kernel...' : 'Restart Python Kernel'}
-        >
-          <RotateCcw
-            size={14}
-            className={isRestarting ? 'animate-spin' : ''}
-            style={{
-              transition: 'transform 0.3s ease',
-            }}
-          />
-          {!isMobile && <span>{isRestarting ? 'Restarting...' : 'Restart'}</span>}
-        </button>
-
-        <button
-          data-testid="stop-execution-btn"
-          onClick={onInterruptKernel}
-          aria-label="Stop execution"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            backgroundColor: isExecuting ? 'rgba(239, 68, 68, 0.12)' : 'var(--btn-secondary-bg)',
-            color: isExecuting ? '#ef4444' : 'var(--btn-secondary-text)',
-            border: isExecuting ? '1px solid #ef4444' : '1px solid var(--btn-secondary-border)',
-            padding: '6px 10px',
-            borderRadius: '6px',
-            fontSize: '12.5px',
-            fontWeight: isExecuting ? 600 : 500,
-            cursor: 'pointer',
-          }}
-          title="Interrupt Execution (Ctrl+C while running)"
-        >
-          <Square size={13} color="#ef4444" fill={isExecuting ? '#ef4444' : 'none'} />
-          {!isMobile && <span>Stop</span>}
-        </button>
-
-        {onClearAllOutputs && !isMobile && (
           <button
-            onClick={onClearAllOutputs}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              backgroundColor: 'var(--btn-secondary-bg)',
-              color: 'var(--btn-secondary-text)',
-              border: '1px solid var(--btn-secondary-border)',
-              padding: '6px 11px',
-              borderRadius: '6px',
-              fontSize: '12.5px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-            title="Clear all cell outputs in notebook"
+            type="button"
+            className="tb-btn"
+            onClick={onRestartKernel}
+            disabled={isRestarting}
+            aria-label={isRestarting ? 'Restarting Python Kernel' : 'Restart Python Kernel'}
+            aria-busy={isRestarting}
+            data-tip={isRestarting ? 'Restarting the Python kernel…' : 'Restart kernel (clears all variables)'}
+            data-testid="navbar-restart-btn"
           >
-            <Eraser size={14} color="#f59e0b" />
-            <span>Clear Outputs</span>
+            <RotateCcw size={14} className={isRestarting ? 'animate-spin' : ''} />
+            {runLabels && <span>{isRestarting ? 'Restarting…' : 'Restart'}</span>}
           </button>
-        )}
-
-        <button
-          onClick={onSave}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            backgroundColor: 'var(--btn-secondary-bg)',
-            color: 'var(--btn-secondary-text)',
-            border: '1px solid var(--btn-secondary-border)',
-            padding: isMobile ? '6px 8px' : '6px 11px',
-            borderRadius: '6px',
-            fontSize: '12.5px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-          title="Save Notebook"
-        >
-          <Save size={14} />
-          {!isMobile && <span>Save</span>}
-        </button>
-      </div>
-
-      {/* Right Controls: Kernel Status, User Profile, Right Toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px' }}>
-        {/* Kernel Status Badge */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: isMobile ? '0px' : '8px',
-            padding: isMobile ? '6px' : '4px 10px',
-            backgroundColor: '#1e293b',
-            borderRadius: '999px',
-            border: '1px solid #334155',
-            fontSize: '12px',
-          }}
-          title={`Python 3 (${kernelStatus})`}
-        >
-          <span
-            style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              backgroundColor:
-                kernelStatus === 'idle'
-                  ? '#10b981'
-                  : kernelStatus === 'busy'
-                  ? '#f59e0b'
-                  : kernelStatus === 'restarting'
-                  ? '#3b82f6'
-                  : '#ef4444',
-              boxShadow:
-                kernelStatus === 'restarting'
-                  ? '0 0 6px #3b82f6'
-                  : kernelStatus === 'busy'
-                  ? '0 0 6px #f59e0b'
-                  : 'none',
-            }}
-          />
-          {!isMobile && (
-            <span style={{ color: '#94a3b8', textTransform: 'capitalize' }}>
-              Python 3 ({kernelStatus})
-            </span>
-          )}
         </div>
 
-        {/* Workspace Mode Indicator */}
-        {user ? (
-          <div
-            data-testid="workspace-indicator-private"
-            style={{
-              display: isMobile ? 'none' : 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 9px',
-              backgroundColor: '#064e3b',
-              border: '1px solid #059669',
-              borderRadius: '6px',
-              fontSize: '11.5px',
-              fontWeight: 600,
-              color: '#a7f3d0',
-            }}
-            title="Private Workspace: Your files are secure and private."
-          >
-            <Lock size={12} color="#34d399" />
-            <span>Signed In — Private Workspace</span>
-          </div>
-        ) : (
-          <div
-            data-testid="workspace-indicator-public"
-            style={{
-              display: isMobile ? 'none' : 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 9px',
-              backgroundColor: '#1e293b',
-              border: '1px solid #3b82f6',
-              borderRadius: '6px',
-              fontSize: '11.5px',
-              fontWeight: 600,
-              color: '#38bdf8',
-            }}
-            title="Public Workspace: Files created without login are public. Sign in to create private files."
-          >
-            <Globe size={12} color="#38bdf8" />
-            <span>Guest Mode — Public Workspace</span>
-          </div>
-        )}
-
-        {/* User Info & Logout OR Guest Sign In */}
-        {user ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                color: '#e2e8f0',
-                fontSize: '13px',
-              }}
-              title={user.email}
-            >
-              <User size={15} color="#94a3b8" />
-              {!isMobile && <span>{user.full_name}</span>}
-            </div>
+        {notebookActionsInBar && (
+          <div className="tb-group" role="group" aria-label="Notebook">
+            {onClearAllOutputs && (
+              <button
+                type="button"
+                className="tb-btn"
+                onClick={onClearAllOutputs}
+                aria-label="Clear Outputs"
+                data-tip="Clear all cell outputs (does not stop running code)"
+                data-testid="clear-outputs-btn"
+              >
+                <Eraser size={14} />
+                {notebookActionLabels && <span>Clear Outputs</span>}
+              </button>
+            )}
             <button
-              onClick={onLogout}
-              style={{
-                backgroundColor: 'transparent',
-                border: 'none',
-                color: '#ef4444',
-                fontSize: '12px',
-                cursor: 'pointer',
-                padding: '4px 6px',
-              }}
+              type="button"
+              className="tb-btn"
+              onClick={onSave}
+              aria-label="Save Notebook"
+              aria-busy={isSaving}
+              data-tip="Save notebook (Ctrl+S)"
+              data-testid="save-btn"
             >
-              Sign out
+              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {notebookActionLabels && <span>Save</span>}
             </button>
           </div>
-        ) : (
-          <button
-            onClick={onOpenAuthModal}
-            data-testid="signin-button"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '5px 12px',
-              backgroundColor: '#2563eb',
-              border: 'none',
-              borderRadius: '6px',
-              color: '#ffffff',
-              fontSize: '12.5px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'background-color 0.15s ease',
-            }}
-          >
-            <LogIn size={13} /> Sign In
-          </button>
         )}
 
-        {/* Super Admin Console Button */}
-        {user && (user.role === 'super_admin' || user.role === 'admin') && onOpenAdminDashboard && (
-          <button
-            onClick={onOpenAdminDashboard}
-            data-testid="admin-panel-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '4px 10px',
-              backgroundColor: '#451a03',
-              border: '1px solid #d97706',
-              borderRadius: '6px',
-              color: '#fef3c7',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-            title="Open Super Admin Console"
-          >
-            <ShieldCheck size={14} color="#f59e0b" />
-            <span>Admin</span>
-          </button>
-        )}
-
-        {/* Theme Switcher */}
-        <div style={{ position: 'relative' }} ref={themeMenuRef}>
-          <button
-            onClick={() => {
-              updateMobileMenuPosition();
-              setShowThemeMenu((prev) => !prev);
-            }}
-            data-testid="theme-toggle-btn"
-            id="theme-switcher-btn"
-            style={{
-              backgroundColor: 'var(--btn-secondary-bg)',
-              border: '1px solid var(--btn-secondary-border)',
-              color: 'var(--btn-secondary-text)',
-              borderRadius: '6px',
-              padding: '6px 8px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-            }}
-            title={`Current Theme: ${themeMode.toUpperCase()} (Click to change)`}
-          >
-            {themeMode === 'system' ? (
-              <Laptop size={14} color="#38bdf8" />
-            ) : themeMode === 'light' ? (
-              <Sun size={14} color="#f59e0b" />
-            ) : (
-              <Moon size={14} color="#818cf8" />
+        {workspaceToolsInBar && (
+          <div className="tb-group" role="group" aria-label="Workspace">
+            {onOpenNotebooks && (
+              <button
+                type="button"
+                className="tb-btn tb-btn--quiet"
+                onClick={onOpenNotebooks}
+                aria-label="Notebooks"
+                data-tip="Manage workspace notebooks"
+                data-testid="navbar-notebooks-btn"
+              >
+                <BookOpen size={14} />
+                {workspaceToolLabels && <span>Notebooks</span>}
+              </button>
             )}
-            <span style={{ textTransform: 'capitalize' }}>{themeMode}</span>
-          </button>
-
-          {showThemeMenu && (
-            <div
-              data-testid="theme-dropdown-menu"
-              style={{
-                position: isMobile ? 'fixed' : 'absolute',
-                top: isMobile ? `${mobileMenuPos.top}px` : 'calc(100% + 6px)',
-                right: isMobile ? `${mobileMenuPos.right}px` : 0,
-                backgroundColor: 'var(--dropdown-bg)',
-                border: '1px solid var(--dropdown-border)',
-                borderRadius: '8px',
-                padding: '4px',
-                boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)',
-                zIndex: 100,
-                minWidth: '130px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '2px',
-              }}
+            {onOpenSecrets && (
+              <button
+                type="button"
+                className="tb-btn tb-btn--quiet"
+                onClick={onOpenSecrets}
+                aria-label="Secrets"
+                data-tip="Workspace secrets & API keys"
+                data-testid="navbar-secrets-btn"
+              >
+                <Key size={14} />
+                {workspaceToolLabels && <span>Secrets</span>}
+              </button>
+            )}
+            <a
+              className="tb-btn tb-btn--quiet"
+              href={HELP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Help (opens the user guide in a new tab)"
+              data-tip="User guide (new tab)"
+              data-testid="navbar-help-btn"
             >
-              {[
-                { id: 'system', label: 'System', icon: Laptop },
-                { id: 'dark', label: 'Dark', icon: Moon },
-                { id: 'light', label: 'Light', icon: Sun },
-              ].map((t) => {
-                const Icon = t.icon;
-                const isSelected = themeMode === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    data-testid={`theme-option-${t.id}`}
-                    onClick={() => {
-                      setThemeMode(t.id as any);
-                      setShowThemeMenu(false);
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '7px 10px',
-                      borderRadius: '5px',
-                      backgroundColor: isSelected ? 'var(--dropdown-item-selected)' : 'transparent',
-                      border: 'none',
-                      color: isSelected ? 'var(--dropdown-item-selected-text)' : 'var(--text-main)',
-                      fontSize: '12.5px',
-                      fontWeight: isSelected ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      width: '100%',
-                    }}
-                  >
-                    <Icon size={14} color={isSelected ? 'var(--border-accent)' : 'var(--text-muted)'} />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+              <HelpCircle size={14} />
+              {workspaceToolLabels && <span>Help</span>}
+            </a>
+          </div>
+        )}
+
+        {moreItems.length > 0 && (
+          <div className="tb-popover-anchor" ref={moreRef}>
+            <button
+              type="button"
+              className={`tb-btn tb-btn--icon${openMenu === 'more' ? ' is-active' : ''}`}
+              onClick={() => toggleMenu('more')}
+              aria-label="More actions"
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'more'}
+              data-tip={openMenu === 'more' ? undefined : 'More actions'}
+              data-testid="navbar-more-btn"
+            >
+              <MoreHorizontal size={17} />
+            </button>
+            {openMenu === 'more' && (
+              <div className="tb-menu tb-menu--start" role="menu" aria-label="More actions" data-testid="navbar-more-menu">
+                {moreItems}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Right: status, account, appearance, right panel */}
+      <div className="tb-section tb-section--end">
+        <div
+          className={`tb-chip tb-chip--${kernelTone}${kernelLabel ? '' : ' tb-chip--dot-only'}`}
+          role="status"
+          aria-label={kernelText}
+          data-tip={kernelLabel ? undefined : kernelText}
+          data-tip-align="end"
+          data-testid="kernel-status"
+          data-status={kernelStatus}
+        >
+          <span className={`tb-dot${kernelStatus === 'busy' || kernelStatus === 'restarting' || kernelStatus === 'connecting' ? ' is-pulsing' : ''}`} />
+          {kernelLabel && <span className="tb-chip-label">{kernelText}</span>}
         </div>
 
-        {/* Toggle Right Sidebar */}
+        {!statusChipsInBar ? null : user ? (
+          <div
+            className={`tb-chip tb-chip--success${workspaceLabel ? '' : ' tb-chip--icon-only'}`}
+            data-testid="workspace-indicator-private"
+            data-tip="Private workspace: your files are only visible to you"
+            data-tip-align="end"
+          >
+            <Lock size={12} />
+            {workspaceLabelFull ? (
+              <span className="tb-chip-label">Signed In — Private Workspace</span>
+            ) : (
+              <>
+                {workspaceLabel && <span className="tb-chip-label" aria-hidden="true">Private</span>}
+                <span className="pcs-sr-only">Signed In — Private Workspace</span>
+              </>
+            )}
+          </div>
+        ) : (
+          <div
+            className={`tb-chip tb-chip--info${workspaceLabel ? '' : ' tb-chip--icon-only'}`}
+            data-testid="workspace-indicator-public"
+            data-tip="Guest mode: files are public. Sign in for a private workspace"
+            data-tip-align="end"
+          >
+            <Globe size={12} />
+            {workspaceLabelFull ? (
+              <span className="tb-chip-label">Guest Mode — Public Workspace</span>
+            ) : (
+              <>
+                {workspaceLabel && <span className="tb-chip-label" aria-hidden="true">Guest · Public</span>}
+                <span className="pcs-sr-only">Guest Mode — Public Workspace</span>
+              </>
+            )}
+          </div>
+        )}
+
+        {adminInBar && (
+          <button
+            type="button"
+            className="tb-btn tb-btn--admin"
+            onClick={onOpenAdminDashboard}
+            aria-label="Admin Console"
+            data-tip="Open Super Admin Console"
+            data-tip-align="end"
+            data-testid="admin-panel-btn"
+          >
+            <ShieldCheck size={14} />
+            {atLeast('lg') && <span>Admin</span>}
+          </button>
+        )}
+
+        {user ? (
+          <div className="tb-popover-anchor" ref={accountRef}>
+            <button
+              type="button"
+              className={`tb-btn tb-btn--account${openMenu === 'account' ? ' is-active' : ''}`}
+              onClick={() => toggleMenu('account')}
+              aria-label={`Account: ${user.full_name || user.email}`}
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'account'}
+              data-tip={openMenu === 'account' ? undefined : user.email}
+              data-tip-align="end"
+              data-testid="account-menu-btn"
+            >
+              <span className="tb-avatar" aria-hidden="true">
+                {initialsOf(user.full_name || '', user.email)}
+              </span>
+              {atLeast('xl') && <span className="tb-account-name">{user.full_name}</span>}
+              <ChevronDown size={13} className="tb-chevron" />
+            </button>
+            {openMenu === 'account' && (
+              <div className="tb-menu tb-menu--end" role="menu" aria-label="Account" data-testid="account-menu">
+                <div className="tb-menu-header">
+                  <span className="tb-avatar tb-avatar--lg" aria-hidden="true">
+                    {initialsOf(user.full_name || '', user.email)}
+                  </span>
+                  <div className="tb-menu-header-text">
+                    <div className="tb-menu-header-name">{user.full_name}</div>
+                    <div className="tb-menu-header-email">{user.email}</div>
+                    <div className="tb-menu-header-role">{user.role.replace(/_/g, ' ')}</div>
+                  </div>
+                </div>
+                <div className="tb-menu-sep" role="separator" />
+                {isAdmin && !adminInBar && (
+                  <MenuItem
+                    testId="admin-panel-btn"
+                    icon={<ShieldCheck size={15} />}
+                    onClick={() => {
+                      closeMenus();
+                      onOpenAdminDashboard?.();
+                    }}
+                  >
+                    Admin Console
+                  </MenuItem>
+                )}
+                <MenuItem
+                  testId="signout-btn"
+                  icon={<LogOut size={15} />}
+                  danger
+                  onClick={() => {
+                    closeMenus();
+                    onLogout();
+                  }}
+                >
+                  Sign out
+                </MenuItem>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="tb-btn tb-btn--primary"
+            onClick={onOpenAuthModal}
+            aria-label="Sign In"
+            data-tip="Sign in for a private workspace"
+            data-tip-align="end"
+            data-testid="signin-button"
+          >
+            <LogIn size={14} />
+            {atLeast('sm') && <span>Sign In</span>}
+          </button>
+        )}
+
+        {themeInBar && (
+          <div className="tb-popover-anchor" ref={themeRef}>
+            <button
+              type="button"
+              id="theme-switcher-btn"
+              className={`tb-btn${atLeast('xl') ? '' : ' tb-btn--icon'}${openMenu === 'theme' ? ' is-active' : ''}`}
+              onClick={() => toggleMenu('theme')}
+              aria-label={`Theme: ${themeMode} (click to change)`}
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'theme'}
+              data-tip={openMenu === 'theme' ? undefined : `Theme: ${themeMode}`}
+              data-tip-align="end"
+              data-testid="theme-toggle-btn"
+            >
+              {themeMode === 'system' ? <Laptop size={15} /> : themeMode === 'light' ? <Sun size={15} /> : <Moon size={15} />}
+              {atLeast('xl') && <span style={{ textTransform: 'capitalize' }}>{themeMode}</span>}
+            </button>
+            {openMenu === 'theme' && (
+              <div className="tb-menu tb-menu--end" role="menu" aria-label="Theme" data-testid="theme-dropdown-menu">
+                {themeOptions}
+              </div>
+            )}
+          </div>
+        )}
+
         <button
+          type="button"
+          className={`tb-btn tb-btn--icon tb-btn--touch${isRightSidebarOpen ? ' is-active' : ''}`}
           onClick={onToggleRightSidebar}
-          style={{
-            backgroundColor: isRightSidebarOpen ? 'var(--btn-secondary-bg)' : 'transparent',
-            border: '1px solid var(--border-secondary)',
-            color: isRightSidebarOpen ? 'var(--border-accent)' : 'var(--text-secondary)',
-            borderRadius: '6px',
-            padding: '6px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          title={isRightSidebarOpen ? 'Collapse File Editor' : 'Expand File Editor'}
+          aria-label={isRightSidebarOpen ? 'Collapse File Editor' : 'Expand File Editor'}
+          aria-pressed={isRightSidebarOpen}
+          data-tip={isRightSidebarOpen ? 'Hide file editor panel' : 'Show file editor panel'}
+          data-tip-align="end"
+          data-testid="right-panel-toggle"
         >
           {isRightSidebarOpen ? <PanelRightClose size={17} /> : <PanelRight size={17} />}
         </button>
@@ -690,3 +650,28 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+
+interface MenuItemProps {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  onClick: () => void;
+  testId?: string;
+  hint?: string;
+  danger?: boolean;
+  selected?: boolean;
+}
+
+const MenuItem: React.FC<MenuItemProps> = ({ icon, children, onClick, testId, hint, danger, selected }) => (
+  <button
+    type="button"
+    role={selected === undefined ? 'menuitem' : 'menuitemradio'}
+    aria-checked={selected}
+    className={`tb-menu-item${danger ? ' is-danger' : ''}${selected ? ' is-selected' : ''}`}
+    onClick={onClick}
+    data-testid={testId}
+  >
+    {icon}
+    <span className="tb-menu-item-label">{children}</span>
+    {hint && <span className="tb-menu-item-hint">{hint}</span>}
+  </button>
+);

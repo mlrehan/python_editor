@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Plus, Trash2, Download, Copy, Check, X, FileText, Calendar } from 'lucide-react';
 import { api } from '../services/api';
+import { Modal } from './Modal';
 import { NotebookDocument } from '../types';
 
 interface NotebooksModalProps {
@@ -139,36 +140,7 @@ export const NotebooksModal: React.FC<NotebooksModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div
-      data-testid="notebooks-modal"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        backdropFilter: 'blur(3px)',
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        style={{
-          width: '640px',
-          maxWidth: '92vw',
-          maxHeight: '85vh',
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: 'var(--bg-modal, #1e293b)',
-          borderRadius: '12px',
-          border: '1px solid var(--border-secondary, #334155)',
-          boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5)',
-          overflow: 'hidden',
-        }}
-      >
+    <Modal onClose={onClose} label="Notebooks manager" size="lg" testId="notebooks-modal">
         {/* Header */}
         <div
           style={{
@@ -416,8 +388,6 @@ export const NotebooksModal: React.FC<NotebooksModalProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
-

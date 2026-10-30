@@ -13,11 +13,13 @@ import {
   Eraser,
   Loader2,
   Keyboard,
-  X,
   Download,
   Square,
+  MoreHorizontal,
 } from 'lucide-react';
 import { NotebookCell, KernelOutput, PendingInput } from '../types';
+import { applyTextareaEdit } from '../utils/textareaEdit';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from './Modal';
 import { PythonCellEditor } from './PythonCellEditor';
 import { DataTableView } from './DataTableView';
 
@@ -91,17 +93,6 @@ const SHORTCUT_SECTIONS: Array<{ title: string; rows: ShortcutRow[] }> = [
     ],
   },
 ];
-
-const kbdStyle: React.CSSProperties = {
-  backgroundColor: 'var(--btn-secondary-bg)',
-  padding: '2px 6px',
-  borderRadius: '4px',
-  border: '1px solid var(--btn-secondary-border)',
-  color: 'var(--text-main)',
-  whiteSpace: 'nowrap',
-  fontFamily: 'inherit',
-  fontSize: '12px',
-};
 
 // Inline stdin box shown under a cell while its code is blocked on input() / getpass()
 const StdinPrompt: React.FC<{ prompt: string; password: boolean; onSubmit: (value: string) => void }> = ({
@@ -185,16 +176,25 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
 }) => {
   const [markdownPreviews, setMarkdownPreviews] = useState<Record<string, boolean>>({});
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  // Cell whose "More actions" menu is open (narrow layouts move secondary cell actions there)
+  const [cellMenuId, setCellMenuId] = useState<string | null>(null);
 
-  // Esc closes the shortcuts dialog
   useEffect(() => {
-    if (!showShortcutsModal) return;
-    const closeOnEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowShortcutsModal(false);
+    if (!cellMenuId) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement).closest('[data-cell-menu]')) setCellMenuId(null);
     };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [showShortcutsModal]);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCellMenuId(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [cellMenuId]);
+
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   // Detect macOS
@@ -323,10 +323,9 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
       const end = target.selectionEnd;
       const val = target.value;
       const updated = val.substring(0, start) + '    ' + val.substring(end);
-      onUpdateCellSource(cell.id, updated);
-      requestAnimationFrame(() => {
-        target.selectionStart = target.selectionEnd = start + 4;
-      });
+      // Native editing history keeps Ctrl+Z / Ctrl+Shift+Z working
+      applyTextareaEdit(target, updated, start + 4);
+      onUpdateCellSource(cell.id, target.value);
       return;
     }
 
@@ -342,10 +341,8 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
       if (indent.length > 0) {
         e.preventDefault();
         const updated = val.substring(0, start) + '\n' + indent + val.substring(target.selectionEnd);
-        onUpdateCellSource(cell.id, updated);
-        requestAnimationFrame(() => {
-          target.selectionStart = target.selectionEnd = start + 1 + indent.length;
-        });
+        applyTextareaEdit(target, updated, start + 1 + indent.length);
+        onUpdateCellSource(cell.id, target.value);
         return;
       }
     }
@@ -554,6 +551,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
   return (
     <div
       data-testid="notebook-editor-container"
+      className="nb-container"
       style={{
         flex: 1,
         width: '100%',
@@ -562,7 +560,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
         overflowY: 'auto',
         overflowX: 'hidden',
         backgroundColor: 'var(--bg-panel)',
-        padding: '12px 16px 80px 16px',
+        padding: '12px var(--nb-pad-x, 16px) 80px',
         boxSizing: 'border-box',
         position: 'relative',
         zIndex: 1,
@@ -597,11 +595,13 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           }}
         >
         <div
+          className="nb-toolbar"
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '8px 12px',
+            gap: '8px',
+            padding: '8px var(--nb-toolbar-pad-x, 12px)',
             backgroundColor: 'var(--bg-card)',
             border: '1px solid var(--border-main)',
             borderRadius: '8px',
@@ -623,6 +623,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 alignItems: 'center',
                 gap: '5px',
               }}
+              className="nb-tool-btn"
               title="Insert Code Cell at Top"
             >
               <Plus size={13} /> Code
@@ -642,6 +643,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 alignItems: 'center',
                 gap: '5px',
               }}
+              className="nb-tool-btn"
               title="Insert Text Cell at Top"
             >
               <Plus size={13} /> Text
@@ -664,9 +666,12 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 alignItems: 'center',
                 gap: '5px',
               }}
+              className="nb-tool-btn"
               title="Clear all cell outputs (Preserves code & kernel)"
             >
-              <Eraser size={13} color="#f59e0b" /> Clear All Outputs
+              <Eraser size={13} color="#f59e0b" />
+              <span className="nb-label-long">Clear All Outputs</span>
+              <span className="nb-label-short">Clear</span>
             </button>
 
             {/* Keyboard Shortcuts Help */}
@@ -684,9 +689,12 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 alignItems: 'center',
                 gap: '5px',
               }}
+              className="nb-tool-btn"
               title="View Keyboard Shortcuts"
+              aria-label="Keyboard Shortcuts"
             >
-              <Keyboard size={13} /> Shortcuts
+              <Keyboard size={13} />
+              <span className="nb-label-optional">Shortcuts</span>
             </button>
           </div>
         </div>
@@ -718,6 +726,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             >
               {/* Cell Header / Action Menu Toolbar */}
               <div
+                className="cell-header"
                 style={{
                   height: '32px',
                   backgroundColor: 'var(--bg-cell-header)',
@@ -747,7 +756,8 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                   )}
                 </div>
 
-                {/* Top-Right Contextual Action Menu */}
+                {/* Top-Right Contextual Action Menu. Move / duplicate / clear output are inline on wide
+                    layouts and in the "More actions" menu on narrow ones (container query). */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   {/* Markdown Toggle */}
                   {cell.cell_type === 'markdown' && (
@@ -768,12 +778,14 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                         alignItems: 'center',
                         gap: '4px',
                       }}
+                      className="cell-hdr-btn cell-hdr-btn--labelled"
                       title="Toggle Preview / Edit"
                     >
                       {isMarkdownPreview ? <><Edit3 size={11} /> Edit</> : <><Eye size={11} /> Preview</>}
                     </button>
                   )}
 
+                  <div className="cell-actions-secondary">
                   {/* Move Cell Up */}
                   <button
                     onClick={(e) => {
@@ -788,6 +800,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       cursor: index === 0 ? 'default' : 'pointer',
                       padding: '3px 5px',
                     }}
+                    className="cell-hdr-btn"
                     title="Move Cell Up"
                   >
                     <ArrowUp size={13} />
@@ -807,6 +820,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       cursor: index === cells.length - 1 ? 'default' : 'pointer',
                       padding: '3px 5px',
                     }}
+                    className="cell-hdr-btn"
                     title="Move Cell Down"
                   >
                     <ArrowDown size={13} />
@@ -825,6 +839,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       cursor: 'pointer',
                       padding: '3px 5px',
                     }}
+                    className="cell-hdr-btn"
                     title="Duplicate Cell"
                   >
                     <Copy size={13} />
@@ -844,11 +859,85 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                         cursor: 'pointer',
                         padding: '3px 5px',
                       }}
+                      className="cell-hdr-btn"
                       title="Clear Cell Output"
                     >
                       <Eraser size={13} />
                     </button>
                   )}
+                  </div>
+
+                  {/* Secondary actions for narrow layouts */}
+                  <div className="cell-more" data-cell-menu>
+                    <button
+                      type="button"
+                      className="cell-hdr-btn cell-more-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectCell(cell.id);
+                        setCellMenuId((id) => (id === cell.id ? null : cell.id));
+                      }}
+                      aria-label="More cell actions"
+                      aria-haspopup="menu"
+                      aria-expanded={cellMenuId === cell.id}
+                      title="More cell actions"
+                      data-testid="cell-more-btn"
+                    >
+                      <MoreHorizontal size={15} />
+                    </button>
+                    {cellMenuId === cell.id && (
+                      <div className="cell-menu" role="menu" aria-label="Cell actions" data-testid="cell-menu" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="cell-menu-item"
+                          disabled={index === 0}
+                          onClick={() => {
+                            setCellMenuId(null);
+                            onMoveCell(cell.id, 'up');
+                          }}
+                        >
+                          <ArrowUp size={14} /> Move up
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="cell-menu-item"
+                          disabled={index === cells.length - 1}
+                          onClick={() => {
+                            setCellMenuId(null);
+                            onMoveCell(cell.id, 'down');
+                          }}
+                        >
+                          <ArrowDown size={14} /> Move down
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="cell-menu-item"
+                          onClick={() => {
+                            setCellMenuId(null);
+                            onDuplicateCell(cell.id);
+                          }}
+                        >
+                          <Copy size={14} /> Duplicate
+                        </button>
+                        {cell.cell_type === 'code' && hasOutputs && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="cell-menu-item"
+                            onClick={() => {
+                              setCellMenuId(null);
+                              onClearCellOutput(cell.id);
+                            }}
+                          >
+                            <Eraser size={14} /> Clear output
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Delete Cell */}
                   <button
@@ -863,6 +952,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       cursor: 'pointer',
                       padding: '3px 5px',
                     }}
+                    className="cell-hdr-btn"
                     title="Delete Cell"
                   >
                     <Trash2 size={13} />
@@ -876,7 +966,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 {cell.cell_type === 'code' ? (
                   <div
                     style={{
-                      width: '48px',
+                      width: 'var(--nb-run-gutter, 48px)',
                       paddingTop: '10px',
                       display: 'flex',
                       flexDirection: 'column',
@@ -933,7 +1023,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 ) : (
                   <div
                     style={{
-                      width: '32px',
+                      width: 'var(--nb-md-gutter, 32px)',
                       flexShrink: 0,
                       backgroundColor: 'var(--bg-cell-run-btn-gutter)',
                       borderRight: '1px solid var(--border-main)',
@@ -942,7 +1032,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 )}
 
                 {/* Editor Body */}
-                <div style={{ flex: 1, padding: cell.cell_type === 'code' ? '0' : '10px 14px' }}>
+                <div style={{ flex: 1, minWidth: 0, padding: cell.cell_type === 'code' ? '0' : '10px var(--nb-md-pad-x, 14px)' }}>
                   {cell.cell_type === 'markdown' && isMarkdownPreview ? (
                     <div
                       style={{
@@ -1025,7 +1115,8 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 <div
                   data-testid="cell-output-container"
                   style={{
-                    padding: '12px 16px 12px 52px',
+                    padding: '12px var(--nb-output-pad-right, 16px) 12px var(--nb-output-indent, 52px)',
+                    overflowX: 'auto',
                     backgroundColor: 'var(--bg-output)',
                     borderTop: '1px solid var(--border-main)',
                   }}
@@ -1094,110 +1185,49 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
 
       {/* Keyboard Shortcuts Help Modal */}
       {showShortcutsModal && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 150,
-          }}
-          onClick={() => setShowShortcutsModal(false)}
+        <Modal
+          onClose={() => setShowShortcutsModal(false)}
+          label="Keyboard shortcuts"
+          size="md"
+          panelTestId="shortcuts-modal"
         >
-          <div
-            data-testid="shortcuts-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Keyboard shortcuts"
-            style={{
-              width: '560px',
-              maxWidth: 'calc(100vw - 32px)',
-              maxHeight: 'calc(100vh - 48px)',
-              overflowY: 'auto',
-              boxSizing: 'border-box',
-              backgroundColor: 'var(--bg-modal)',
-              border: '1px solid var(--border-secondary)',
-              borderRadius: '8px',
-              padding: '24px',
-              boxShadow: '0 16px 32px rgba(0,0,0,0.4)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '16px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Keyboard size={18} color="var(--border-accent)" />
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>
-                  Keyboard Shortcuts ({isMac ? 'macOS' : 'Windows / Linux'})
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowShortcutsModal(false)}
-                style={{
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  padding: '4px',
-                }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+          <ModalHeader
+            icon={<Keyboard size={17} />}
+            title="Keyboard Shortcuts"
+            subtitle={isMac ? 'macOS' : 'Windows / Linux'}
+            onClose={() => setShowShortcutsModal(false)}
+          />
+          <ModalBody>
+            <div className="pcs-shortcuts">
               {SHORTCUT_SECTIONS.map((section) => (
-                <tbody key={section.title} style={{ color: 'var(--text-main)' }}>
-                  <tr>
-                    <th
-                      colSpan={2}
-                      style={{
-                        padding: '14px 4px 6px',
-                        textAlign: 'left',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
-                        color: 'var(--text-secondary)',
-                        borderBottom: '1px solid var(--border-secondary)',
-                      }}
-                    >
-                      {section.title}
-                    </th>
-                  </tr>
-                  {section.rows.map((row) => (
-                    <tr key={row.action} style={{ borderBottom: '1px solid var(--border-main)' }}>
-                      <td style={{ padding: '7px 4px' }}>{row.action}</td>
-                      <td style={{ padding: '7px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {(isMac && row.macKeys ? row.macKeys : row.keys).map((k, i) => (
-                          <React.Fragment key={k}>
-                            {i > 0 && <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>or</span>}
-                            <kbd style={kbdStyle}>{k}</kbd>
-                          </React.Fragment>
-                        ))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+                <section key={section.title} className="pcs-shortcuts-section">
+                  <h3 className="pcs-shortcuts-heading">{section.title}</h3>
+                  <ul className="pcs-shortcuts-list">
+                    {section.rows.map((row) => (
+                      <li key={row.action} className="pcs-shortcuts-row">
+                        <span className="pcs-shortcuts-action">{row.action}</span>
+                        <span className="pcs-shortcuts-keys">
+                          {(isMac && row.macKeys ? row.macKeys : row.keys).map((k, i) => (
+                            <React.Fragment key={k}>
+                              {i > 0 && <span className="pcs-shortcuts-or">or</span>}
+                              <kbd className="pcs-kbd">{k}</kbd>
+                            </React.Fragment>
+                          ))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </table>
-            <p style={{ margin: '14px 0 0', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              {isMac ? '⌃ + C' : 'Ctrl + C'} copies as usual when text is selected; it only stops code while a cell
-              is running and nothing is selected. The Stop button in the top bar and on a running cell does the same.
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <p className="pcs-shortcuts-note">
+              {isMac ? '⌃ + C' : 'Ctrl + C'} copies as usual when text is selected; it only stops code while a cell is
+              running and nothing is selected. The Stop button in the top bar and on a running cell does the same.
             </p>
-          </div>
-        </div>
+          </ModalFooter>
+        </Modal>
       )}
     </div>
   );

@@ -18,9 +18,12 @@ import {
   BookOpen,
   ChevronRight,
   ChevronDown,
+  Edit3,
+  FilePlus,
 } from 'lucide-react';
 import { FileItem, UserProfile } from '../types';
 import { api } from '../services/api';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from './Modal';
 
 interface SidebarProps {
   onOpenFile: (file: FileItem) => void;
@@ -64,6 +67,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const [uploadTargetFolder, setUploadTargetFolder] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Pointer type of the last press on a tree row (touch taps open files directly)
+  const lastPointerTypeRef = useRef<string>('mouse');
 
   // Contents of expanded folders, keyed by folder path (root items live in `files`)
   const [folderChildren, setFolderChildren] = useState<Record<string, FileItem[]>>({});
@@ -785,6 +790,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div
                 key={file.path}
                 data-testid="file-tree-item"
+                className="file-tree-row"
                 data-path={file.path}
                 draggable
                 onDragStart={(e) => {
@@ -798,8 +804,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 onDragOver={file.is_dir ? (e) => handleFolderDragOver(e, file) : undefined}
                 onDrop={file.is_dir ? (e) => handleFolderDrop(e, file) : undefined}
-                onClick={(e) => handleItemClick(file, e.detail)}
-                onDoubleClick={() => handleItemDoubleClick(file)}
+                onPointerDown={(e) => {
+                  lastPointerTypeRef.current = e.pointerType;
+                }}
+                onClick={(e) => {
+                  handleItemClick(file, e.detail);
+                  // Touch screens have no reliable double-click: a tap opens the file
+                  if (lastPointerTypeRef.current === 'touch' && !file.is_dir) handleItemDoubleClick(file);
+                }}
+                onDoubleClick={() => {
+                  if (lastPointerTypeRef.current !== 'touch') handleItemDoubleClick(file);
+                }}
                 onContextMenu={(e) => handleItemContextMenu(e, file)}
                 style={{
                   display: 'flex',
@@ -1251,48 +1266,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Modal Dialog for Create/Rename/Delete */}
       {modalState.type && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 150,
-          }}
-          onClick={() => setModalState({ type: null })}
+        <Modal
+          onClose={() => setModalState({ type: null })}
+          label={
+            modalState.type === 'new_file'
+              ? 'Create new file'
+              : modalState.type === 'new_folder'
+              ? 'Create new folder'
+              : modalState.type === 'rename'
+              ? 'Rename'
+              : 'Confirm deletion'
+          }
+          size="sm"
+          testId="file-action-modal"
         >
-          <div
-            style={{
-              width: '380px',
-              backgroundColor: 'var(--bg-modal)',
-              border: '1px solid var(--border-secondary)',
-              borderRadius: '8px',
-              padding: '20px',
-              boxShadow: '0 16px 32px rgba(0,0,0,0.3)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '8px' }}>
-              {modalState.type === 'new_file' && 'Create New File'}
-              {modalState.type === 'new_folder' && 'Create New Folder'}
-              {modalState.type === 'rename' && 'Rename'}
-              {modalState.type === 'delete' && 'Confirm Deletion'}
-            </h3>
-
+          <ModalHeader
+            icon={
+              modalState.type === 'delete' ? (
+                <Trash2 size={16} />
+              ) : modalState.type === 'new_folder' ? (
+                <FolderPlus size={16} />
+              ) : modalState.type === 'rename' ? (
+                <Edit3 size={16} />
+              ) : (
+                <FilePlus size={16} />
+              )
+            }
+            iconBackground={modalState.type === 'delete' ? '#dc2626' : undefined}
+            title={
+              <>
+                {modalState.type === 'new_file' && 'Create New File'}
+                {modalState.type === 'new_folder' && 'Create New Folder'}
+                {modalState.type === 'rename' && 'Rename'}
+                {modalState.type === 'delete' && 'Confirm Deletion'}
+              </>
+            }
+            onClose={() => setModalState({ type: null })}
+          />
+          <ModalBody>
             {modalState.type === 'delete' ? (
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: 1.5 }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                 Are you sure you want to permanently delete{' '}
                 <strong style={{ color: '#ef4444' }}>{modalState.target?.name}</strong>?
                 {modalState.target?.is_dir && ' All enclosed files will also be removed.'}
               </p>
             ) : (
-              <div style={{ marginBottom: '18px' }}>
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+              <div>
+                <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '6px' }}>
                   {modalState.type === 'new_file' && 'Supports .py, .ipynb, .csv, .md, .txt, .json'}
                   {modalState.type === 'new_folder' && 'Folder will be created in current active directory'}
                   {modalState.type === 'rename' && `Renaming: ${modalState.target?.name}`}
@@ -1300,64 +1320,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <input
                   type="text"
                   autoFocus
+                  className="pcs-input"
                   value={modalState.inputValue || ''}
                   onChange={(e) => setModalState({ ...modalState, inputValue: e.target.value })}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleConfirmModal();
-                    if (e.key === 'Escape') setModalState({ type: null });
                   }}
                   placeholder={
                     modalState.type === 'new_file'
                       ? 'e.g. script.py, dataset.csv, analysis.ipynb'
                       : 'Folder name'
                   }
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    backgroundColor: 'var(--bg-input)',
-                    border: '1px solid var(--border-secondary)',
-                    borderRadius: '6px',
-                    color: 'var(--text-main)',
-                    fontSize: '13px',
-                    outline: 'none',
-                  }}
                 />
               </div>
             )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button
-                onClick={() => setModalState({ type: null })}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: 'var(--btn-secondary-bg)',
-                  border: '1px solid var(--btn-secondary-border)',
-                  color: 'var(--btn-secondary-text)',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmModal}
-                style={{
-                  padding: '6px 14px',
-                  backgroundColor: modalState.type === 'delete' ? '#dc2626' : '#2563eb',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {modalState.type === 'delete' ? 'Delete' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
+          </ModalBody>
+          <ModalFooter>
+            <button type="button" className="pcs-btn" onClick={() => setModalState({ type: null })}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`pcs-btn ${modalState.type === 'delete' ? 'pcs-btn--danger' : 'pcs-btn--primary'}`}
+              onClick={handleConfirmModal}
+            >
+              {modalState.type === 'delete' ? 'Delete' : 'Confirm'}
+            </button>
+          </ModalFooter>
+        </Modal>
       )}
     </aside>
   );

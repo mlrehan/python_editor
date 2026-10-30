@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   X,
   Save,
@@ -15,10 +15,14 @@ import {
   AlertCircle,
   ExternalLink,
   AlertTriangle,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
 import { applyTabIndent, INDENT } from '../utils/indentation';
+import { applyTextareaEdit } from '../utils/textareaEdit';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from './Modal';
 
 export interface OpenFileInfo {
   path: string;
@@ -26,6 +30,9 @@ export interface OpenFileInfo {
   content: string;
   isDirty: boolean;
 }
+
+/** docked: desktop side panel; drawer: overlay on tablets; fullscreen: the whole workspace on phones */
+export type FileEditorLayout = 'docked' | 'drawer' | 'fullscreen';
 
 interface FileEditorPanelProps {
   // Support both multi-tab and single file modes
@@ -40,6 +47,15 @@ interface FileEditorPanelProps {
   onContentChange: (newContent: string, path?: string) => void;
   onOpenAsNotebook?: (path: string) => void;
   width?: number;
+  layout?: FileEditorLayout;
+}
+
+// Cursor, selection and scroll position of a file, kept while the user works in another tab
+interface EditorViewState {
+  selectionStart: number;
+  selectionEnd: number;
+  scrollTop: number;
+  scrollLeft: number;
 }
 
 export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
@@ -54,10 +70,15 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
   onContentChange,
   onOpenAsNotebook,
   width = 420,
+  layout = 'docked',
 }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [csvViewMode, setCsvViewMode] = useState<'table' | 'text'>('table');
   const [mdViewMode, setMdViewMode] = useState<'edit' | 'preview'>('preview');
+  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  const viewStatesRef = useRef<Map<string, EditorViewState>>(new Map());
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  const switcherRef = useRef<HTMLDivElement>(null);
 
   // Unsaved Changes Confirmation Modal state
   const [confirmCloseFile, setConfirmCloseFile] = useState<OpenFileInfo | null>(null);
@@ -77,12 +98,11 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
     const start = el.selectionStart;
     const end = el.selectionEnd;
 
+    // Through the browser's native editing history, so Ctrl+Z / Ctrl+Shift+Z undo and redo it
     const applyEdit = (newValue: string, selStart: number, selEnd: number) => {
       e.preventDefault();
-      el.value = newValue;
-      el.selectionStart = selStart;
-      el.selectionEnd = selEnd;
-      onContentChange(newValue, currentFile.path);
+      applyTextareaEdit(el, newValue, selStart, selEnd);
+      onContentChange(el.value, currentFile.path);
     };
 
     // Ctrl+/ toggles Python comments on the selected lines or the current line
@@ -127,6 +147,42 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, currentFile]);
+
+  // Keep the active tab visible in the scrolling tab strip
+  const currentPath = currentFile?.path;
+  useEffect(() => {
+    if (!currentPath || !tabStripRef.current) return;
+    const tab = tabStripRef.current.querySelector<HTMLElement>(`[data-path="${CSS.escape(currentPath)}"]`);
+    tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [currentPath, filesList.length]);
+
+  // Forget the view state of files that were closed
+  useEffect(() => {
+    const open = new Set(filesList.map((f) => f.path));
+    for (const path of viewStatesRef.current.keys()) {
+      if (!open.has(path)) viewStatesRef.current.delete(path);
+    }
+  }, [filesList]);
+
+  // The open-files switcher closes on outside press or Escape
+  useEffect(() => {
+    if (!isSwitcherOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) setIsSwitcherOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsSwitcherOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isSwitcherOpen]);
 
   if (!isOpen) {
     return null;
@@ -211,106 +267,69 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
     return { headers, rows };
   };
 
+  const isDocked = layout === 'docked';
+  const directory = currentFile && currentFile.path.includes('/') ? currentFile.path.slice(0, currentFile.path.lastIndexOf('/')) : '';
+
   return (
     <aside
       data-testid="right-file-editor-panel"
+      data-layout={layout}
+      className={`fe-panel fe-panel--${layout}`}
+      aria-label="File editor"
       style={{
-        width: `${width}px`,
-        maxWidth: `${width}px`,
-        minWidth: `${width}px`,
+        width: isDocked ? `${width}px` : '100%',
+        maxWidth: isDocked ? `${width}px` : '100%',
+        minWidth: isDocked ? `${width}px` : 0,
         backgroundColor: 'var(--bg-sidebar)',
-        borderLeft: '1px solid var(--border-main)',
+        borderLeft: isDocked ? '1px solid var(--border-main)' : 'none',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         zIndex: 20,
-        boxShadow: '-4px 0 16px rgba(0,0,0,0.3)',
+        boxShadow: isDocked ? '-4px 0 16px rgba(0,0,0,0.3)' : 'none',
         flexShrink: 0,
         position: 'relative',
       }}
     >
-      {/* 1. Multi-Tab Bar */}
-      <div
-        data-testid="file-tabs-bar"
-        style={{
-          height: '38px',
-          backgroundColor: 'var(--bg-sidebar-header)',
-          borderBottom: '1px solid var(--border-main)',
-          display: 'flex',
-          alignItems: 'center',
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          scrollbarWidth: 'none',
-          position: 'relative',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+      {/* 1. Multi-Tab Bar: scrolling tab strip, open-files switcher, close panel */}
+      <div data-testid="file-tabs-bar" className="fe-tabs-bar">
+        <div ref={tabStripRef} className="fe-tab-strip" role="tablist" aria-label="Open files">
           {filesList.map((f) => {
             const isActive = currentFile?.path === f.path;
             return (
               <div
                 key={f.path}
                 data-testid={`file-tab-${f.name}`}
+                data-path={f.path}
+                role="tab"
+                aria-selected={isActive}
+                tabIndex={isActive ? 0 : -1}
+                className={`fe-tab${isActive ? ' is-active' : ''}`}
                 onClick={() => onSelectTab && onSelectTab(f.path)}
-                style={{
-                  height: '38px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '0 12px',
-                  backgroundColor: isActive ? 'var(--bg-card)' : 'transparent',
-                  borderRight: '1px solid var(--border-main)',
-                  borderTop: isActive ? '2px solid var(--border-accent)' : '2px solid transparent',
-                  color: isActive ? 'var(--text-main)' : 'var(--text-secondary)',
-                  fontSize: '12px',
-                  fontWeight: isActive ? 600 : 400,
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '180px',
-                  transition: 'background-color 0.1s ease',
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && onSelectTab) {
+                    e.preventDefault();
+                    onSelectTab(f.path);
+                  }
                 }}
                 title={f.path}
               >
                 {getFileIcon(f.name)}
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+                <span className="fe-tab-name">{f.name}</span>
 
                 {/* Unsaved dirty dot indicator */}
                 {f.isDirty && (
-                  <span
-                    data-testid={`dirty-indicator-${f.name}`}
-                    style={{
-                      width: '7px',
-                      height: '7px',
-                      borderRadius: '50%',
-                      backgroundColor: '#f59e0b',
-                      flexShrink: 0,
-                      marginLeft: '2px',
-                    }}
-                    title="Unsaved changes"
-                  />
+                  <span data-testid={`dirty-indicator-${f.name}`} className="fe-dirty-dot" title="Unsaved changes" />
                 )}
 
                 {/* Tab Close (X) button */}
                 <button
+                  type="button"
                   data-testid={`close-tab-${f.name}`}
+                  className="fe-tab-close"
                   onClick={(e) => handleRequestCloseTab(f, e)}
-                  style={{
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    color: '#64748b',
-                    padding: '2px',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginLeft: '4px',
-                    flexShrink: 0,
-                  }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#ef4444')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#64748b')}
                   title={`Close ${f.name}`}
+                  aria-label={`Close ${f.name}`}
                 >
                   <X size={13} />
                 </button>
@@ -319,80 +338,105 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
           })}
         </div>
 
+        {/* Open-files switcher: every open file in one list, for when the tabs do not fit */}
+        {filesList.length > 1 && (
+          <div className="fe-switcher" ref={switcherRef}>
+            <button
+              type="button"
+              className={`fe-icon-btn fe-switcher-btn${isSwitcherOpen ? ' is-active' : ''}`}
+              onClick={() => setIsSwitcherOpen((open) => !open)}
+              aria-haspopup="listbox"
+              aria-expanded={isSwitcherOpen}
+              aria-label={`Switch file (${filesList.length} open)`}
+              title="Switch between open files"
+              data-testid="open-files-switcher"
+            >
+              <span className="fe-switcher-count">{filesList.length}</span>
+              <ChevronDown size={14} />
+            </button>
+            {isSwitcherOpen && (
+              <div className="fe-switcher-menu" role="listbox" aria-label="Open files" data-testid="open-files-menu">
+                {filesList.map((f) => {
+                  const isActive = currentFile?.path === f.path;
+                  return (
+                    <div
+                      key={f.path}
+                      role="option"
+                      aria-selected={isActive}
+                      className={`fe-switcher-item${isActive ? ' is-active' : ''}`}
+                      data-testid={`open-file-option-${f.name}`}
+                    >
+                      <button
+                        type="button"
+                        className="fe-switcher-select"
+                        onClick={() => {
+                          onSelectTab && onSelectTab(f.path);
+                          setIsSwitcherOpen(false);
+                        }}
+                      >
+                        {getFileIcon(f.name)}
+                        <span className="fe-switcher-text">
+                          <span className="fe-switcher-name">{f.name}</span>
+                          <span className="fe-switcher-path">{f.path}</span>
+                        </span>
+                        {f.isDirty && <span className="fe-dirty-dot" title="Unsaved changes" />}
+                        {isActive && <Check size={14} className="fe-switcher-check" />}
+                      </button>
+                      <button
+                        type="button"
+                        className="fe-tab-close"
+                        onClick={(e) => handleRequestCloseTab(f, e)}
+                        aria-label={`Close ${f.name}`}
+                        title={`Close ${f.name}`}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Global Close Panel Button */}
         <button
+          type="button"
           onClick={onClose}
           data-testid="close-panel-btn"
-          style={{
-            height: '38px',
-            backgroundColor: '#090d16',
-            border: 'none',
-            borderLeft: '1px solid #1e293b',
-            color: '#94a3b8',
-            padding: '0 10px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
+          className="fe-icon-btn fe-close-panel"
           title="Collapse Panel"
+          aria-label={layout === 'fullscreen' ? 'Close editor and return to the notebook' : 'Collapse Panel'}
         >
           <X size={15} />
         </button>
       </div>
 
-      {/* 2. File Toolbar */}
+      {/* 2. File Toolbar: active file, save state, actions */}
       {currentFile && (
-        <div
-          style={{
-            height: '42px',
-            backgroundColor: 'var(--bg-sidebar-header)',
-            borderBottom: '1px solid var(--border-main)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0 12px',
-            gap: '8px',
-          }}
-        >
-          {/* File Status */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', flex: 1 }}>
-            <span
-              style={{
-                fontSize: '10px',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                backgroundColor: currentFile.isDirty ? '#451a03' : '#064e3b',
-                color: currentFile.isDirty ? '#f59e0b' : '#10b981',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '3px',
-              }}
-            >
+        <div className="fe-toolbar">
+          <div className="fe-active-file" data-testid="active-file-indicator">
+            {getFileIcon(currentFile.name)}
+            <div className="fe-active-file-text">
+              <span className="fe-active-file-name" title={currentFile.path}>
+                {currentFile.name}
+              </span>
+              {directory && <span className="fe-active-file-dir">{directory}</span>}
+            </div>
+            <span className={`fe-status${currentFile.isDirty ? ' is-dirty' : ''}`}>
               {currentFile.isDirty ? <AlertCircle size={10} /> : <CheckCircle2 size={10} />}
               {currentFile.isDirty ? 'Unsaved Changes' : 'Saved'}
             </span>
           </div>
 
           {/* Action Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="fe-actions">
             {/* CSV view toggle */}
             {isCsv && (
               <button
+                type="button"
+                className="fe-btn"
                 onClick={() => setCsvViewMode(csvViewMode === 'table' ? 'text' : 'table')}
-                style={{
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
-                  color: '#cbd5e1',
-                  borderRadius: '4px',
-                  padding: '4px 8px',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
                 title="Toggle Table / Text View"
               >
                 {csvViewMode === 'table' ? <Code size={12} /> : <Table size={12} />}
@@ -403,19 +447,9 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
             {/* Markdown view toggle */}
             {isMarkdown && (
               <button
+                type="button"
+                className="fe-btn"
                 onClick={() => setMdViewMode(mdViewMode === 'preview' ? 'edit' : 'preview')}
-                style={{
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
-                  color: '#cbd5e1',
-                  borderRadius: '4px',
-                  padding: '4px 8px',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
                 title="Toggle Preview / Edit"
               >
                 {mdViewMode === 'preview' ? <Edit3 size={12} /> : <Eye size={12} />}
@@ -426,22 +460,12 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
             {/* Save Button */}
             {!isNotebook && !isImage && (
               <button
+                type="button"
+                className={`fe-btn${currentFile.isDirty ? ' fe-btn--primary' : ''}`}
                 onClick={handleSaveClick}
                 disabled={isSaving || !currentFile.isDirty}
-                style={{
-                  backgroundColor: currentFile.isDirty ? '#2563eb' : '#1e293b',
-                  border: '1px solid #334155',
-                  color: currentFile.isDirty ? '#ffffff' : '#64748b',
-                  borderRadius: '4px',
-                  padding: '4px 8px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: currentFile.isDirty ? 'pointer' : 'default',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
                 title="Save Changes (Ctrl+S)"
+                data-testid="file-save-btn"
               >
                 <Save size={12} />
                 {isSaving ? 'Saving...' : 'Save'}
@@ -452,18 +476,9 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
             <a
               href={api.getDownloadUrl(currentFile.path)}
               download={currentFile.name}
-              style={{
-                backgroundColor: '#1e293b',
-                border: '1px solid #334155',
-                color: '#94a3b8',
-                borderRadius: '4px',
-                padding: '4px 6px',
-                display: 'flex',
-                alignItems: 'center',
-                cursor: 'pointer',
-                textDecoration: 'none',
-              }}
+              className="fe-btn fe-btn--icon"
               title="Download File"
+              aria-label="Download File"
             >
               <Download size={13} />
             </a>
@@ -472,7 +487,7 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
       )}
 
       {/* 3. Editor / Preview Body */}
-      <div style={{ flex: 1, overflowY: 'auto', backgroundColor: 'var(--bg-panel)', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', backgroundColor: 'var(--bg-panel)', display: 'flex', flexDirection: 'column' }}>
         {!currentFile ? (
           <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
             No file opened. Double-click a file in the left sidebar to preview and edit here.
@@ -483,35 +498,24 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
             <img
               src={`/api/v1/files/download?path=${encodeURIComponent(currentFile.path)}`}
               alt={currentFile.name}
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '6px', border: '1px solid #1e293b' }}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '6px', border: '1px solid var(--border-main)' }}
             />
           </div>
         ) : isNotebook ? (
           /* Notebook file notice & quick open */
-          <div style={{ padding: '28px', color: '#cbd5e1', fontSize: '13px', lineHeight: 1.6 }}>
-            <div style={{ padding: '16px', backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #334155' }}>
-              <div style={{ fontWeight: 600, color: '#38bdf8', fontSize: '15px', marginBottom: '8px' }}>
+          <div style={{ padding: '20px', color: 'var(--text-main)', fontSize: '13px', lineHeight: 1.6 }}>
+            <div style={{ padding: '16px', backgroundColor: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border-secondary)' }}>
+              <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: '15px', marginBottom: '8px' }}>
                 Jupyter Notebook (.ipynb)
               </div>
-              <p style={{ marginBottom: '16px', color: '#94a3b8' }}>
+              <p style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
                 This is a native Jupyter Notebook document with interactive executable cells and outputs.
               </p>
               {onOpenAsNotebook && (
                 <button
+                  type="button"
+                  className="pcs-btn pcs-btn--primary"
                   onClick={() => onOpenAsNotebook(currentFile.path)}
-                  style={{
-                    backgroundColor: '#2563eb',
-                    border: 'none',
-                    color: '#ffffff',
-                    borderRadius: '6px',
-                    padding: '8px 14px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
                 >
                   <ExternalLink size={14} /> Open in Active Notebook Studio
                 </button>
@@ -524,14 +528,14 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
             {(() => {
               const { headers, rows } = parseCsv(currentFile.content);
               if (headers.length === 0) {
-                return <div style={{ color: '#64748b', fontSize: '13px', padding: '12px' }}>Empty CSV file</div>;
+                return <div style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '12px' }}>Empty CSV file</div>;
               }
               return (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', color: '#e2e8f0' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', color: 'var(--text-main)' }}>
                   <thead>
-                    <tr style={{ backgroundColor: '#1e293b', borderBottom: '2px solid #334155' }}>
+                    <tr style={{ backgroundColor: 'var(--bg-card)', borderBottom: '2px solid var(--border-secondary)' }}>
                       {headers.map((h, i) => (
-                        <th key={i} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#38bdf8' }}>
+                        <th key={i} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
                           {h}
                         </th>
                       ))}
@@ -539,7 +543,13 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
                   </thead>
                   <tbody>
                     {rows.map((row, rIdx) => (
-                      <tr key={rIdx} style={{ borderBottom: '1px solid #1e293b', backgroundColor: rIdx % 2 === 0 ? '#0b1120' : '#0f172a' }}>
+                      <tr
+                        key={rIdx}
+                        style={{
+                          borderBottom: '1px solid var(--border-main)',
+                          backgroundColor: rIdx % 2 === 0 ? 'var(--bg-panel)' : 'var(--bg-cell-header)',
+                        }}
+                      >
                         {row.map((cell, cIdx) => (
                           <td key={cIdx} style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>
                             {cell}
@@ -554,85 +564,34 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
           </div>
         ) : isMarkdown && mdViewMode === 'preview' ? (
           /* Markdown Rendered Preview */
-          <div style={{ padding: '20px', color: '#e2e8f0', fontSize: '13.5px', lineHeight: 1.7 }}>
+          <div style={{ padding: '20px', color: 'var(--text-main)', fontSize: '13.5px', lineHeight: 1.7, overflowWrap: 'anywhere' }}>
             {currentFile.content.split('\n').map((line, i) => {
-              if (line.startsWith('# ')) return <h1 key={i} style={{ fontSize: '20px', fontWeight: 700, margin: '12px 0 6px 0', color: '#38bdf8' }}>{line.slice(2)}</h1>;
-              if (line.startsWith('## ')) return <h2 key={i} style={{ fontSize: '16px', fontWeight: 600, margin: '10px 0 4px 0', color: '#60a5fa' }}>{line.slice(3)}</h2>;
-              if (line.startsWith('### ')) return <h3 key={i} style={{ fontSize: '14px', fontWeight: 600, margin: '8px 0 4px 0', color: '#93c5fd' }}>{line.slice(4)}</h3>;
+              if (line.startsWith('# ')) return <h1 key={i} style={{ fontSize: '20px', fontWeight: 700, margin: '12px 0 6px 0', color: 'var(--accent)' }}>{line.slice(2)}</h1>;
+              if (line.startsWith('## ')) return <h2 key={i} style={{ fontSize: '16px', fontWeight: 600, margin: '10px 0 4px 0', color: 'var(--accent)' }}>{line.slice(3)}</h2>;
+              if (line.startsWith('### ')) return <h3 key={i} style={{ fontSize: '14px', fontWeight: 600, margin: '8px 0 4px 0', color: 'var(--text-main)' }}>{line.slice(4)}</h3>;
               if (line.startsWith('- ')) return <li key={i} style={{ marginLeft: '16px' }}>{line.slice(2)}</li>;
-              if (line.startsWith('```')) return <pre key={i} className="code-font" style={{ backgroundColor: '#1e293b', padding: '8px', borderRadius: '4px', margin: '8px 0', color: '#38bdf8', fontSize: '12px' }}>{line}</pre>;
+              if (line.startsWith('```')) return <pre key={i} className="code-font" style={{ backgroundColor: 'var(--bg-card)', padding: '8px', borderRadius: '4px', margin: '8px 0', color: 'var(--accent)', fontSize: '12px', overflowX: 'auto' }}>{line}</pre>;
               return <p key={i} style={{ margin: '4px 0' }}>{line}</p>;
             })}
           </div>
         ) : (
-          /* Standard Code / Text Editor with Line Numbers */
-          <div style={{ display: 'flex', flex: 1, minHeight: '100%', position: 'relative' }}>
-            {/* Line numbers gutter */}
-            <div
-              className="code-font"
-              style={{
-                width: '42px',
-                padding: '12px 6px',
-                backgroundColor: 'var(--bg-cell-gutter)',
-                borderRight: '1px solid var(--border-main)',
-                color: 'var(--text-muted)',
-                textAlign: 'right',
-                userSelect: 'none',
-                fontSize: '12.5px',
-                lineHeight: 1.6,
-              }}
-            >
-              {currentFile.content.split('\n').map((_, i) => (
-                <div key={i}>{i + 1}</div>
-              ))}
-            </div>
-
-            {/* Editable code text area */}
-            <textarea
-              className="code-font"
-              value={currentFile.content}
-              onChange={(e) => onContentChange(e.target.value, currentFile.path)}
-              onKeyDown={handleEditorKeyDown}
-              style={{
-                flex: 1,
-                padding: '12px',
-                backgroundColor: 'transparent',
-                border: 'none',
-                outline: 'none',
-                color: 'var(--code-text)',
-                fontSize: '12.5px',
-                lineHeight: 1.6,
-                resize: 'none',
-                whiteSpace: 'pre',
-                overflowWrap: 'normal',
-                overflowX: 'auto',
-              }}
-              placeholder="Start typing file content..."
-              spellCheck={false}
-            />
-          </div>
+          /* Standard Code / Text Editor with Line Numbers. Keyed by path: each file gets a fresh
+             textarea whose cursor, selection and scroll position are restored from viewStatesRef. */
+          <CodeTextEditor
+            key={currentFile.path}
+            file={currentFile}
+            viewStates={viewStatesRef.current}
+            onChange={(value) => onContentChange(value, currentFile.path)}
+            onKeyDown={handleEditorKeyDown}
+          />
         )}
       </div>
 
       {/* 4. Footer Info */}
       {currentFile && (
-        <div
-          style={{
-            height: '28px',
-            backgroundColor: 'var(--bg-sidebar-header)',
-            borderTop: '1px solid var(--border-main)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0 12px',
-            fontSize: '11px',
-            color: 'var(--text-muted)',
-          }}
-        >
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
-            {currentFile.path}
-          </span>
-          <span>
+        <div className="fe-footer">
+          <span className="fe-footer-path">{currentFile.path}</span>
+          <span style={{ flexShrink: 0 }}>
             {currentFile.content.split('\n').length} lines • {currentFile.content.length} chars
           </span>
         </div>
@@ -640,91 +599,130 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
 
       {/* 5. UNSAVED CHANGES CONFIRMATION MODAL */}
       {confirmCloseFile && (
-        <div
-          data-testid="unsaved-changes-modal"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(2px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-            zIndex: 100,
-          }}
+        <Modal
+          onClose={handleModalCancel}
+          label="Unsaved changes"
+          size="sm"
+          testId="unsaved-changes-modal"
         >
-          <div
-            style={{
-              backgroundColor: 'var(--bg-modal)',
-              border: '1px solid var(--border-secondary)',
-              borderRadius: '8px',
-              padding: '20px',
-              width: '100%',
-              maxWidth: '360px',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.4)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <AlertTriangle size={18} color="#f59e0b" />
-              <h3 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-main)' }}>Unsaved Changes</h3>
-            </div>
-            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '20px' }}>
+          <ModalHeader
+            icon={<AlertTriangle size={17} />}
+            iconBackground="#d97706"
+            title="Unsaved Changes"
+            subtitle={confirmCloseFile.name}
+            onClose={handleModalCancel}
+          />
+          <ModalBody>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               Do you want to save the changes you made to <strong>"{confirmCloseFile.name}"</strong> before closing?
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button
-                onClick={handleModalSaveAndClose}
-                disabled={isSaving}
-                data-testid="modal-save-and-close-btn"
-                style={{
-                  backgroundColor: '#2563eb',
-                  border: 'none',
-                  color: '#ffffff',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Save and Close
-              </button>
-              <button
-                onClick={handleModalDiscardAndClose}
-                data-testid="modal-discard-changes-btn"
-                style={{
-                  backgroundColor: '#450a0a',
-                  border: '1px solid #7f1d1d',
-                  color: '#f87171',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Discard Changes
-              </button>
-              <button
-                onClick={handleModalCancel}
-                data-testid="modal-cancel-btn"
-                style={{
-                  backgroundColor: 'var(--btn-secondary-bg)',
-                  border: '1px solid var(--btn-secondary-border)',
-                  color: 'var(--text-secondary)',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+          </ModalBody>
+          <ModalFooter>
+            <button type="button" className="pcs-btn" onClick={handleModalCancel} data-testid="modal-cancel-btn">
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="pcs-btn pcs-btn--danger"
+              onClick={handleModalDiscardAndClose}
+              data-testid="modal-discard-changes-btn"
+            >
+              Discard Changes
+            </button>
+            <button
+              type="button"
+              className="pcs-btn pcs-btn--primary"
+              onClick={handleModalSaveAndClose}
+              disabled={isSaving}
+              data-testid="modal-save-and-close-btn"
+            >
+              Save and Close
+            </button>
+          </ModalFooter>
+        </Modal>
       )}
     </aside>
+  );
+};
+
+interface CodeTextEditorProps {
+  file: OpenFileInfo;
+  viewStates: Map<string, EditorViewState>;
+  onChange: (value: string) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+}
+
+/*
+ * Line-numbered text editor for one file. The textarea owns the scrolling; the gutter follows its
+ * vertical scroll, so line numbers stay aligned on any screen size and with long files.
+ */
+const CodeTextEditor: React.FC<CodeTextEditorProps> = ({ file, viewStates, onChange, onKeyDown }) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const gutterInnerRef = useRef<HTMLDivElement>(null);
+  const lineCount = file.content.split('\n').length;
+
+  const syncGutter = () => {
+    const el = textareaRef.current;
+    if (el && gutterInnerRef.current) gutterInnerRef.current.style.transform = `translateY(${-el.scrollTop}px)`;
+  };
+
+  const remember = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    viewStates.set(file.path, {
+      selectionStart: el.selectionStart,
+      selectionEnd: el.selectionEnd,
+      scrollTop: el.scrollTop,
+      scrollLeft: el.scrollLeft,
+    });
+  };
+
+  // Restore where the user was in this file; remember it again when switching away
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    const saved = viewStates.get(file.path);
+    if (el && saved) {
+      el.setSelectionRange(saved.selectionStart, saved.selectionEnd);
+      el.scrollTop = saved.scrollTop;
+      el.scrollLeft = saved.scrollLeft;
+      syncGutter();
+    }
+    return remember;
+    // Runs once per mounted file (the component is keyed by path)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="fe-code-editor">
+      {/* Line numbers gutter */}
+      <div className="fe-gutter code-font" aria-hidden="true">
+        <div ref={gutterInnerRef} className="fe-gutter-inner">
+          {Array.from({ length: lineCount }, (_, i) => (
+            <div key={i}>{i + 1}</div>
+          ))}
+        </div>
+      </div>
+
+      {/* Editable code text area */}
+      <textarea
+        ref={textareaRef}
+        className="code-font fe-textarea"
+        value={file.content}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        onScroll={() => {
+          syncGutter();
+          remember();
+        }}
+        onSelect={remember}
+        aria-label={`Edit ${file.name}`}
+        data-testid="file-editor-textarea"
+        placeholder="Start typing file content..."
+        spellCheck={false}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+      />
+    </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { api } from '../services/api';
 import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
 import { applyTabIndent } from '../utils/indentation';
+import { applyTextareaEdit } from '../utils/textareaEdit';
 import {
   Box,
   Layers,
@@ -463,6 +464,21 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   onHeightChange,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // True while editText() applies a programmatic edit (its input event must not open autocomplete)
+  const programmaticEditRef = useRef(false);
+
+  // Applies a programmatic edit through the browser's native editing history, so Ctrl+Z / Ctrl+Shift+Z
+  // undo and redo it like typing, then syncs the new code to the parent
+  const editText = (el: HTMLTextAreaElement, newValue: string, selStart: number, selEnd: number = selStart) => {
+    programmaticEditRef.current = true;
+    try {
+      applyTextareaEdit(el, newValue, selStart, selEnd);
+    } finally {
+      programmaticEditRef.current = false;
+    }
+    lastInputEventRef.current = { val: el.value, cursor: selEnd, time: performance.now() };
+    onChange(el.value);
+  };
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -513,8 +529,9 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     };
 
     const handleMouseUp = (upEvent: MouseEvent) => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointermove', handleMouseMove);
+      window.removeEventListener('pointerup', handleMouseUp);
+      window.removeEventListener('pointercancel', handleMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       setIsResizing(false);
@@ -525,8 +542,10 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    // Pointer events: the handle works with a mouse, a pen and touch
+    window.addEventListener('pointermove', handleMouseMove);
+    window.addEventListener('pointerup', handleMouseUp);
+    window.addEventListener('pointercancel', handleMouseUp);
   };
 
   const handleResetHeight = (e: React.MouseEvent) => {
@@ -708,8 +727,10 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       const scrollTop = textarea.scrollTop || 0;
       const scrollLeft = textarea.scrollLeft || 0;
 
-      // Line number gutter width is 44px
-      const cursorXInContainer = coords.left + 44 - scrollLeft;
+      // Offset of the textarea from the container's left edge: the line number gutter, whose width
+      // varies with the layout (narrower on small screens)
+      const gutterWidth = gutterRef.current?.offsetWidth ?? 44;
+      const cursorXInContainer = coords.left + gutterWidth - scrollLeft;
       const cursorYInContainer = coords.top - scrollTop;
       const lineHeight = coords.lineHeight || 21;
       const lineTop = cursorYInContainer;
@@ -772,7 +793,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         available >= SIGNATURE_MIN_HEIGHT ? Math.min(SIGNATURE_MAX_HEIGHT, available) : Math.max(40, available);
 
       const containerWidth = containerRef.current?.clientWidth || 600;
-      const dropdownWidth = 320;
+      // Same as the popup's CSS width: 320px, or the cell's width on narrow screens
+      const dropdownWidth = Math.min(320, containerWidth - 20);
       const sigWidth = Math.min(SIGNATURE_WIDTH, Math.max(220, containerWidth - 20));
 
       // Clamp horizontal positions within container bounds
@@ -1253,10 +1275,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
 
       autocompleteReqIdRef.current++;
       abortControllerRef.current?.abort();
-      el.value = newCode;
-      el.setSelectionRange(newCursorPos, newCursorPos);
-      lastInputEventRef.current = { val: newCode, cursor: newCursorPos, time: performance.now() };
-      onChange(newCode);
+      editText(el, newCode, newCursorPos);
       setIsDropdownOpen(false);
       setActiveSignature(null);
 
@@ -1318,11 +1337,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       abortControllerRef.current?.abort();
       setIsDropdownOpen(false);
       setActiveSignature(null);
-      el.value = edit.value;
-      el.selectionStart = edit.selectionStart;
-      el.selectionEnd = edit.selectionEnd;
-      lastInputEventRef.current = { val: edit.value, cursor: edit.selectionEnd, time: performance.now() };
-      onChange(edit.value);
+      editText(el, edit.value, edit.selectionStart, edit.selectionEnd);
       return;
     }
 
@@ -1376,11 +1391,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       if (readOnly) return;
       const el = e.currentTarget;
       const edit = applyTabIndent(el.value, el.selectionStart, el.selectionEnd, e.shiftKey);
-      el.value = edit.value;
-      el.selectionStart = edit.selectionStart;
-      el.selectionEnd = edit.selectionEnd;
-      lastInputEventRef.current = { val: edit.value, cursor: edit.selectionEnd, time: performance.now() };
-      onChange(edit.value);
+      editText(el, edit.value, edit.selectionStart, edit.selectionEnd);
       return;
     }
 
@@ -1409,10 +1420,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         const closeChar = pairs[e.key];
         e.preventDefault();
         const newCode = currentVal.substring(0, start) + e.key + closeChar + currentVal.substring(end);
-        el.value = newCode;
-        el.selectionStart = el.selectionEnd = start + 1;
-        lastInputEventRef.current = { val: newCode, cursor: start + 1, time: performance.now() };
-        onChange(newCode);
+        editText(el, newCode, start + 1);
         triggerAutocomplete(start + 1, false, newCode);
         return;
       }
@@ -1433,10 +1441,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         const insertText = '\n' + currentIndent + extraIndent;
         const newCode = currentVal.substring(0, cursor) + insertText + currentVal.substring(cursor);
         const newPos = cursor + insertText.length;
-        el.value = newCode;
-        el.selectionStart = el.selectionEnd = newPos;
-        lastInputEventRef.current = { val: newCode, cursor: newPos, time: performance.now() };
-        onChange(newCode);
+        editText(el, newCode, newPos);
         return;
       }
     }
@@ -1450,6 +1455,13 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     // Only notify parent state when code actually changed
     if (val !== code) {
       onChange(val);
+    }
+
+    // Programmatic edits (editText) and undo/redo change the text without the user typing
+    const inputType = (e.nativeEvent as InputEvent).inputType ?? '';
+    if (programmaticEditRef.current || inputType === 'historyUndo' || inputType === 'historyRedo') {
+      lastInputEventRef.current = { val, cursor, time: now };
+      return;
     }
 
     // Deduplicate back-to-back onChange + onInput events firing in the same tick for the exact same (val, cursor)
@@ -1516,7 +1528,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         <div
           ref={gutterRef}
           style={{
-            width: '44px',
+            width: 'var(--cell-line-gutter, 44px)',
             padding: '10px 0',
             backgroundColor: 'var(--bg-cell-gutter)',
             borderRight: '1px solid var(--border-main)',
@@ -1567,7 +1579,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             style={{
               position: 'absolute',
               inset: 0,
-              padding: '10px 14px',
+              padding: '10px var(--cell-code-pad-x, 14px)',
               fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
               fontSize: '13.5px',
               lineHeight: '21px',
@@ -1653,7 +1665,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
               fontSize: '13.5px',
               fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
               lineHeight: '21px',
-              padding: '10px 14px',
+              padding: '10px var(--cell-code-pad-x, 14px)',
               resize: 'none',
               whiteSpace: 'pre',
               overflowX: 'auto',
@@ -1695,10 +1707,11 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       {/* 3. Draggable vertical resize handle */}
       <div
         data-testid="cell-resize-handle"
-        onMouseDown={handleResizeMouseDown}
+        onPointerDown={handleResizeMouseDown}
         onDoubleClick={handleResetHeight}
         style={{
-          height: '10px',
+          height: 'var(--cell-resize-handle, 10px)',
+          touchAction: 'none',
           cursor: 'ns-resize',
           display: 'flex',
           alignItems: 'center',
@@ -1780,7 +1793,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             top: `${dropdownPos.top}px`,
             left: `${dropdownPos.left}px`,
             transform: dropdownPos.placement === 'above' ? 'translateY(-100%)' : 'none',
-            width: '320px',
+            width: 'min(320px, calc(100% - 20px))',
             maxHeight: '260px',
             backgroundColor: 'var(--dropdown-bg)',
             border: '1px solid var(--dropdown-border)',

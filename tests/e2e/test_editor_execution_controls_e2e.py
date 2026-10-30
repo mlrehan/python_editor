@@ -27,7 +27,7 @@ async def open_notebook(p, width=1440, height=900):
     page = await context.new_page()
     await page.goto(SERVER_URL, wait_until="networkidle")
     await page.locator('textarea[data-testid="code-cell-editor"]').first.wait_for(state="visible", timeout=15000)
-    await expect(page.get_by_text("Python 3 (idle)").first).to_be_visible(timeout=30000)
+    await expect(page.locator('[data-testid="kernel-status"][data-status="idle"]')).to_be_visible(timeout=30000)
     return browser, page
 
 

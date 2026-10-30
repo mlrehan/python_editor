@@ -5,6 +5,7 @@ import { NotebookEditor } from './components/NotebookEditor';
 import { FileEditorPanel, OpenFileInfo } from './components/FileEditorPanel';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Modal, ModalHeader, ModalBody } from './components/Modal';
 import { RightPanel } from './components/RightPanel';
 import { NotebooksModal } from './components/NotebooksModal';
 import { SecretsModal } from './components/SecretsModal';
@@ -35,6 +36,10 @@ function appendOutput(outputs: KernelOutput[], output: KernelOutput): KernelOutp
   return [...outputs.slice(0, -1), { ...last, text }];
 }
 
+// Layout breakpoints (px): drawers below COMPACT, a full-screen file editor below PHONE
+const COMPACT_MAX_WIDTH = 1024;
+const PHONE_MAX_WIDTH = 768;
+
 export const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -63,26 +68,42 @@ export const App: React.FC = () => {
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isDirtyRef = useRef(false);
 
-  // Mobile viewport detection
-  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  // Layout mode. Below COMPACT_MAX_WIDTH the side panels open as overlay drawers instead of squeezing
+  // the notebook; below PHONE_MAX_WIDTH the file editor takes the whole workspace (one editor at a time).
+  const [viewportWidth, setViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1280
+  );
+  const isCompact = viewportWidth < COMPACT_MAX_WIDTH;
+  const isPhone = viewportWidth < PHONE_MAX_WIDTH;
 
   useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (mobile) {
-        setIsRightSidebarOpen(false);
-      }
-    };
+    // Only the width matters: mobile browsers also fire resize when the on-screen keyboard opens,
+    // which must not close the editor the user is typing in
+    const handleResize = () => setViewportWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Sidebar Layout State (Right sidebar COLLAPSED by default)
+  // Sidebar Layout State (Right sidebar COLLAPSED by default; drawers start closed on small screens)
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < COMPACT_MAX_WIDTH) return false;
     return localStorage.getItem('pcs_left_sidebar') !== 'false';
   });
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(false);
+
+  // Crossing into drawer mode closes the drawers so the notebook is visible; crossing back restores
+  // the docked sidebar the user chose on desktop
+  const wasCompactRef = useRef(isCompact);
+  useEffect(() => {
+    if (isCompact === wasCompactRef.current) return;
+    wasCompactRef.current = isCompact;
+    if (isCompact) {
+      setIsLeftSidebarOpen(false);
+      setIsRightSidebarOpen(false);
+    } else {
+      setIsLeftSidebarOpen(localStorage.getItem('pcs_left_sidebar') !== 'false');
+    }
+  }, [isCompact]);
 
   // Panel Resizing State (min 200/max 600 for left, min 280/max 800 for right)
   const [leftSidebarWidth, setLeftSidebarWidth] = useState<number>(() => {
@@ -159,7 +180,8 @@ export const App: React.FC = () => {
   const toggleLeftSidebar = () => {
     setIsLeftSidebarOpen((prev) => {
       const next = !prev;
-      localStorage.setItem('pcs_left_sidebar', String(next));
+      // The drawer's open state is transient; only the docked sidebar's preference is remembered
+      if (!isCompact) localStorage.setItem('pcs_left_sidebar', String(next));
       return next;
     });
   };
@@ -169,6 +191,18 @@ export const App: React.FC = () => {
   const toggleRightSidebar = () => {
     setIsRightSidebarOpen((prev) => !prev);
   };
+
+  useEffect(() => {
+    if (!isCompact || !(isLeftSidebarOpen || (isRightSidebarOpen && !isPhone))) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('.pcs-modal-backdrop, .tb-menu')) return;
+      if (isLeftSidebarOpen) setIsLeftSidebarOpen(false);
+      else setIsRightSidebarOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isCompact, isPhone, isLeftSidebarOpen, isRightSidebarOpen]);
 
   const dismissGuestBanner = () => {
     setShowGuestBanner(false);
@@ -364,6 +398,7 @@ export const App: React.FC = () => {
 
   // Open file in right sidebar (called on double-click from File Explorer)
   const handleOpenFile = async (fileItem: FileItem) => {
+    if (isCompact) setIsLeftSidebarOpen(false);
     // If file is already open in tabs, select its tab
     const existing = openFiles.find((f) => f.path === fileItem.path);
     if (existing) {
@@ -421,6 +456,10 @@ export const App: React.FC = () => {
 
   // Open .ipynb notebook file directly in workspace
   const handleOpenNotebookFile = async (path: string) => {
+    if (isCompact) {
+      setIsLeftSidebarOpen(false);
+      if (isPhone) setIsRightSidebarOpen(false);
+    }
     try {
       const res = await api.readFile(path);
       const parsed = JSON.parse(res.content);
@@ -969,6 +1008,9 @@ export const App: React.FC = () => {
     }
   };
 
+  const leftDrawerWidth = Math.min(320, viewportWidth - 48);
+  const rightPanelWidth = isPhone ? viewportWidth : isCompact ? Math.min(560, viewportWidth - 48) : rightSidebarWidth;
+
   return (
     <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Navbar
@@ -1115,6 +1157,7 @@ export const App: React.FC = () => {
       {!user && showGuestBanner && (
         <div
           data-testid="guest-privacy-banner"
+          className="guest-banner"
           style={{
             backgroundColor: 'var(--bg-card)',
             borderBottom: '1px solid var(--border-main)',
@@ -1130,7 +1173,8 @@ export const App: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Globe size={15} color="var(--border-accent)" />
             <span>
-              <strong style={{ color: 'var(--border-accent)' }}>Guest Mode — Public Workspace:</strong> You are working in the public workspace. Any files or notebooks you create are visible to other users.
+              <strong style={{ color: 'var(--border-accent)' }}>Guest Mode — Public Workspace:</strong>
+              <span className="guest-banner-detail"> You are working in the public workspace. Any files or notebooks you create are visible to other users.</span>
             </span>
             <button
               onClick={() => setIsAuthModalOpen(true)}
@@ -1145,7 +1189,7 @@ export const App: React.FC = () => {
                 padding: '0 4px',
               }}
             >
-              Sign in for your private workspace
+              Sign in<span className="guest-banner-detail"> for your private workspace</span>
             </button>
           </div>
           <button
@@ -1166,53 +1210,31 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Mobile Sidebar Backdrops */}
-      {isMobile && isLeftSidebarOpen && (
-        <div
-          data-testid="mobile-left-backdrop"
-          onClick={() => setIsLeftSidebarOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            top: '56px',
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(2px)',
-            zIndex: 40,
-          }}
-        />
-      )}
-
-      {isMobile && isRightSidebarOpen && (
-        <div
-          data-testid="mobile-right-backdrop"
-          onClick={() => setIsRightSidebarOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            top: '56px',
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(2px)',
-            zIndex: 40,
-          }}
-        />
-      )}
-
       {/* 3-Panel Resizable Workspace */}
       {/* Panels inside take height: 100% of this row, which already excludes the navbar and any
           banners above it; minHeight: 0 lets the row shrink below its content in the column */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: 1, isolation: 'isolate' }}>
-        {/* Left Sidebar (Files) */}
+      <div
+        data-testid="workspace-row"
+        data-layout={isPhone ? 'phone' : isCompact ? 'tablet' : 'desktop'}
+        style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: 1, isolation: 'isolate' }}
+      >
+        {/* Drawer backdrop. It lives in the same stacking context as the drawers (this row isolates
+            its children), so it sits between the notebook and the drawer instead of above both. */}
+        {isCompact && (isLeftSidebarOpen || (isRightSidebarOpen && !isPhone)) && (
+          <div
+            data-testid={isLeftSidebarOpen ? 'mobile-left-backdrop' : 'mobile-right-backdrop'}
+            className="pcs-drawer-backdrop"
+            onClick={() => (isLeftSidebarOpen ? setIsLeftSidebarOpen(false) : setIsRightSidebarOpen(false))}
+            style={{ zIndex: isLeftSidebarOpen ? 47 : 43 }}
+          />
+        )}
+
+        {/* Left Sidebar (Files): docked on desktop, an overlay drawer on smaller screens */}
         {isLeftSidebarOpen && (
           <div
-            style={isMobile ? {
-              position: 'fixed',
-              top: '56px',
-              left: 0,
-              bottom: 0,
-              zIndex: 50,
-              width: `${Math.min(320, window.innerWidth - 40)}px`,
-              boxShadow: '4px 0 20px rgba(0, 0, 0, 0.5)',
-            } : { height: '100%' }}
+            data-testid={isCompact ? 'left-drawer' : undefined}
+            className={isCompact ? 'pcs-drawer pcs-drawer--left' : undefined}
+            style={isCompact ? { width: `${leftDrawerWidth}px` } : { height: '100%' }}
           >
             <Sidebar
               key={user ? `user-${user.id}` : 'guest-public'}
@@ -1221,13 +1243,13 @@ export const App: React.FC = () => {
               onOpenNotebookFile={handleOpenNotebookFile}
               onCreateNewNotebook={handleCreateNewNotebook}
               activeFilePath={activeFilePath || undefined}
-              width={isMobile ? Math.min(320, window.innerWidth - 40) : leftSidebarWidth}
+              width={isCompact ? leftDrawerWidth : leftSidebarWidth}
             />
           </div>
         )}
 
         {/* Left Resizer Divider (Hidden on Mobile) */}
-        {!isMobile && isLeftSidebarOpen && (
+        {!isCompact && isLeftSidebarOpen && (
           <div
             data-testid="left-resizer"
             onMouseDown={handleMouseDownLeft}
@@ -1283,7 +1305,7 @@ export const App: React.FC = () => {
         )}
 
         {/* Right Resizer Divider (Hidden on Mobile) */}
-        {!isMobile && isRightSidebarOpen && (
+        {!isCompact && isRightSidebarOpen && (
           <div
             data-testid="right-resizer"
             onMouseDown={handleMouseDownRight}
@@ -1305,18 +1327,9 @@ export const App: React.FC = () => {
         {/* Right Sidebar (File Preview & Code Editor / Tools) */}
         {isRightSidebarOpen && (
           <div
-            style={isMobile ? {
-              position: 'fixed',
-              top: '56px',
-              right: 0,
-              bottom: 0,
-              zIndex: 50,
-              width: `${Math.min(380, window.innerWidth - 30)}px`,
-              boxShadow: '-4px 0 20px rgba(0, 0, 0, 0.5)',
-              backgroundColor: 'var(--bg-card, #0f172a)',
-              display: 'flex',
-              overflow: 'hidden',
-            } : {
+            data-testid={isCompact ? 'right-drawer' : undefined}
+            className={isPhone ? 'pcs-drawer pcs-drawer--full' : isCompact ? 'pcs-drawer pcs-drawer--right' : undefined}
+            style={isCompact ? { width: isPhone ? undefined : `${rightPanelWidth}px` } : {
               width: `${rightSidebarWidth}px`,
               flexShrink: 0,
               height: '100%',
@@ -1335,12 +1348,13 @@ export const App: React.FC = () => {
                 onSave={handleSaveOpenFile}
                 onContentChange={handleContentChange}
                 onOpenAsNotebook={handleOpenNotebookFile}
-                width={isMobile ? Math.min(380, window.innerWidth - 30) : rightSidebarWidth}
+                width={rightPanelWidth}
+                layout={isPhone ? 'fullscreen' : isCompact ? 'drawer' : 'docked'}
               />
             ) : (
               <RightPanel
                 onInsertCodeSnippet={handleInsertCodeSnippet}
-                width={isMobile ? Math.min(380, window.innerWidth - 30) : rightSidebarWidth}
+                width={rightPanelWidth}
               />
             )}
           </div>
@@ -1349,83 +1363,33 @@ export const App: React.FC = () => {
 
       {/* Non-intrusive Authentication Modal Dialog */}
       {isAuthModalOpen && (
-        <div
-          data-testid="auth-modal"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            backdropFilter: 'blur(3px)',
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsAuthModalOpen(false);
-          }}
+        <Modal
+          onClose={() => setIsAuthModalOpen(false)}
+          label={isRegisterMode ? 'Create private workspace' : 'Sign in to workspace'}
+          size="sm"
+          testId="auth-modal"
         >
-          <div
-            style={{
-              width: '400px',
-              padding: '30px',
-              backgroundColor: 'var(--bg-modal)',
-              borderRadius: '12px',
-              border: '1px solid var(--border-secondary)',
-              boxShadow: '0 25px 50px rgba(0, 0, 0, 0.4)',
-              position: 'relative',
-            }}
-          >
-            <button
-              onClick={() => setIsAuthModalOpen(false)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                backgroundColor: 'transparent',
-                border: 'none',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                padding: '4px',
-              }}
-              title="Close"
-            >
-              <X size={18} />
-            </button>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  backgroundColor: '#2563eb',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Lock size={16} color="#ffffff" />
-              </div>
-              <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
-                {isRegisterMode ? 'Create Private Workspace' : 'Sign In to Workspace'}
-              </h2>
-            </div>
-
-            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-              {isRegisterMode
+          <ModalHeader
+            icon={<Lock size={16} />}
+            iconBackground="var(--accent-strong)"
+            title={isRegisterMode ? 'Create Private Workspace' : 'Sign In to Workspace'}
+            subtitle={
+              isRegisterMode
                 ? 'Get your dedicated, completely private environment with isolated files.'
-                : 'Access your private workspace and secure notebooks.'}
-            </p>
-
+                : 'Access your private workspace and secure notebooks.'
+            }
+            onClose={() => setIsAuthModalOpen(false)}
+          />
+          <ModalBody>
             {authError && (
               <div
+                role="alert"
                 style={{
                   padding: '8px 12px',
-                  backgroundColor: '#450a0a',
-                  border: '1px solid #ef4444',
+                  backgroundColor: 'var(--status-danger-bg)',
+                  border: '1px solid var(--status-danger-border)',
                   borderRadius: '6px',
-                  color: '#fca5a5',
+                  color: 'var(--status-danger-text)',
                   fontSize: '12px',
                   marginBottom: '16px',
                 }}
@@ -1437,100 +1401,57 @@ export const App: React.FC = () => {
             <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {isRegisterMode && (
                 <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                  <label htmlFor="auth-name" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
                     Full Name
                   </label>
                   <input
+                    id="auth-name"
                     type="text"
                     required
+                    className="pcs-input"
                     value={authName}
                     onChange={(e) => setAuthName(e.target.value)}
                     placeholder="e.g. Alex Johnson"
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      backgroundColor: 'var(--bg-input)',
-                      border: '1px solid var(--border-secondary)',
-                      borderRadius: '6px',
-                      color: 'var(--text-main)',
-                      outline: 'none',
-                      fontSize: '13px',
-                      boxSizing: 'border-box',
-                    }}
                   />
                 </div>
               )}
               <div>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                <label htmlFor="auth-email" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
                   Email Address
                 </label>
                 <input
+                  id="auth-email"
                   type="email"
                   required
+                  autoFocus
+                  className="pcs-input"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   placeholder="user@example.com"
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    backgroundColor: 'var(--bg-input)',
-                    border: '1px solid var(--border-secondary)',
-                    borderRadius: '6px',
-                    color: 'var(--text-main)',
-                    outline: 'none',
-                    fontSize: '13px',
-                    boxSizing: 'border-box',
-                  }}
                 />
               </div>
               <div>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                <label htmlFor="auth-password" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
                   Password
                 </label>
                 <input
+                  id="auth-password"
                   type="password"
                   required
+                  className="pcs-input"
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
                   placeholder="••••••••"
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    backgroundColor: 'var(--bg-input)',
-                    border: '1px solid var(--border-secondary)',
-                    borderRadius: '6px',
-                    color: 'var(--text-main)',
-                    outline: 'none',
-                    fontSize: '13px',
-                    boxSizing: 'border-box',
-                  }}
                 />
               </div>
 
-              <button
-                type="submit"
-                style={{
-                  marginTop: '8px',
-                  padding: '10px 16px',
-                  backgroundColor: '#2563eb',
-                  border: 'none',
-                  borderRadius: '6px',
-                  color: '#ffffff',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                }}
-              >
+              <button type="submit" className="pcs-btn pcs-btn--primary" style={{ marginTop: '8px', minHeight: '38px', fontSize: '13px' }}>
                 <LogIn size={15} />
                 {isRegisterMode ? 'Create Account & Switch' : 'Sign In'}
               </button>
             </form>
 
-            <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
+            <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-secondary)' }}>
               {isRegisterMode ? (
                 <span>
                   Already have an account?{' '}
@@ -1541,7 +1462,7 @@ export const App: React.FC = () => {
                       setIsRegisterMode(false);
                       setAuthError('');
                     }}
-                    style={{ color: '#3b82f6', textDecoration: 'none' }}
+                    style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}
                   >
                     Sign In
                   </a>
@@ -1556,15 +1477,15 @@ export const App: React.FC = () => {
                       setIsRegisterMode(true);
                       setAuthError('');
                     }}
-                    style={{ color: '#3b82f6', textDecoration: 'none' }}
+                    style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}
                   >
                     Create Account
                   </a>
                 </span>
               )}
             </div>
-          </div>
-        </div>
+          </ModalBody>
+        </Modal>
       )}
 
       {/* Super Admin Dashboard Modal */}

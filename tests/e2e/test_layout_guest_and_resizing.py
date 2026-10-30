@@ -96,7 +96,7 @@ async def test_layout_guest_mode_and_resizing():
         assert int(saved_left_width) >= 350, f"Expected left width >= 350, got {saved_left_width}"
 
         # 5. Test Right Sidebar Expansion and Draggable Resizer
-        toggle_right_btn = await page.wait_for_selector('button[title="Expand File Editor"]', timeout=5000)
+        toggle_right_btn = await page.wait_for_selector('button[aria-label="Expand File Editor"]', timeout=5000)
         await toggle_right_btn.click()
         await asyncio.sleep(0.5)
 
@@ -124,7 +124,7 @@ async def test_layout_guest_mode_and_resizing():
         assert int(saved_right_width) >= 450, f"Expected right width >= 450, got {saved_right_width}"
 
         # Close right sidebar
-        collapse_right_btn = await page.wait_for_selector('button[title="Collapse File Editor"]', timeout=5000)
+        collapse_right_btn = await page.wait_for_selector('button[aria-label="Collapse File Editor"]', timeout=5000)
         await collapse_right_btn.click()
         await asyncio.sleep(0.3)
 
@@ -180,9 +180,12 @@ async def test_layout_guest_mode_and_resizing():
         # Guest notice banner should no longer be rendered
         assert await page.locator('[data-testid="guest-privacy-banner"]').count() == 0
 
-        # User name and Sign out button appear
+        # User name and Sign out live in the account menu
+        account_btn = page.locator('[data-testid="account-menu-btn"]')
+        assert "E2E Test User" in (await account_btn.get_attribute("aria-label"))
+        await account_btn.click()
         assert await page.locator("text=E2E Test User").count() > 0
-        signout_btn = page.locator("text=Sign out")
+        signout_btn = page.locator('[data-testid="signout-btn"]')
         assert await signout_btn.count() > 0
 
         # 8. Test Logout Transition back to Guest Mode

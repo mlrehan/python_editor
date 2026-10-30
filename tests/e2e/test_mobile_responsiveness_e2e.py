@@ -49,7 +49,10 @@ async def test_mobile_responsiveness_and_drawer():
         await page.screenshot(path=screenshot_mobile_path)
 
         # Open Notebooks modal on mobile
+        # At phone width Notebooks and Secrets live in the top bar's "More" menu
+        await page.locator('[data-testid="navbar-more-btn"]').click()
         notebooks_btn = page.locator('[data-testid="navbar-notebooks-btn"]')
+        assert await notebooks_btn.count() > 0, "Notebooks must be reachable from the More menu on mobile"
         if await notebooks_btn.count() > 0:
             await notebooks_btn.click()
             await page.wait_for_selector('[data-testid="notebooks-modal"]', timeout=5000)
@@ -61,7 +64,9 @@ async def test_mobile_responsiveness_and_drawer():
             await asyncio.sleep(0.3)
 
         # Open Secrets modal on mobile
+        await page.locator('[data-testid="navbar-more-btn"]').click()
         secrets_btn = page.locator('[data-testid="navbar-secrets-btn"]')
+        assert await secrets_btn.count() > 0, "Secrets must be reachable from the More menu on mobile"
         if await secrets_btn.count() > 0:
             await secrets_btn.click()
             await page.wait_for_selector('[data-testid="secrets-modal"]', timeout=5000)

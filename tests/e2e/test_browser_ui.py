@@ -54,7 +54,7 @@ async def test_real_browser_ui_rendering():
             print("Verified: Minimalist 'FILES' explorer is rendered in left sidebar.")
 
             # Verify left sidebar toggle button
-            left_toggle = await page.wait_for_selector("button[title*='Sidebar']", timeout=5000)
+            left_toggle = await page.wait_for_selector("button[aria-label*='Left Sidebar']", timeout=5000)
             assert left_toggle is not None
             print("Verified: Left sidebar toggle button exists.")
 
@@ -90,7 +90,7 @@ async def test_real_browser_ui_rendering():
             print("Verified: Closed right sidebar file preview successfully.")
 
             # Test collapsing left sidebar
-            left_toggle = await page.wait_for_selector("button[title*='Sidebar']", timeout=5000)
+            left_toggle = await page.wait_for_selector("button[aria-label*='Left Sidebar']", timeout=5000)
             await left_toggle.click()
             await asyncio.sleep(0.5)
             print("Verified: Left sidebar collapsed cleanly.")

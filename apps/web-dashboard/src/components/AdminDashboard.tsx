@@ -20,6 +20,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { Modal } from './Modal';
 import { AdminStats, AdminPackageItem, AdminRuntimeItem, AdminWorkspaceItem, AdminAuditItem } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
 
@@ -261,35 +262,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
   if (!isOpen) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backdropFilter: 'blur(4px)',
-      }}
-    >
-      <div
-        data-testid="admin-dashboard-modal"
-        style={{
-          width: '92vw',
-          maxWidth: '1240px',
-          height: '88vh',
-          backgroundColor: 'var(--bg-modal)',
-          borderRadius: '12px',
-          border: '1px solid var(--border-secondary)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-        }}
+    <>
+      <Modal
+        onClose={onClose}
+        label="Super Admin Console"
+        size="full"
+        fullHeight
+        closeOnBackdrop={false}
+        panelTestId="admin-dashboard-modal"
       >
         {/* Top Header */}
         <div
@@ -1227,20 +1207,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
             </ErrorBoundary>
           </main>
         </div>
-      </div>
+      </Modal>
 
       {/* CREATE USER MODAL */}
       {showCreateUserModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <form onSubmit={handleCreateUser} style={{ backgroundColor: '#131d31', border: '1px solid #334155', borderRadius: '8px', padding: '24px', width: '400px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <h3 style={{ fontSize: '16px', color: '#f8fafc', fontWeight: 600 }}>Create New User</h3>
+        <Modal onClose={() => setShowCreateUserModal(false)} label="Create new user" size="sm">
+          <form onSubmit={handleCreateUser} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto' }}>
+            <h3 className="pcs-modal-title">Create New User</h3>
             <input
               type="email"
               placeholder="Email address"
               required
               value={newUser.email}
               onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             />
             <input
               type="text"
@@ -1248,14 +1228,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
               required
               value={newUser.username}
               onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             />
             <input
               type="text"
               placeholder="Full Name"
               value={newUser.full_name}
               onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             />
             <input
               type="password"
@@ -1263,19 +1243,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
               required
               value={newUser.password}
               onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             />
             <select
               value={newUser.role}
               onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             >
               <option value="student">Student</option>
               <option value="instructor">Instructor</option>
               <option value="admin">Admin</option>
               <option value="super_admin">Super Admin</option>
             </select>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '12px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '12px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={newUser.can_manage_packages}
@@ -1284,40 +1264,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
               Grant Package Management Permission
             </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
-              <button type="button" onClick={() => setShowCreateUserModal(false)} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+              <button type="button" onClick={() => setShowCreateUserModal(false)} className="pcs-btn">
                 Cancel
               </button>
-              <button type="submit" style={{ backgroundColor: '#2563eb', border: 'none', color: '#ffffff', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+              <button type="submit" className="pcs-btn pcs-btn--primary">
                 Create
               </button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
       {/* EDIT USER MODAL */}
       {editingUser && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <form onSubmit={handleUpdateUser} style={{ backgroundColor: '#131d31', border: '1px solid #334155', borderRadius: '8px', padding: '24px', width: '400px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <h3 style={{ fontSize: '16px', color: '#f8fafc', fontWeight: 600 }}>Edit User: {editingUser.email}</h3>
+        <Modal onClose={() => setEditingUser(null)} label="Edit user" size="sm">
+          <form onSubmit={handleUpdateUser} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto' }}>
+            <h3 className="pcs-modal-title">Edit User: {editingUser.email}</h3>
             <input
               type="text"
               placeholder="Full Name"
               value={editingUser.full_name || ''}
               onChange={(e) => setEditingUser({ ...editingUser, full_name: e.target.value })}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             />
             <select
               value={editingUser.role}
               onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             >
               <option value="student">Student</option>
               <option value="instructor">Instructor</option>
               <option value="admin">Admin</option>
               <option value="super_admin">Super Admin</option>
             </select>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '12px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '12px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={editingUser.can_manage_packages || false}
@@ -1325,7 +1305,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
               />
               Package Management Permission
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '12px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '12px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={editingUser.is_active}
@@ -1334,42 +1314,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
               Active Account
             </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
-              <button type="button" onClick={() => setEditingUser(null)} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+              <button type="button" onClick={() => setEditingUser(null)} className="pcs-btn">
                 Cancel
               </button>
-              <button type="submit" style={{ backgroundColor: '#2563eb', border: 'none', color: '#ffffff', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+              <button type="submit" className="pcs-btn pcs-btn--primary">
                 Save
               </button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
       {/* RESET PASSWORD MODAL */}
       {resetPwdUser && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <form onSubmit={handleResetPassword} style={{ backgroundColor: '#131d31', border: '1px solid #334155', borderRadius: '8px', padding: '24px', width: '380px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <h3 style={{ fontSize: '16px', color: '#f8fafc', fontWeight: 600 }}>Reset Password</h3>
-            <p style={{ fontSize: '12px', color: '#94a3b8' }}>Set new password for {resetPwdUser.email}</p>
+        <Modal onClose={() => setResetPwdUser(null)} label="Reset password" size="sm">
+          <form onSubmit={handleResetPassword} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto' }}>
+            <h3 className="pcs-modal-title">Reset Password</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Set new password for {resetPwdUser.email}</p>
             <input
               type="password"
               placeholder="New password (min 8 chars)"
               required
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', padding: '8px 12px', fontSize: '13px' }}
+              className="pcs-input"
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
-              <button type="button" onClick={() => setResetPwdUser(null)} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+              <button type="button" onClick={() => setResetPwdUser(null)} className="pcs-btn">
                 Cancel
               </button>
-              <button type="submit" style={{ backgroundColor: '#f59e0b', border: 'none', color: '#000000', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+              <button type="submit" className="pcs-btn pcs-btn--primary">
                 Reset
               </button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
-    </div>
+    </>
   );
 };

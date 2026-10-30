@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Plus, Trash2, Eye, EyeOff, Save, X, Shield, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
+import { Modal } from './Modal';
 
 interface SecretsModalProps {
   isOpen: boolean;
@@ -107,36 +108,7 @@ export const SecretsModal: React.FC<SecretsModalProps> = ({ isOpen, onClose }) =
   if (!isOpen) return null;
 
   return (
-    <div
-      data-testid="secrets-modal"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        backdropFilter: 'blur(3px)',
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        style={{
-          width: '720px',
-          maxWidth: '92vw',
-          maxHeight: '85vh',
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: 'var(--bg-modal, #1e293b)',
-          borderRadius: '12px',
-          border: '1px solid var(--border-secondary, #334155)',
-          boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5)',
-          overflow: 'hidden',
-        }}
-      >
+    <Modal onClose={onClose} label="Workspace secrets" size="lg" testId="secrets-modal">
         {/* Header */}
         <div
           style={{
@@ -449,8 +421,6 @@ export const SecretsModal: React.FC<SecretsModalProps> = ({ isOpen, onClose }) =
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
-
