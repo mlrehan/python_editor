@@ -136,74 +136,171 @@ print("✔ All tests passed!")</code></pre>
     </div>
     <h2 class="section-title">Keyboard Shortcuts Matrix</h2>
     <p class="section-lead">
-      Comprehensive reference of all productivity keyboard shortcuts for Windows, Linux, and macOS.
+      Every keyboard shortcut in Python Cloud Studio, for Windows, Linux, and macOS. The same list is available in the app: click <strong>Shortcuts</strong> in the notebook toolbar.
     </p>
   </div>
 
   <div class="content-block">
+    <h3>Run &amp; control</h3>
     <table class="comparison-table">
       <thead>
         <tr>
           <th>Action</th>
           <th>Windows / Linux</th>
           <th>macOS</th>
-          <th>Context</th>
+          <th>Where</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td><strong>Run Cell (Stay)</strong></td>
+          <td><strong>Run cell and stay on it</strong></td>
           <td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>Enter</kbd></td>
-          <td>Active Code Cell</td>
+          <td>Code cell</td>
         </tr>
         <tr>
-          <td><strong>Run Cell & Advance</strong></td>
+          <td><strong>Run cell and move to the next one</strong> (adds a cell at the end)</td>
           <td><kbd>Shift</kbd> + <kbd>Enter</kbd></td>
           <td><kbd>Shift</kbd> + <kbd>Enter</kbd></td>
-          <td>Active Code Cell</td>
+          <td>Code cell</td>
         </tr>
         <tr>
-          <td><strong>Run & Insert Cell Below</strong></td>
+          <td><strong>Run cell and insert a new code cell below</strong></td>
           <td><kbd>Alt</kbd> + <kbd>Enter</kbd></td>
-          <td><kbd>Option</kbd> + <kbd>Enter</kbd></td>
-          <td>Active Code Cell</td>
+          <td><kbd>⌥ Option</kbd> + <kbd>Enter</kbd></td>
+          <td>Code cell</td>
         </tr>
         <tr>
-          <td><strong>Save Notebook</strong></td>
+          <td><strong>Render a Markdown cell</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>Enter</kbd> or <kbd>Shift</kbd> + <kbd>Enter</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>Enter</kbd> or <kbd>Shift</kbd> + <kbd>Enter</kbd></td>
+          <td>Markdown cell</td>
+        </tr>
+        <tr>
+          <td><strong>Stop running code</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>C</kbd></td>
+          <td><kbd>⌃ Control</kbd> + <kbd>C</kbd></td>
+          <td>While a cell runs and no text is selected (otherwise it copies)</td>
+        </tr>
+        <tr>
+          <td><strong>Submit a value typed into an <code>input()</code> box</strong></td>
+          <td><kbd>Enter</kbd></td>
+          <td><kbd>Enter</kbd></td>
+          <td>Input box under a running cell</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Editing code</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Windows / Linux</th>
+          <th>macOS</th>
+          <th>Where</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Comment / uncomment the current or selected lines</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>/</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>/</kbd></td>
+          <td>Code cell, <code>.py</code> file editor</td>
+        </tr>
+        <tr>
+          <td><strong>Indent</strong> (insert 4 spaces, or indent the selected lines)</td>
+          <td><kbd>Tab</kbd></td>
+          <td><kbd>Tab</kbd></td>
+          <td>Code cell, file editor</td>
+        </tr>
+        <tr>
+          <td><strong>Outdent the current or selected lines</strong></td>
+          <td><kbd>Shift</kbd> + <kbd>Tab</kbd></td>
+          <td><kbd>Shift</kbd> + <kbd>Tab</kbd></td>
+          <td>Code cell, file editor</td>
+        </tr>
+        <tr>
+          <td><strong>New line keeping indentation</strong> (one level deeper after <code>:</code>)</td>
+          <td><kbd>Enter</kbd></td>
+          <td><kbd>Enter</kbd></td>
+          <td>Code cell, <code>.py</code> file editor</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Suggestions &amp; function help</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Windows / Linux</th>
+          <th>macOS</th>
+          <th>Where</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Show suggestions and function help</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
+          <td><kbd>⌃ Control</kbd> + <kbd>Space</kbd></td>
+          <td>Code cell</td>
+        </tr>
+        <tr>
+          <td><strong>Move through suggestions</strong></td>
+          <td><kbd>↑</kbd> / <kbd>↓</kbd></td>
+          <td><kbd>↑</kbd> / <kbd>↓</kbd></td>
+          <td>Suggestion list open</td>
+        </tr>
+        <tr>
+          <td><strong>Accept the highlighted suggestion</strong></td>
+          <td><kbd>Enter</kbd> or <kbd>Tab</kbd></td>
+          <td><kbd>Enter</kbd> or <kbd>Tab</kbd></td>
+          <td>Suggestion list open</td>
+        </tr>
+        <tr>
+          <td><strong>Close suggestions, then function help</strong></td>
+          <td><kbd>Esc</kbd></td>
+          <td><kbd>Esc</kbd></td>
+          <td>Popup open</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Notebook &amp; workspace</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Windows / Linux</th>
+          <th>macOS</th>
+          <th>Where</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Save the notebook</strong> (or the open file while you are editing it)</td>
           <td><kbd>Ctrl</kbd> + <kbd>S</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>S</kbd></td>
           <td>Anywhere</td>
         </tr>
         <tr>
-          <td><strong>Toggle Left Sidebar</strong></td>
+          <td><strong>Show / hide the Files sidebar</strong></td>
           <td><kbd>Ctrl</kbd> + <kbd>B</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>B</kbd></td>
           <td>Anywhere</td>
         </tr>
         <tr>
-          <td><strong>Trigger Autocomplete</strong></td>
-          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
-          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
-          <td>Editor Cursor</td>
+          <td><strong>Close dialogs and menus</strong></td>
+          <td><kbd>Esc</kbd></td>
+          <td><kbd>Esc</kbd></td>
+          <td>Dialog or menu open</td>
         </tr>
         <tr>
-          <td><strong>Accept Suggestion</strong></td>
-          <td><kbd>Tab</kbd> or <kbd>Enter</kbd></td>
-          <td><kbd>Tab</kbd> or <kbd>Enter</kbd></td>
-          <td>Autocomplete Open</td>
-        </tr>
-        <tr>
-          <td><strong>Dismiss Popup</strong></td>
-          <td><kbd>Escape</kbd></td>
-          <td><kbd>Escape</kbd></td>
-          <td>Active Dropdown</td>
-        </tr>
-        <tr>
-          <td><strong>Search User Guide</strong></td>
+          <td><strong>Search this user guide</strong></td>
           <td><kbd>Ctrl</kbd> + <kbd>K</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>K</kbd></td>
-          <td>This Documentation</td>
+          <td>This documentation</td>
         </tr>
       </tbody>
     </table>

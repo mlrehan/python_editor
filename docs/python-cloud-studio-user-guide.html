@@ -2734,15 +2734,21 @@ print(f"Character count in your name: {len(name)}")</code></pre>
     </div>
     <h2 class="section-title">How to Write Python Code & IntelliSense</h2>
     <p class="section-lead">
-      Master the Monaco-powered code editor, smart autocomplete suggestions, parameter signature hints, and real-time syntax diagnostics.
+      Master the code editor and its shortcuts, smart autocomplete suggestions, parameter signature hints, and real-time syntax diagnostics.
     </p>
   </div>
 
   <div class="content-block">
-    <h3>The Monaco Editor Experience</h3>
+    <h3>The Code Editor</h3>
     <p>
-      Python Cloud Studio embeds the industry-standard <strong>Monaco Editor</strong> directly into every notebook code cell. This gives you the exact same precision typing, multi-cursor editing, bracket colorization, and auto-indentation found in Visual Studio Code.
+      Every code cell is a Python-aware editor with line numbers, automatic indentation, auto-closing brackets and quotes, comment toggling, and IntelliSense. The <code>.py</code> file editor in the right panel supports the same indentation and comment shortcuts.
     </p>
+    <ul>
+      <li><strong>Comment / uncomment:</strong> <kbd>Ctrl</kbd> + <kbd>/</kbd> (<kbd>⌘</kbd> + <kbd>/</kbd> on macOS) adds or removes <code># </code> on the current line, or on every selected line. Comments are aligned with the block's indentation, blank lines are left alone, and your selection is kept so you can press it again to undo.</li>
+      <li><strong>Indent:</strong> <kbd>Tab</kbd> inserts four spaces, or indents every selected line.</li>
+      <li><strong>Outdent:</strong> <kbd>Shift</kbd> + <kbd>Tab</kbd> removes one level (up to four spaces) from the current or selected lines.</li>
+      <li><strong>Auto-indent:</strong> <kbd>Enter</kbd> keeps the current indentation and adds one level after a line ending in <code>:</code> (for example after <code>def</code>, <code>if</code>, <code>for</code>).</li>
+    </ul>
 
     <h3>1. Python IntelliSense Autocomplete</h3>
     <p>
@@ -2805,9 +2811,10 @@ print(f"Character count in your name: {len(name)}")</code></pre>
       When you type an opening parenthesis <code>(</code> after a function name (e.g., <code>pd.read_csv(</code> or <code>plt.plot(</code>), a dedicated <strong>Parameter Signature Help</strong> box appears.
     </p>
     <ul>
-      <li>Displays parameter names, default values, and parameter descriptions.</li>
-      <li><strong>Non-Overlapping Layout:</strong> The signature popup is positioned cleanly above the line so it never blocks or collides with the autocomplete dropdown below.</li>
-      <li>Pressing <kbd>Escape</kbd> dismisses only the active popup without interfering with your typing flow.</li>
+      <li>Displays parameter names, default values, and the function's documentation.</li>
+      <li><strong>Always visible:</strong> The box sits on the opposite side of the line from the autocomplete dropdown, and otherwise on whichever side has more room. It is sized to fit the visible part of the notebook (below the toolbar) and repositions as you scroll.</li>
+      <li><strong>Interactive:</strong> Move the mouse into the box to scroll long documentation with the wheel, touchpad or scrollbar, and select text to copy it with <kbd>Ctrl</kbd> + <kbd>C</kbd>. After clicking inside it, <kbd>↑</kbd>/<kbd>↓</kbd> and <kbd>Page Up</kbd>/<kbd>Page Down</kbd> scroll it too.</li>
+      <li><strong>Close and reopen:</strong> <kbd>Escape</kbd> closes the autocomplete dropdown first, then the signature box, and returns the cursor to your code. Press <kbd>Ctrl</kbd> + <kbd>Space</kbd> inside the parentheses to bring it back.</li>
     </ul>
 
     <h3>3. Real-Time Code Diagnostics</h3>
@@ -2878,7 +2885,7 @@ print(f"Character count in your name: {len(name)}")</code></pre>
     </p>
     <ul>
       <li><code>[ ]</code> <strong>Not Yet Executed:</strong> The cell has not run in the current kernel session.</li>
-      <li><span class="badge badge-busy">Spinning Circle</span> <strong>Running:</strong> The code is currently executing on the cloud kernel. The top navbar displays <code>Python 3 (busy)</code>.</li>
+      <li><span class="badge badge-busy">Spinning Circle</span> <strong>Running:</strong> The code is currently executing on the cloud kernel and the cell shows <code>[*]</code>. The run button turns into a red <strong>Stop</strong> square inside the spinner: click it to stop the cell. The top navbar displays <code>Python 3 (busy)</code>. Running the same cell again while it is still running is ignored, so its output is never mixed with a second run.</li>
       <li><code>[1]</code> <strong>Executed:</strong> The number indicates the exact sequential order in which this cell was executed in the current session.</li>
     </ul>
 
@@ -2887,15 +2894,30 @@ print(f"Character count in your name: {len(name)}")</code></pre>
       Located on the top navbar, the <strong>Run All</strong> button (<kbd>▶</kbd>) sequentially executes every code cell in your notebook from the first to the last. This is standard practice before sharing your notebook or generating final reports, ensuring all variables and results are computed in top-to-bottom order.
     </p>
 
-    <h3>Interrupting a Long-Running or Infinite Loop</h3>
+    <h3>Stopping a Long-Running or Infinite Loop</h3>
     <p>
-      If your code gets stuck in an unintentional infinite loop (for example, <code>while True: pass</code>), the kernel will remain in the busy state. To stop it:
+      If your code runs too long or gets stuck in an infinite loop (for example, <code>while True: pass</code>), stop it without reloading the page. Any of these does the same thing:
     </p>
-    <ol>
-      <li>Click the <strong>Restart Kernel</strong> button (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>) in the top navbar.</li>
-      <li>A confirmation banner appears. Confirm the restart.</li>
-      <li>The kernel process is terminated and instantly rebooted, freeing all CPU resources.</li>
-    </ol>
+    <ul>
+      <li>Click <strong>Stop</strong> in the top navbar. It turns red while code is running.</li>
+      <li>Click the red <strong>Stop</strong> square on the running cell's run button.</li>
+      <li>Press <kbd>Ctrl</kbd> + <kbd>C</kbd> (<kbd>⌃</kbd> + <kbd>C</kbd> on macOS) while a cell is running. If text is selected, <kbd>Ctrl</kbd> + <kbd>C</kbd> copies it instead, as usual.</li>
+    </ul>
+    <p>
+      The cell ends with a <code>KeyboardInterrupt</code> message. Your variables are kept, so you can fix the code and run it again. Cells still waiting from <strong>Run All</strong> are cancelled. Programs the cell started, such as a web server launched with <code>!uvicorn</code> or <code>subprocess</code>, are stopped too. <strong>Clear Outputs</strong> only clears what is displayed; it does not stop running code.
+    </p>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        When Stop is not enough
+      </div>
+      <div class="callout-body">
+        <p>
+          Some code cannot be interrupted, for example code stuck inside a native library call or code that ignores interrupts. If a cell is still running about 8 seconds after you press Stop, a yellow banner offers <strong>Restart kernel</strong>. Restarting always stops the code, but it clears all variables and imports, so you will need to run your cells again. Choose <strong>Keep waiting</strong> to give it more time. You can also click <strong>Restart</strong> in the top navbar at any time.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -3961,74 +3983,171 @@ print("✔ All tests passed!")</code></pre>
     </div>
     <h2 class="section-title">Keyboard Shortcuts Matrix</h2>
     <p class="section-lead">
-      Comprehensive reference of all productivity keyboard shortcuts for Windows, Linux, and macOS.
+      Every keyboard shortcut in Python Cloud Studio, for Windows, Linux, and macOS. The same list is available in the app: click <strong>Shortcuts</strong> in the notebook toolbar.
     </p>
   </div>
 
   <div class="content-block">
+    <h3>Run &amp; control</h3>
     <table class="comparison-table">
       <thead>
         <tr>
           <th>Action</th>
           <th>Windows / Linux</th>
           <th>macOS</th>
-          <th>Context</th>
+          <th>Where</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td><strong>Run Cell (Stay)</strong></td>
+          <td><strong>Run cell and stay on it</strong></td>
           <td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>Enter</kbd></td>
-          <td>Active Code Cell</td>
+          <td>Code cell</td>
         </tr>
         <tr>
-          <td><strong>Run Cell & Advance</strong></td>
+          <td><strong>Run cell and move to the next one</strong> (adds a cell at the end)</td>
           <td><kbd>Shift</kbd> + <kbd>Enter</kbd></td>
           <td><kbd>Shift</kbd> + <kbd>Enter</kbd></td>
-          <td>Active Code Cell</td>
+          <td>Code cell</td>
         </tr>
         <tr>
-          <td><strong>Run & Insert Cell Below</strong></td>
+          <td><strong>Run cell and insert a new code cell below</strong></td>
           <td><kbd>Alt</kbd> + <kbd>Enter</kbd></td>
-          <td><kbd>Option</kbd> + <kbd>Enter</kbd></td>
-          <td>Active Code Cell</td>
+          <td><kbd>⌥ Option</kbd> + <kbd>Enter</kbd></td>
+          <td>Code cell</td>
         </tr>
         <tr>
-          <td><strong>Save Notebook</strong></td>
+          <td><strong>Render a Markdown cell</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>Enter</kbd> or <kbd>Shift</kbd> + <kbd>Enter</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>Enter</kbd> or <kbd>Shift</kbd> + <kbd>Enter</kbd></td>
+          <td>Markdown cell</td>
+        </tr>
+        <tr>
+          <td><strong>Stop running code</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>C</kbd></td>
+          <td><kbd>⌃ Control</kbd> + <kbd>C</kbd></td>
+          <td>While a cell runs and no text is selected (otherwise it copies)</td>
+        </tr>
+        <tr>
+          <td><strong>Submit a value typed into an <code>input()</code> box</strong></td>
+          <td><kbd>Enter</kbd></td>
+          <td><kbd>Enter</kbd></td>
+          <td>Input box under a running cell</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Editing code</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Windows / Linux</th>
+          <th>macOS</th>
+          <th>Where</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Comment / uncomment the current or selected lines</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>/</kbd></td>
+          <td><kbd>⌘</kbd> + <kbd>/</kbd></td>
+          <td>Code cell, <code>.py</code> file editor</td>
+        </tr>
+        <tr>
+          <td><strong>Indent</strong> (insert 4 spaces, or indent the selected lines)</td>
+          <td><kbd>Tab</kbd></td>
+          <td><kbd>Tab</kbd></td>
+          <td>Code cell, file editor</td>
+        </tr>
+        <tr>
+          <td><strong>Outdent the current or selected lines</strong></td>
+          <td><kbd>Shift</kbd> + <kbd>Tab</kbd></td>
+          <td><kbd>Shift</kbd> + <kbd>Tab</kbd></td>
+          <td>Code cell, file editor</td>
+        </tr>
+        <tr>
+          <td><strong>New line keeping indentation</strong> (one level deeper after <code>:</code>)</td>
+          <td><kbd>Enter</kbd></td>
+          <td><kbd>Enter</kbd></td>
+          <td>Code cell, <code>.py</code> file editor</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Suggestions &amp; function help</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Windows / Linux</th>
+          <th>macOS</th>
+          <th>Where</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Show suggestions and function help</strong></td>
+          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
+          <td><kbd>⌃ Control</kbd> + <kbd>Space</kbd></td>
+          <td>Code cell</td>
+        </tr>
+        <tr>
+          <td><strong>Move through suggestions</strong></td>
+          <td><kbd>↑</kbd> / <kbd>↓</kbd></td>
+          <td><kbd>↑</kbd> / <kbd>↓</kbd></td>
+          <td>Suggestion list open</td>
+        </tr>
+        <tr>
+          <td><strong>Accept the highlighted suggestion</strong></td>
+          <td><kbd>Enter</kbd> or <kbd>Tab</kbd></td>
+          <td><kbd>Enter</kbd> or <kbd>Tab</kbd></td>
+          <td>Suggestion list open</td>
+        </tr>
+        <tr>
+          <td><strong>Close suggestions, then function help</strong></td>
+          <td><kbd>Esc</kbd></td>
+          <td><kbd>Esc</kbd></td>
+          <td>Popup open</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Notebook &amp; workspace</h3>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Windows / Linux</th>
+          <th>macOS</th>
+          <th>Where</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Save the notebook</strong> (or the open file while you are editing it)</td>
           <td><kbd>Ctrl</kbd> + <kbd>S</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>S</kbd></td>
           <td>Anywhere</td>
         </tr>
         <tr>
-          <td><strong>Toggle Left Sidebar</strong></td>
+          <td><strong>Show / hide the Files sidebar</strong></td>
           <td><kbd>Ctrl</kbd> + <kbd>B</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>B</kbd></td>
           <td>Anywhere</td>
         </tr>
         <tr>
-          <td><strong>Trigger Autocomplete</strong></td>
-          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
-          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
-          <td>Editor Cursor</td>
+          <td><strong>Close dialogs and menus</strong></td>
+          <td><kbd>Esc</kbd></td>
+          <td><kbd>Esc</kbd></td>
+          <td>Dialog or menu open</td>
         </tr>
         <tr>
-          <td><strong>Accept Suggestion</strong></td>
-          <td><kbd>Tab</kbd> or <kbd>Enter</kbd></td>
-          <td><kbd>Tab</kbd> or <kbd>Enter</kbd></td>
-          <td>Autocomplete Open</td>
-        </tr>
-        <tr>
-          <td><strong>Dismiss Popup</strong></td>
-          <td><kbd>Escape</kbd></td>
-          <td><kbd>Escape</kbd></td>
-          <td>Active Dropdown</td>
-        </tr>
-        <tr>
-          <td><strong>Search User Guide</strong></td>
+          <td><strong>Search this user guide</strong></td>
           <td><kbd>Ctrl</kbd> + <kbd>K</kbd></td>
           <td><kbd>⌘</kbd> + <kbd>K</kbd></td>
-          <td>This Documentation</td>
+          <td>This documentation</td>
         </tr>
       </tbody>
     </table>
@@ -4697,8 +4816,8 @@ plt.show()</code></pre>
     { title: "Chapter 3: Logging In, Logging Out, and Guest Mode", url: "#ch3", category: "Auth", keywords: "guest mode public workspace private workspace jwt authentication logout isolation security" },
     { title: "Chapter 4: Understanding the Studio Interface", url: "#ch4", category: "Interface", keywords: "navbar files sidebar right panel code cells drag handle status pill" },
     { title: "Chapter 5: Your First Notebook: Creation & Structure", url: "#ch5", category: "Notebooks", keywords: "ipynb new notebook cell markdown code gutter" },
-    { title: "Chapter 6: How to Write Python Code & IntelliSense", url: "#ch6", category: "Editing", keywords: "monaco intellisense autocomplete signature help diagnostics squiggly dropdown suggestions tab enter" },
-    { title: "Chapter 7: Executing Code & Execution Controls", url: "#ch7", category: "Execution", keywords: "run cell shift enter ctrl enter alt enter run all interrupt infinite loop" },
+    { title: "Chapter 6: How to Write Python Code & IntelliSense", url: "#ch6", category: "Editing", keywords: "code editor intellisense autocomplete signature help tooltip scroll copy diagnostics squiggly dropdown suggestions tab shift tab indent outdent comment uncomment ctrl slash enter" },
+    { title: "Chapter 7: Executing Code & Execution Controls", url: "#ch7", category: "Execution", keywords: "run cell shift enter ctrl enter alt enter run all stop interrupt ctrl c infinite loop keyboardinterrupt restart kernel not responding" },
     { title: "Chapter 8: Understanding Output", url: "#ch8", category: "Output", keywords: "stdout print return value ansi tracebacks html rich output" },
     { title: "Chapter 9: Multi-Cell & Kernel State", url: "#ch9", category: "Kernel", keywords: "shared memory namespace out of order restart run all" },
     { title: "Chapter 10: NumPy & Pandas DataFrames (Interactive DataTableView)", url: "#ch10", category: "Data", keywords: "datatableview table pandas sort filter search pagination csv tsv export" },
@@ -4715,7 +4834,7 @@ plt.show()</code></pre>
     { title: "Chapter 21: Student Features & Assignments", url: "#ch21", category: "Students", keywords: "classroom join code assignment autograding assert tests" },
     { title: "Chapter 22: Instructor & SuperAdmin Console", url: "#ch22", category: "Admin", keywords: "superadmin dashboard users packages audit logs runtimes" },
     { title: "Chapter 23: AI Coding Assistant", url: "#ch23", category: "AI", keywords: "ai assistant chat prompt code generator insert notebook" },
-    { title: "Chapter 24: Keyboard Shortcuts Matrix", url: "#ch24", category: "Shortcuts", keywords: "keyboard shortcuts windows mac hotkeys table" },
+    { title: "Chapter 24: Keyboard Shortcuts Matrix", url: "#ch24", category: "Shortcuts", keywords: "keyboard shortcuts windows mac hotkeys table comment ctrl slash stop ctrl c indent tab outdent save ctrl s sidebar ctrl b autocomplete ctrl space escape" },
     { title: "Chapter 25: Troubleshooting Knowledge Base", url: "#ch25", category: "Help", keywords: "troubleshooting kb disconnected hung loop sitecustomize" },
     { title: "Chapter 26: Frequently Asked Questions (FAQ)", url: "#ch26", category: "FAQ", keywords: "faq questions beginner answers installation saving" },
     { title: "Chapter 27: Quick Start Cheat Sheet", url: "#ch27", category: "Reference", keywords: "cheat sheet printable summary pandas matplotlib python" },

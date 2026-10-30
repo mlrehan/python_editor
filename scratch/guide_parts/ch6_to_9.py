@@ -15,15 +15,21 @@ def get_chapters_6_to_9():
     </div>
     <h2 class="section-title">How to Write Python Code & IntelliSense</h2>
     <p class="section-lead">
-      Master the Monaco-powered code editor, smart autocomplete suggestions, parameter signature hints, and real-time syntax diagnostics.
+      Master the code editor and its shortcuts, smart autocomplete suggestions, parameter signature hints, and real-time syntax diagnostics.
     </p>
   </div>
 
   <div class="content-block">
-    <h3>The Monaco Editor Experience</h3>
+    <h3>The Code Editor</h3>
     <p>
-      Python Cloud Studio embeds the industry-standard <strong>Monaco Editor</strong> directly into every notebook code cell. This gives you the exact same precision typing, multi-cursor editing, bracket colorization, and auto-indentation found in Visual Studio Code.
+      Every code cell is a Python-aware editor with line numbers, automatic indentation, auto-closing brackets and quotes, comment toggling, and IntelliSense. The <code>.py</code> file editor in the right panel supports the same indentation and comment shortcuts.
     </p>
+    <ul>
+      <li><strong>Comment / uncomment:</strong> <kbd>Ctrl</kbd> + <kbd>/</kbd> (<kbd>⌘</kbd> + <kbd>/</kbd> on macOS) adds or removes <code># </code> on the current line, or on every selected line. Comments are aligned with the block's indentation, blank lines are left alone, and your selection is kept so you can press it again to undo.</li>
+      <li><strong>Indent:</strong> <kbd>Tab</kbd> inserts four spaces, or indents every selected line.</li>
+      <li><strong>Outdent:</strong> <kbd>Shift</kbd> + <kbd>Tab</kbd> removes one level (up to four spaces) from the current or selected lines.</li>
+      <li><strong>Auto-indent:</strong> <kbd>Enter</kbd> keeps the current indentation and adds one level after a line ending in <code>:</code> (for example after <code>def</code>, <code>if</code>, <code>for</code>).</li>
+    </ul>
 
     <h3>1. Python IntelliSense Autocomplete</h3>
     <p>
@@ -86,9 +92,10 @@ def get_chapters_6_to_9():
       When you type an opening parenthesis <code>(</code> after a function name (e.g., <code>pd.read_csv(</code> or <code>plt.plot(</code>), a dedicated <strong>Parameter Signature Help</strong> box appears.
     </p>
     <ul>
-      <li>Displays parameter names, default values, and parameter descriptions.</li>
-      <li><strong>Non-Overlapping Layout:</strong> The signature popup is positioned cleanly above the line so it never blocks or collides with the autocomplete dropdown below.</li>
-      <li>Pressing <kbd>Escape</kbd> dismisses only the active popup without interfering with your typing flow.</li>
+      <li>Displays parameter names, default values, and the function's documentation.</li>
+      <li><strong>Always visible:</strong> The box sits on the opposite side of the line from the autocomplete dropdown, and otherwise on whichever side has more room. It is sized to fit the visible part of the notebook (below the toolbar) and repositions as you scroll.</li>
+      <li><strong>Interactive:</strong> Move the mouse into the box to scroll long documentation with the wheel, touchpad or scrollbar, and select text to copy it with <kbd>Ctrl</kbd> + <kbd>C</kbd>. After clicking inside it, <kbd>↑</kbd>/<kbd>↓</kbd> and <kbd>Page Up</kbd>/<kbd>Page Down</kbd> scroll it too.</li>
+      <li><strong>Close and reopen:</strong> <kbd>Escape</kbd> closes the autocomplete dropdown first, then the signature box, and returns the cursor to your code. Press <kbd>Ctrl</kbd> + <kbd>Space</kbd> inside the parentheses to bring it back.</li>
     </ul>
 
     <h3>3. Real-Time Code Diagnostics</h3>
@@ -159,7 +166,7 @@ def get_chapters_6_to_9():
     </p>
     <ul>
       <li><code>[ ]</code> <strong>Not Yet Executed:</strong> The cell has not run in the current kernel session.</li>
-      <li><span class="badge badge-busy">Spinning Circle</span> <strong>Running:</strong> The code is currently executing on the cloud kernel. The top navbar displays <code>Python 3 (busy)</code>.</li>
+      <li><span class="badge badge-busy">Spinning Circle</span> <strong>Running:</strong> The code is currently executing on the cloud kernel and the cell shows <code>[*]</code>. The run button turns into a red <strong>Stop</strong> square inside the spinner: click it to stop the cell. The top navbar displays <code>Python 3 (busy)</code>. Running the same cell again while it is still running is ignored, so its output is never mixed with a second run.</li>
       <li><code>[1]</code> <strong>Executed:</strong> The number indicates the exact sequential order in which this cell was executed in the current session.</li>
     </ul>
 
@@ -168,15 +175,30 @@ def get_chapters_6_to_9():
       Located on the top navbar, the <strong>Run All</strong> button (<kbd>▶</kbd>) sequentially executes every code cell in your notebook from the first to the last. This is standard practice before sharing your notebook or generating final reports, ensuring all variables and results are computed in top-to-bottom order.
     </p>
 
-    <h3>Interrupting a Long-Running or Infinite Loop</h3>
+    <h3>Stopping a Long-Running or Infinite Loop</h3>
     <p>
-      If your code gets stuck in an unintentional infinite loop (for example, <code>while True: pass</code>), the kernel will remain in the busy state. To stop it:
+      If your code runs too long or gets stuck in an infinite loop (for example, <code>while True: pass</code>), stop it without reloading the page. Any of these does the same thing:
     </p>
-    <ol>
-      <li>Click the <strong>Restart Kernel</strong> button (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>) in the top navbar.</li>
-      <li>A confirmation banner appears. Confirm the restart.</li>
-      <li>The kernel process is terminated and instantly rebooted, freeing all CPU resources.</li>
-    </ol>
+    <ul>
+      <li>Click <strong>Stop</strong> in the top navbar. It turns red while code is running.</li>
+      <li>Click the red <strong>Stop</strong> square on the running cell's run button.</li>
+      <li>Press <kbd>Ctrl</kbd> + <kbd>C</kbd> (<kbd>⌃</kbd> + <kbd>C</kbd> on macOS) while a cell is running. If text is selected, <kbd>Ctrl</kbd> + <kbd>C</kbd> copies it instead, as usual.</li>
+    </ul>
+    <p>
+      The cell ends with a <code>KeyboardInterrupt</code> message. Your variables are kept, so you can fix the code and run it again. Cells still waiting from <strong>Run All</strong> are cancelled. Programs the cell started, such as a web server launched with <code>!uvicorn</code> or <code>subprocess</code>, are stopped too. <strong>Clear Outputs</strong> only clears what is displayed; it does not stop running code.
+    </p>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        When Stop is not enough
+      </div>
+      <div class="callout-body">
+        <p>
+          Some code cannot be interrupted, for example code stuck inside a native library call or code that ignores interrupts. If a cell is still running about 8 seconds after you press Stop, a yellow banner offers <strong>Restart kernel</strong>. Restarting always stops the code, but it clears all variables and imports, so you will need to run your cells again. Choose <strong>Keep waiting</strong> to give it more time. You can also click <strong>Restart</strong> in the top navbar at any time.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
 
