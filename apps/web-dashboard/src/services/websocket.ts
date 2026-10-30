@@ -89,6 +89,8 @@ export class KernelWebSocketClient {
             ename: msg.ename,
             evalue: msg.evalue,
             traceback: msg.traceback,
+            wait: msg.wait,
+            display_id: msg.display_id,
           });
         } else if (msg.type === 'execute_reply') {
           this.onComplete(msg.cell_id, {

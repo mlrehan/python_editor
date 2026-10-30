@@ -24,12 +24,28 @@ const TRUNCATION_NOTICE = '[... earlier output truncated ...]\n';
 
 // Appends a streamed output to a cell, merging consecutive stdout/stderr chunks into one output
 // (as Jupyter does) so runaway printing cannot create thousands of output elements.
+// Same rules as apply_output() in services/runtime_management/kernel_session.py
 function appendOutput(outputs: KernelOutput[], output: KernelOutput): KernelOutput[] {
+  if (output.output_type === 'clear_output') {
+    if (!output.wait) return [];
+    // clear_output(wait=True): a marker; the outputs are cleared when the next one arrives
+    const pending = outputs[outputs.length - 1]?.output_type === 'clear_output';
+    return pending ? outputs : [...outputs, output];
+  }
+  if (outputs[outputs.length - 1]?.output_type === 'clear_output') outputs = [];
+  if (output.output_type === 'update_display_data') {
+    return outputs.map((o) =>
+      o.display_id === output.display_id && (o.output_type === 'display_data' || o.output_type === 'execute_result')
+        ? { ...o, data: output.data, metadata: output.metadata }
+        : o
+    );
+  }
   const last = outputs[outputs.length - 1];
   if (output.output_type !== 'stream' || !last || last.output_type !== 'stream' || last.name !== output.name) {
     return [...outputs, output];
   }
-  let text = (last.text ?? '') + (output.text ?? '');
+  const asText = (t: string | string[] | undefined) => (Array.isArray(t) ? t.join('') : t ?? '');
+  let text = asText(last.text) + asText(output.text);
   if (text.length > MAX_STREAM_CHARS) {
     text = TRUNCATION_NOTICE + text.slice(text.length - MAX_STREAM_CHARS);
   }

@@ -1225,3 +1225,79 @@ code, pre, textarea.code-font {
   .guest-banner { padding: 6px 10px !important; font-size: 12px !important; }
   .guest-banner-detail { display: none; }
 }
+
+/* ---------------------------------------------------------------------------
+ * Python syntax colours (code cells and the file editor). Dark: VS Code Dark+ family; light: Light+.
+ * ------------------------------------------------------------------------- */
+:root,
+[data-theme='dark'] {
+  --syn-comment: #6a9955;
+  --syn-string: #ce9178;
+  --syn-number: #b5cea8;
+  --syn-keyword: #c586c0;
+  --syn-builtin: #4ec9b0;
+  --syn-constant: #569cd6;
+  --syn-self: #9cdcfe;
+  --syn-decorator: #dcdcaa;
+  --syn-function: #dcdcaa;
+  --syn-class: #4ec9b0;
+  --syn-call: #dcdcaa;
+  --syn-magic: #d7ba7d;
+  --syn-operator: #d4d4d4;
+  --syn-bracket: #ffd700;
+  --syn-bracket-match-bg: rgba(255, 215, 0, 0.18);
+  --editor-selection: rgba(38, 79, 120, 0.85);
+}
+[data-theme='light'] {
+  --syn-comment: #008000;
+  --syn-string: #a31515;
+  --syn-number: #098658;
+  --syn-keyword: #af00db;
+  --syn-builtin: #267f99;
+  --syn-constant: #0000ff;
+  --syn-self: #001080;
+  --syn-decorator: #795e26;
+  --syn-function: #795e26;
+  --syn-class: #267f99;
+  --syn-call: #795e26;
+  --syn-magic: #b5651d;
+  --syn-operator: #383a42;
+  --syn-bracket: #0431fa;
+  --syn-bracket-match-bg: rgba(4, 49, 250, 0.12);
+  --editor-selection: rgba(173, 214, 255, 0.85);
+}
+.tok-comment { color: var(--syn-comment); font-style: italic; }
+.tok-string { color: var(--syn-string); }
+.tok-number { color: var(--syn-number); }
+.tok-keyword { color: var(--syn-keyword); }
+.tok-builtin { color: var(--syn-builtin); }
+.tok-constant { color: var(--syn-constant); }
+.tok-self { color: var(--syn-self); font-style: italic; }
+.tok-decorator { color: var(--syn-decorator); }
+.tok-function { color: var(--syn-function); }
+.tok-class { color: var(--syn-class); }
+.tok-call { color: var(--syn-call); }
+.tok-magic { color: var(--syn-magic); }
+.tok-operator { color: var(--syn-operator); }
+.tok-bracket { color: var(--syn-bracket); }
+.tok-bracket-match { background-color: var(--syn-bracket-match-bg); outline: 1px solid var(--syn-bracket); border-radius: 2px; }
+
+/* The textarea above a highlight layer shows only the caret and the selection */
+.code-cell-editor::selection,
+.fe-textarea--highlighted::selection { background-color: var(--editor-selection); color: transparent; }
+
+/* File editor: highlight layer under the textarea, moved with its scroll position */
+.fe-code-area { position: relative; display: flex; flex: 1; min-width: 0; }
+.fe-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--code-text);
+  font-size: var(--fe-code-size);
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: 4;
+}
+.fe-highlight-inner { padding: 12px; will-change: transform; }
+.fe-textarea--highlighted { color: transparent; caret-color: var(--border-accent); }

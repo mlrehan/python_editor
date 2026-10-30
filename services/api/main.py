@@ -8,6 +8,7 @@ from .config import settings
 from .database import init_db
 from .kernel_bridge import kernel_pool
 from .routers import health, auth, notebooks, execution, files, classrooms, websockets, admin, editor
+from . import output_frame
 
 
 @asynccontextmanager
@@ -55,7 +56,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;"
+        # The output frame (sandboxed notebook outputs) sends its own, separate policy
+        if "Content-Security-Policy" not in response.headers:
+            response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;"
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
@@ -69,6 +72,7 @@ app.include_router(files.router, prefix="/api/v1")
 app.include_router(classrooms.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(editor.router, prefix="/api/v1")
+app.include_router(output_frame.router, prefix="/api/v1")
 
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles

@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
 import { applyTabIndent } from '../utils/indentation';
 import { applyTextareaEdit } from '../utils/textareaEdit';
+import { tokenizePython, findBracketPair, renderHighlightedLines } from '../utils/pythonSyntax';
 import {
   Box,
   Layers,
@@ -485,6 +486,9 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   const signatureRef = useRef<HTMLDivElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   const diagnosticLayerRef = useRef<HTMLDivElement>(null);
+  const highlightLayerRef = useRef<HTMLDivElement>(null);
+  // Caret position while the editor has focus and nothing is selected (for bracket matching)
+  const [caret, setCaret] = useState<number | null>(null);
   const autocompleteReqIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const receiverCacheRef = useRef<Map<string, CompletionItem[]>>(new Map());
@@ -505,8 +509,12 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     if (gutterRef.current) {
       gutterRef.current.scrollTop = e.currentTarget.scrollTop;
     }
-    if (diagnosticLayerRef.current) {
-      diagnosticLayerRef.current.scrollTop = e.currentTarget.scrollTop;
+    // The text layers follow both axes (long lines scroll horizontally)
+    for (const layer of [diagnosticLayerRef.current, highlightLayerRef.current]) {
+      if (layer) {
+        layer.scrollTop = e.currentTarget.scrollTop;
+        layer.scrollLeft = e.currentTarget.scrollLeft;
+      }
     }
     if ((isDropdownOpen || activeSignature) && textareaRef.current) {
       updatePopupPositions(textareaRef.current.selectionStart);
@@ -587,6 +595,12 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
 
   const lines = useMemo(() => code.split('\n'), [code]);
+  // Syntax colours are recomputed from the current text on every change (typing, paste, Ctrl+/, undo)
+  const tokens = useMemo(() => tokenizePython(code), [code]);
+  const highlightedLines = useMemo(() => {
+    const pair = caret === null ? null : findBracketPair(code, tokens, caret);
+    return renderHighlightedLines(code, tokens, pair ?? [], '21px');
+  }, [code, tokens, caret]);
 
   // 1. Fetch Diagnostics (Debounced 300ms, only when this cell's code changes or kernel refreshes)
   const diagnosticsAbortRef = useRef<AbortController | null>(null);
@@ -1572,6 +1586,31 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
 
         {/* 2. Main Editor Area */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          {/* Syntax highlighting layer: the textarea above it has transparent text and the same metrics */}
+          <div
+            ref={highlightLayerRef}
+            aria-hidden="true"
+            data-testid="code-highlight-layer"
+            className="code-highlight-layer"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              padding: '10px var(--cell-code-pad-x, 14px)',
+              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+              fontSize: '13.5px',
+              lineHeight: '21px',
+              pointerEvents: 'none',
+              whiteSpace: 'pre',
+              zIndex: 0,
+              color: 'var(--code-text)',
+              overflow: 'hidden',
+              height: liveHeight ? `${liveHeight}px` : undefined,
+              maxHeight: liveHeight ? `${liveHeight}px` : undefined,
+            }}
+          >
+            {highlightedLines}
+          </div>
+
           {/* Underlying Diagnostics Underline Layer */}
           <div
             ref={diagnosticLayerRef}
@@ -1646,6 +1685,11 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             onClick={handleClick}
             onKeyDown={handleKeyDown}
             onScroll={handleScroll}
+            onSelect={(e) => {
+              const el = e.currentTarget;
+              setCaret(el.selectionStart === el.selectionEnd ? el.selectionStart : null);
+            }}
+            onBlur={() => setCaret(null)}
             placeholder={placeholder}
             readOnly={readOnly}
             spellCheck={false}
@@ -1661,7 +1705,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
               backgroundColor: 'transparent',
               border: 'none',
               outline: 'none',
-              color: 'var(--code-text)',
+              // Transparent: the highlight layer underneath draws the text
+              color: 'transparent',
               fontSize: '13.5px',
               fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
               lineHeight: '21px',

@@ -32,6 +32,35 @@ def _start_slots() -> asyncio.Semaphore:
 
 
 
+
+# Marker left in an output list by clear_output(wait=True): the list is cleared when the next output arrives
+_CLEAR_PENDING = {"output_type": "clear_output", "wait": True}
+
+
+def apply_output(outputs: List[Dict[str, Any]], chunk: Dict[str, Any]) -> None:
+    """Applies one kernel output to a cell's output list with Jupyter semantics.
+
+    clear_output(wait=False) empties the list; clear_output(wait=True) empties it when the next output
+    arrives (so a progress display does not flicker); update_display_data replaces every output that
+    was displayed with the same display_id. The browser applies the same rules to the streamed chunks.
+    """
+    kind = chunk.get("output_type")
+    if kind == "clear_output":
+        if chunk.get("wait"):
+            if not (outputs and outputs[-1] is _CLEAR_PENDING):
+                outputs.append(_CLEAR_PENDING)
+        else:
+            outputs.clear()
+        return
+    if outputs and outputs[-1] is _CLEAR_PENDING:
+        outputs.clear()
+    if kind == "update_display_data":
+        for i, existing in enumerate(outputs):
+            if existing.get("display_id") == chunk.get("display_id") and existing.get("output_type") in ("display_data", "execute_result"):
+                outputs[i] = {**existing, "data": chunk.get("data", {}), "metadata": chunk.get("metadata", {})}
+        return
+    outputs.append(chunk)
+
 class KernelExecutionResult:
     """Encapsulates the outputs, status, and metadata of a cell execution."""
     def __init__(self, msg_id: str):
@@ -297,7 +326,7 @@ class KernelSession:
                         "name": content.get("name", "stdout"),
                         "text": content.get("text", ""),
                     }
-                    result.outputs.append(chunk)
+                    apply_output(result.outputs, chunk)
                     if on_output_chunk:
                         await on_output_chunk(chunk)
 
@@ -310,8 +339,32 @@ class KernelSession:
                     if msg_type == "execute_result":
                         chunk["execution_count"] = content.get("execution_count", self.execution_count)
                         result.execution_count = chunk["execution_count"]
+                    # display(..., display_id=...) handles: later update_display_data replaces this output
+                    display_id = (content.get("transient") or {}).get("display_id")
+                    if display_id:
+                        chunk["display_id"] = display_id
 
-                    result.outputs.append(chunk)
+                    apply_output(result.outputs, chunk)
+                    if on_output_chunk:
+                        await on_output_chunk(chunk)
+
+                elif msg_type == "update_display_data":
+                    display_id = (content.get("transient") or {}).get("display_id")
+                    if display_id:
+                        chunk = {
+                            "output_type": "update_display_data",
+                            "display_id": display_id,
+                            "data": content.get("data", {}),
+                            "metadata": content.get("metadata", {}),
+                        }
+                        apply_output(result.outputs, chunk)
+                        if on_output_chunk:
+                            await on_output_chunk(chunk)
+
+                elif msg_type == "clear_output":
+                    # IPython.display.clear_output(wait=...): progress bars, live-updating loops
+                    chunk = {"output_type": "clear_output", "wait": bool(content.get("wait", False))}
+                    apply_output(result.outputs, chunk)
                     if on_output_chunk:
                         await on_output_chunk(chunk)
 
@@ -323,12 +376,14 @@ class KernelSession:
                         "evalue": content.get("evalue", ""),
                         "traceback": content.get("traceback", []),
                     }
-                    result.outputs.append(chunk)
+                    apply_output(result.outputs, chunk)
                     result.error = chunk
                     if on_output_chunk:
                         await on_output_chunk(chunk)
 
             self._input_pending_since = None
+            if result.outputs and result.outputs[-1] is _CLEAR_PENDING:
+                result.outputs.pop()
             result.execution_time = time.time() - start_time
             self.last_active_at = time.time()
 

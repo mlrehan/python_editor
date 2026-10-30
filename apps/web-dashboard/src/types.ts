@@ -1,9 +1,15 @@
 export type CellType = 'code' | 'markdown';
 
 export interface KernelOutput {
-  output_type: 'stream' | 'display_data' | 'execute_result' | 'error';
+  // clear_output and update_display_data are applied to a cell's outputs as they arrive (never rendered)
+  output_type: 'stream' | 'display_data' | 'execute_result' | 'error' | 'clear_output' | 'update_display_data';
   name?: 'stdout' | 'stderr';
-  text?: string;
+  // nbformat allows multi-line strings to be stored as arrays of lines (notebooks saved by Jupyter)
+  text?: string | string[];
+  /** clear_output(wait=True): clear when the next output arrives */
+  wait?: boolean;
+  /** display(..., display_id=...) handle, targeted by update_display_data */
+  display_id?: string;
   data?: Record<string, any>;
   metadata?: Record<string, any>;
   execution_count?: number;

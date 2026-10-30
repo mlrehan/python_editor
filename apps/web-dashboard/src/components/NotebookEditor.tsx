@@ -22,6 +22,11 @@ import { applyTextareaEdit } from '../utils/textareaEdit';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from './Modal';
 import { PythonCellEditor } from './PythonCellEditor';
 import { DataTableView } from './DataTableView';
+import { OutputFrame } from './OutputFrame';
+import { renderAnsi } from '../utils/ansi';
+
+// nbformat may store multi-line strings as arrays of lines (notebooks saved by Jupyter)
+const mimeText = (value: unknown): string => (Array.isArray(value) ? value.join('') : typeof value === 'string' ? value : value == null ? '' : String(value));
 
 interface NotebookEditorProps {
   cells: NotebookCell[];
@@ -373,11 +378,14 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
   };
 
   const renderOutput = (output: KernelOutput, idx: number) => {
+    if (output.output_type === 'clear_output' || output.output_type === 'update_display_data') return null;
+
     if (output.output_type === 'stream') {
       const isErr = output.name === 'stderr';
       return (
         <pre
           key={idx}
+          data-testid="stream-output"
           style={{
             color: isErr ? '#f87171' : 'var(--text-main)',
             fontSize: '13px',
@@ -388,23 +396,45 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             margin: '4px 0',
           }}
         >
-          {output.text}
+          {renderAnsi(mimeText(output.text))}
         </pre>
       );
     }
 
     if (output.output_type === 'display_data' || output.output_type === 'execute_result') {
       const data = output.data || {};
+      // Jupyter's MIME priority: interactive and rich formats first, plain text last
+      if (data['application/vnd.plotly.v1+json']) {
+        return <OutputFrame key={idx} mime="application/vnd.plotly.v1+json" data={data['application/vnd.plotly.v1+json']} />;
+      }
+      if (data['text/html'] !== undefined) {
+        const htmlStr = mimeText(data['text/html']);
+        // pandas DataFrames (class "dataframe"; their repr carries only pandas' own scoped style) and
+        // plain tables get the interactive table. Anything with its own styles or scripts (a Styler,
+        // widgets, charts) renders as-is in the sandboxed frame.
+        const isDataFrame = /<table[^>]*class="[^"]*\bdataframe\b/i.test(htmlStr);
+        const isPlainTable = /<table/i.test(htmlStr) && !/<style\b/i.test(htmlStr);
+        if ((isDataFrame || isPlainTable) && !/<script\b/i.test(htmlStr)) {
+          return <DataTableView key={idx} html={htmlStr} />;
+        }
+        return <OutputFrame key={idx} mime="text/html" data={htmlStr} />;
+      }
+      if (data['text/markdown'] !== undefined) {
+        return <OutputFrame key={idx} mime="text/markdown" data={mimeText(data['text/markdown'])} />;
+      }
+      if (data['text/latex'] !== undefined) {
+        return <OutputFrame key={idx} mime="text/latex" data={mimeText(data['text/latex'])} />;
+      }
       const imgPng = data['image/png'];
       const imgJpeg = data['image/jpeg'];
-      const imgSvg = data['image/svg+xml'];
+      const imgSvg = data['image/svg+xml'] !== undefined ? mimeText(data['image/svg+xml']) : undefined;
 
       if (imgPng || imgJpeg || imgSvg) {
         const imgSrc = imgPng
           ? `data:image/png;base64,${imgPng}`
           : imgJpeg
           ? `data:image/jpeg;base64,${imgJpeg}`
-          : `data:image/svg+xml;utf8,${encodeURIComponent(imgSvg)}`;
+          : `data:image/svg+xml;utf8,${encodeURIComponent(imgSvg ?? '')}`;
         const downloadName = `plot_cell_${idx + 1}.${imgSvg ? 'svg' : imgJpeg ? 'jpg' : 'png'}`;
 
         return (
@@ -464,25 +494,17 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           </div>
         );
       }
-      if (data['text/html']) {
-        const htmlStr = data['text/html'];
-        if (htmlStr.includes('<table')) {
-          return <DataTableView key={idx} html={htmlStr} />;
-        }
+      if (data['application/javascript'] !== undefined) {
+        return <OutputFrame key={idx} mime="application/javascript" data={mimeText(data['application/javascript'])} />;
+      }
+      if (data['application/json'] !== undefined) {
         return (
-          <div
-            key={idx}
-            style={{
-              margin: '8px 0',
-              overflowX: 'auto',
-              color: 'var(--text-main)',
-              fontSize: '13px',
-            }}
-            dangerouslySetInnerHTML={{ __html: htmlStr }}
-          />
+          <pre key={idx} data-testid="json-output" className="code-font" style={{ color: 'var(--text-main)', fontSize: '12.5px', margin: '4px 0', whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify(data['application/json'], null, 2)}
+          </pre>
         );
       }
-      if (data['text/plain']) {
+      if (data['text/plain'] !== undefined) {
         return (
           <pre
             key={idx}
@@ -496,7 +518,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
               margin: '4px 0',
             }}
           >
-            {data['text/plain']}
+            {renderAnsi(mimeText(data['text/plain']))}
           </pre>
         );
       }
@@ -538,7 +560,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
               }}
             >
-              {output.traceback.join('\n')}
+              {renderAnsi(output.traceback.join('\n'))}
             </pre>
           )}
         </div>

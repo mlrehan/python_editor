@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   X,
   Save,
@@ -22,6 +22,7 @@ import { api } from '../services/api';
 import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
 import { applyTabIndent, INDENT } from '../utils/indentation';
 import { applyTextareaEdit } from '../utils/textareaEdit';
+import { tokenizePython, findBracketPair, renderHighlightedLines } from '../utils/pythonSyntax';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from './Modal';
 
 export interface OpenFileInfo {
@@ -654,16 +655,29 @@ interface CodeTextEditorProps {
 
 /*
  * Line-numbered text editor for one file. The textarea owns the scrolling; the gutter follows its
- * vertical scroll, so line numbers stay aligned on any screen size and with long files.
+ * vertical scroll, so line numbers stay aligned on any screen size and with long files. Python files
+ * get syntax highlighting: a coloured layer under the textarea (whose own text is transparent) that
+ * follows both scroll axes.
  */
 const CodeTextEditor: React.FC<CodeTextEditorProps> = ({ file, viewStates, onChange, onKeyDown }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterInnerRef = useRef<HTMLDivElement>(null);
+  const highlightInnerRef = useRef<HTMLDivElement>(null);
+  const [caret, setCaret] = useState<number | null>(null);
   const lineCount = file.content.split('\n').length;
+  const isPython = file.path.toLowerCase().endsWith('.py');
+  const tokens = useMemo(() => (isPython ? tokenizePython(file.content) : []), [isPython, file.content]);
+  const highlighted = useMemo(() => {
+    if (!isPython) return null;
+    const pair = caret === null ? null : findBracketPair(file.content, tokens, caret);
+    return renderHighlightedLines(file.content, tokens, pair ?? []);
+  }, [isPython, file.content, tokens, caret]);
 
   const syncGutter = () => {
     const el = textareaRef.current;
-    if (el && gutterInnerRef.current) gutterInnerRef.current.style.transform = `translateY(${-el.scrollTop}px)`;
+    if (!el) return;
+    if (gutterInnerRef.current) gutterInnerRef.current.style.transform = `translateY(${-el.scrollTop}px)`;
+    if (highlightInnerRef.current) highlightInnerRef.current.style.transform = `translate(${-el.scrollLeft}px, ${-el.scrollTop}px)`;
   };
 
   const remember = () => {
@@ -703,10 +717,19 @@ const CodeTextEditor: React.FC<CodeTextEditorProps> = ({ file, viewStates, onCha
         </div>
       </div>
 
+      <div className="fe-code-area">
+      {highlighted && (
+        <div className="fe-highlight code-font" aria-hidden="true" data-testid="file-highlight-layer">
+          <div ref={highlightInnerRef} className="fe-highlight-inner">
+            {highlighted}
+          </div>
+        </div>
+      )}
+
       {/* Editable code text area */}
       <textarea
         ref={textareaRef}
-        className="code-font fe-textarea"
+        className={`code-font fe-textarea${highlighted ? ' fe-textarea--highlighted' : ''}`}
         value={file.content}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
@@ -714,7 +737,12 @@ const CodeTextEditor: React.FC<CodeTextEditorProps> = ({ file, viewStates, onCha
           syncGutter();
           remember();
         }}
-        onSelect={remember}
+        onSelect={(e) => {
+          remember();
+          const el = e.currentTarget;
+          setCaret(el.selectionStart === el.selectionEnd ? el.selectionStart : null);
+        }}
+        onBlur={() => setCaret(null)}
         aria-label={`Edit ${file.name}`}
         data-testid="file-editor-textarea"
         placeholder="Start typing file content..."
@@ -723,6 +751,7 @@ const CodeTextEditor: React.FC<CodeTextEditorProps> = ({ file, viewStates, onCha
         autoCorrect="off"
         autoCapitalize="off"
       />
+      </div>
     </div>
   );
 };

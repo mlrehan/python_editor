@@ -18,51 +18,16 @@ import {
   Calendar,
   ToggleLeft,
 } from 'lucide-react';
-
-interface CellData {
-  text: string;
-  html: string;
-  isIndex: boolean;
-  inlineStyle?: React.CSSProperties;
-}
-
-interface ColumnMeta {
-  header: string;
-  type: 'number' | 'string' | 'date' | 'boolean';
-  isIndex: boolean;
-}
+import { parseDataFrameHtml, isMissingValue } from '../utils/dataframeHtml';
+import { OutputFrame } from './OutputFrame';
 
 interface DataTableViewProps {
   html: string;
   title?: string;
 }
 
-// Convert CSS style string from raw HTML to React inline CSSProperties
-function parseInlineStyle(styleStr: string): React.CSSProperties {
-  if (!styleStr) return {};
-  const styleObj: Record<string, string> = {};
-  styleStr.split(';').forEach((declaration) => {
-    const [property, value] = declaration.split(':');
-    if (property && value) {
-      const camelProp = property.trim().replace(/-([a-z])/g, (_, char) => char.toUpperCase());
-      styleObj[camelProp] = value.trim();
-    }
-  });
-  return styleObj as React.CSSProperties;
-}
-
-// Detect missing/NaN values
-function isMissingValue(val: string): boolean {
-  const normalized = val.trim().toLowerCase();
-  return (
-    normalized === 'nan' ||
-    normalized === 'none' ||
-    normalized === 'null' ||
-    normalized === '<na>' ||
-    normalized === 'nat' ||
-    normalized === 'undefined'
-  );
-}
+// Height of one header row (MultiIndex levels stack as sticky rows)
+const HEADER_ROW_HEIGHT = 33;
 
 // RFC 4180 CSV escaping
 function escapeCSVField(val: string): string {
@@ -79,109 +44,10 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [copied, setCopied] = useState(false);
 
-  // Parse HTML table using standard DOMParser
+  // Parse the pandas HTML (column names, index names, MultiIndex levels, real shape)
   const parsedData = useMemo(() => {
     try {
-      if (typeof window === 'undefined') return null;
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      const table = doc.querySelector('table');
-      if (!table) return null;
-
-      // 1. Extract Headers
-      const headerRows = Array.from(table.querySelectorAll('thead tr'));
-      let rawHeaders: Array<{ text: string; isIndex: boolean }> = [];
-
-      if (headerRows.length > 0) {
-        // Use last header row for multi-level headers or standard single row
-        const lastHeaderRow = headerRows[headerRows.length - 1];
-        const thElements = Array.from(lastHeaderRow.querySelectorAll('th, td'));
-        rawHeaders = thElements.map((th, idx) => ({
-          text: th.textContent?.trim() || (idx === 0 ? '' : `Col_${idx}`),
-          isIndex: th.tagName.toLowerCase() === 'th' && idx === 0 && !th.textContent?.trim(),
-        }));
-      }
-
-      // 2. Extract Data Rows
-      const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
-      // Fallback: if no <tbody>, collect all <tr> excluding first row
-      const candidateRows = bodyRows.length > 0 ? bodyRows : Array.from(table.querySelectorAll('tr')).slice(1);
-
-      const rows: CellData[][] = [];
-      for (const tr of candidateRows) {
-        const cells = Array.from(tr.querySelectorAll('th, td'));
-        if (cells.length === 0) continue;
-
-        const rowData: CellData[] = cells.map((cell, idx) => {
-          const rawText = cell.textContent?.trim() || '';
-          const isIndexCell = cell.tagName.toLowerCase() === 'th' || (rawHeaders[idx]?.isIndex ?? false);
-          const styleAttr = cell.getAttribute('style') || '';
-          const inlineStyle = styleAttr ? parseInlineStyle(styleAttr) : undefined;
-          return {
-            text: rawText,
-            html: cell.innerHTML,
-            isIndex: isIndexCell,
-            inlineStyle,
-          };
-        });
-        rows.push(rowData);
-      }
-
-      if (rows.length === 0 && rawHeaders.length === 0) {
-        return null;
-      }
-
-      // If no thead was present, construct default headers from column count
-      const colCount = Math.max(rawHeaders.length, rows[0]?.length || 0);
-      if (rawHeaders.length === 0 && colCount > 0) {
-        rawHeaders = Array.from({ length: colCount }, (_, i) => ({
-          text: `Col_${i}`,
-          isIndex: false,
-        }));
-      }
-
-      // Pad headers if rows have more columns
-      while (rawHeaders.length < colCount) {
-        rawHeaders.push({ text: `Col_${rawHeaders.length}`, isIndex: false });
-      }
-
-      // 3. Infer Column Types
-      const columns: ColumnMeta[] = rawHeaders.map((hdr, colIdx) => {
-        let numericCount = 0;
-        let dateCount = 0;
-        let boolCount = 0;
-        let sampleCount = 0;
-
-        for (let r = 0; r < Math.min(rows.length, 50); r++) {
-          const cell = rows[r][colIdx];
-          if (!cell || isMissingValue(cell.text) || !cell.text) continue;
-          sampleCount++;
-
-          const cleanNum = cell.text.replace(/[\$,%]/g, '').trim();
-          if (!isNaN(Number(cleanNum)) && cleanNum !== '') {
-            numericCount++;
-          } else if (cell.text.toLowerCase() === 'true' || cell.text.toLowerCase() === 'false') {
-            boolCount++;
-          } else if (!isNaN(Date.parse(cell.text)) && cell.text.length > 4 && /\d/.test(cell.text)) {
-            dateCount++;
-          }
-        }
-
-        let inferredType: ColumnMeta['type'] = 'string';
-        if (sampleCount > 0) {
-          if (numericCount / sampleCount >= 0.8) inferredType = 'number';
-          else if (boolCount / sampleCount >= 0.8) inferredType = 'boolean';
-          else if (dateCount / sampleCount >= 0.8) inferredType = 'date';
-        }
-
-        return {
-          header: hdr.text,
-          type: inferredType,
-          isIndex: hdr.isIndex || (colIdx === 0 && rows.length > 0 && rows[0][0]?.isIndex),
-        };
-      });
-
-      return { columns, rows };
+      return parseDataFrameHtml(html);
     } catch {
       return null;
     }
@@ -253,7 +119,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
   const handleCopyClipboard = useCallback(() => {
     if (!parsedData) return;
     const { columns } = parsedData;
-    const headers = columns.map((c) => c.header || '').join('\t');
+    const headers = columns.map((c) => c.fullLabel).join('\t');
     const rowsText = sortedRows
       .map((row) => row.map((cell) => cell.text).join('\t'))
       .join('\n');
@@ -269,7 +135,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
   const handleExportCSV = useCallback(() => {
     if (!parsedData) return;
     const { columns } = parsedData;
-    const headers = columns.map((c) => escapeCSVField(c.header || '')).join(',');
+    const headers = columns.map((c) => escapeCSVField(c.fullLabel)).join(',');
     const rowsText = sortedRows
       .map((row) => row.map((cell) => escapeCSVField(cell.text)).join(','))
       .join('\r\n');
@@ -286,27 +152,13 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
     URL.revokeObjectURL(url);
   }, [parsedData, sortedRows]);
 
-  // Fallback to stylized standard HTML if structure cannot be parsed as a tabular dataset
+  // Not a recognisable table: render the HTML as-is, isolated in the sandboxed output frame
   if (!parsedData || parsedData.columns.length === 0 || parsedData.rows.length === 0) {
-    return (
-      <div
-        className="dataframe-fallback-wrapper"
-        style={{
-          margin: '8px 0',
-          padding: '10px 12px',
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-main)',
-          borderRadius: '6px',
-          overflowX: 'auto',
-          fontSize: '13px',
-          color: 'var(--text-main)',
-        }}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
+    return <OutputFrame mime="text/html" data={html} />;
   }
 
-  const { columns, rows } = parsedData;
+  const { columns, rows, headerBands, indexCount, shape } = parsedData;
+  const dataColumnCount = columns.length - indexCount;
   const isFiltered = searchTerm.trim().length > 0;
 
   return (
@@ -359,7 +211,11 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                 </>
               ) : (
                 <>
-                  <strong>{rows.length}</strong> rows × <strong>{columns.length}</strong> cols
+                  <strong>{(shape?.rows ?? rows.length).toLocaleString()}</strong> rows ×{' '}
+                  <strong>{(shape?.columns ?? dataColumnCount).toLocaleString()}</strong> columns
+                  {shape && shape.rows > rows.length && (
+                    <span style={{ color: 'var(--text-muted)' }}> (showing {rows.length})</span>
+                  )}
                 </>
               )}
             </span>
@@ -524,6 +380,34 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
         >
           {/* Table Header with Sorting */}
           <thead>
+            {headerBands.map((band, bandIdx) => (
+              <tr key={`band-${bandIdx}`} data-testid="dataframe-header-band">
+                {band.map((cell, cellIdx) => (
+                  <th
+                    key={cellIdx}
+                    colSpan={cell.span}
+                    style={{
+                      position: 'sticky',
+                      top: `${bandIdx * HEADER_ROW_HEIGHT}px`,
+                      zIndex: 3,
+                      height: `${HEADER_ROW_HEIGHT}px`,
+                      boxSizing: 'border-box',
+                      backgroundColor: 'var(--bg-cell-header)',
+                      borderBottom: '1px solid var(--border-main)',
+                      borderRight: '1px solid var(--border-main)',
+                      padding: '0 12px',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      color: cell.isIndex ? 'var(--text-muted)' : 'var(--text-main)',
+                      textAlign: 'center',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {cell.text}
+                  </th>
+                ))}
+              </tr>
+            ))}
             <tr>
               {columns.map((col, colIdx) => {
                 const isSorted = sortConfig?.colIndex === colIdx;
@@ -534,9 +418,10 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                   <th
                     key={colIdx}
                     onClick={() => handleSort(colIdx)}
+                    data-testid="dataframe-column-header"
                     style={{
                       position: 'sticky',
-                      top: 0,
+                      top: `${headerBands.length * HEADER_ROW_HEIGHT}px`,
                       zIndex: 3,
                       backgroundColor: 'var(--bg-cell-header)',
                       borderBottom: '2px solid var(--border-secondary)',
@@ -551,7 +436,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                       whiteSpace: 'nowrap',
                       transition: 'background-color 0.1s ease',
                     }}
-                    title={`Click to sort by ${col.header || 'Index'}`}
+                    title={`Click to sort by ${col.fullLabel || (col.isIndex ? 'index' : 'this column')}`}
                   >
                     <div
                       style={{
@@ -570,7 +455,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                       </span>
 
                       {/* Header Title */}
-                      <span>{col.header || (col.isIndex ? '' : `Col_${colIdx}`)}</span>
+                      <span>{col.label}</span>
 
                       {/* Sort Indicator */}
                       <span style={{ display: 'inline-flex', opacity: isSorted ? 1 : 0.35 }}>
@@ -636,7 +521,6 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                             fontFamily: isNumeric || cell.isIndex ? "'JetBrains Mono', monospace" : 'inherit',
                             fontSize: isNumeric || cell.isIndex ? '12px' : '12.5px',
                             whiteSpace: 'nowrap',
-                            ...cell.inlineStyle,
                           }}
                         >
                           {isMissing ? (
