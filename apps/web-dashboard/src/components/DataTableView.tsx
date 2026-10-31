@@ -157,7 +157,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
     return <OutputFrame mime="text/html" data={html} />;
   }
 
-  const { columns, rows, headerBands, indexCount, shape } = parsedData;
+  const { columns, rows, headerBands, indexCount, hasIndexNames, shape } = parsedData;
   const dataColumnCount = columns.length - indexCount;
   const isFiltered = searchTerm.trim().length > 0;
 
@@ -419,14 +419,19 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                     key={colIdx}
                     onClick={() => handleSort(colIdx)}
                     data-testid="dataframe-column-header"
+                    scope="col"
+                    className={col.isIndex ? `df-index-corner${colIdx === indexCount - 1 ? ' df-index-last' : ''}` : undefined}
                     style={{
                       position: 'sticky',
                       top: `${headerBands.length * HEADER_ROW_HEIGHT}px`,
-                      zIndex: 3,
+                      left: col.isIndex && colIdx === 0 ? 0 : undefined,
+                      zIndex: col.isIndex && colIdx === 0 ? 5 : 3,
+                      height: `${HEADER_ROW_HEIGHT}px`,
+                      boxSizing: 'border-box',
                       backgroundColor: 'var(--bg-cell-header)',
-                      borderBottom: '2px solid var(--border-secondary)',
+                      borderBottom: hasIndexNames ? '1px solid var(--border-main)' : '2px solid var(--border-secondary)',
                       borderRight: '1px solid var(--border-main)',
-                      padding: '8px 12px',
+                      padding: '0 12px',
                       fontWeight: 600,
                       fontSize: '12px',
                       color: isSorted ? 'var(--border-accent)' : 'var(--text-main)',
@@ -436,7 +441,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                       whiteSpace: 'nowrap',
                       transition: 'background-color 0.1s ease',
                     }}
-                    title={`Click to sort by ${col.fullLabel || (col.isIndex ? 'index' : 'this column')}`}
+                    title={col.isIndex ? `Sort by index${col.indexName ? ` (${col.indexName})` : ''}${col.label ? ` · columns: ${col.label}` : ''}` : `Click to sort by ${col.fullLabel || 'this column'}`}
                   >
                     <div
                       style={{
@@ -446,8 +451,8 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                         gap: '6px',
                       }}
                     >
-                      {/* Column Type Icon */}
-                      <span style={{ opacity: 0.5 }}>
+                      {/* Column Type Icon (data columns) */}
+                      <span style={{ opacity: 0.5, display: col.isIndex ? 'none' : undefined }}>
                         {col.type === 'number' && <Hash size={11} />}
                         {col.type === 'string' && <Type size={11} />}
                         {col.type === 'date' && <Calendar size={11} />}
@@ -468,6 +473,33 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                 );
               })}
             </tr>
+            {/* Index names (df.index.name / names) on their own row, as Jupyter and Colab show them */}
+            {hasIndexNames && (
+              <tr data-testid="dataframe-index-names">
+                {columns.map((col, colIdx) => (
+                  <th
+                    key={colIdx}
+                    scope={col.isIndex ? 'col' : undefined}
+                    className={col.isIndex ? `df-index-name${colIdx === indexCount - 1 ? ' df-index-last' : ''}` : 'df-index-name-filler'}
+                    style={{
+                      position: 'sticky',
+                      top: `${(headerBands.length + 1) * HEADER_ROW_HEIGHT}px`,
+                      left: col.isIndex && colIdx === 0 ? 0 : undefined,
+                      zIndex: col.isIndex && colIdx === 0 ? 5 : 3,
+                      height: `${HEADER_ROW_HEIGHT}px`,
+                      boxSizing: 'border-box',
+                      padding: '0 12px',
+                      borderBottom: '2px solid var(--border-secondary)',
+                      borderRight: '1px solid var(--border-main)',
+                      textAlign: 'left',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {col.isIndex ? col.indexName : ''}
+                  </th>
+                ))}
+              </tr>
+            )}
           </thead>
 
           {/* Table Body */}
@@ -507,6 +539,25 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                       const colMeta = columns[cIdx];
                       const isNumeric = colMeta?.type === 'number';
                       const isMissing = isMissingValue(cell.text);
+
+                      if (colMeta?.isIndex) {
+                        return (
+                          <th
+                            key={cIdx}
+                            scope="row"
+                            data-testid="dataframe-index-cell"
+                            className={`df-index-cell${cIdx === indexCount - 1 ? ' df-index-last' : ''}`}
+                            style={{
+                              position: cIdx === 0 ? 'sticky' : undefined,
+                              left: cIdx === 0 ? 0 : undefined,
+                              zIndex: cIdx === 0 ? 2 : undefined,
+                              textAlign: isNumeric ? 'right' : 'left',
+                            }}
+                          >
+                            {cell.text}
+                          </th>
+                        );
+                      }
 
                       return (
                         <td

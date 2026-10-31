@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import {
   X,
   Save,
@@ -19,10 +19,10 @@ import {
   Check,
 } from 'lucide-react';
 import { api } from '../services/api';
-import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
-import { applyTabIndent, INDENT } from '../utils/indentation';
-import { applyTextareaEdit } from '../utils/textareaEdit';
-import { tokenizePython, findBracketPair, renderHighlightedLines } from '../utils/pythonSyntax';
+import type { StoredEditorState } from './CodeEditor';
+
+// The editor engine (CodeMirror) loads on first use, so it does not slow down the initial page load
+const CodeEditor = lazy(() => import('./CodeEditor').then((m) => ({ default: m.CodeEditor })));
 import { Modal, ModalHeader, ModalBody, ModalFooter } from './Modal';
 
 export interface OpenFileInfo {
@@ -51,14 +51,6 @@ interface FileEditorPanelProps {
   layout?: FileEditorLayout;
 }
 
-// Cursor, selection and scroll position of a file, kept while the user works in another tab
-interface EditorViewState {
-  selectionStart: number;
-  selectionEnd: number;
-  scrollTop: number;
-  scrollLeft: number;
-}
-
 export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
   openFiles = [],
   activeFilePath,
@@ -77,7 +69,8 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
   const [csvViewMode, setCsvViewMode] = useState<'table' | 'text'>('table');
   const [mdViewMode, setMdViewMode] = useState<'edit' | 'preview'>('preview');
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
-  const viewStatesRef = useRef<Map<string, EditorViewState>>(new Map());
+  // Each open file's editor state (undo history, selection, folds, scroll), kept across tab switches
+  const viewStatesRef = useRef<Map<string, StoredEditorState>>(new Map());
   const tabStripRef = useRef<HTMLDivElement>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
 
@@ -89,48 +82,6 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
   const currentFile: OpenFileInfo | null =
     filesList.find((f) => f.path === activeFilePath) ||
     (filesList.length > 0 ? filesList[0] : file || null);
-
-  // Editor keys: Tab / Shift+Tab indent and dedent (whole lines when a multi-line selection exists),
-  // Enter keeps the current indentation and adds a level after a trailing ':' in Python files.
-  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!currentFile || e.nativeEvent.isComposing) return;
-    const el = e.currentTarget;
-    const value = el.value;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-
-    // Through the browser's native editing history, so Ctrl+Z / Ctrl+Shift+Z undo and redo it
-    const applyEdit = (newValue: string, selStart: number, selEnd: number) => {
-      e.preventDefault();
-      applyTextareaEdit(el, newValue, selStart, selEnd);
-      onContentChange(el.value, currentFile.path);
-    };
-
-    // Ctrl+/ toggles Python comments on the selected lines or the current line
-    if (isToggleCommentShortcut(e) && currentFile.path.toLowerCase().endsWith('.py')) {
-      e.stopPropagation();
-      const edit = toggleLineComments(value, start, end);
-      applyEdit(edit.value, edit.selectionStart, edit.selectionEnd);
-      return;
-    }
-
-    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const edit = applyTabIndent(value, start, end, e.shiftKey);
-      applyEdit(edit.value, edit.selectionStart, edit.selectionEnd);
-      return;
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const lineBeforeCursor = value.substring(0, start).split('\n').pop() || '';
-      const currentIndent = lineBeforeCursor.match(/^[ \t]*/)?.[0] ?? '';
-      const isPython = currentFile.path.toLowerCase().endsWith('.py');
-      const extraIndent = isPython && lineBeforeCursor.trimEnd().endsWith(':') ? INDENT : '';
-      if (currentIndent || extraIndent) {
-        const insertText = '\n' + currentIndent + extraIndent;
-        applyEdit(value.substring(0, start) + insertText + value.substring(end), start + insertText.length, start + insertText.length);
-      }
-    }
-  };
 
   // Handle Ctrl+S / Cmd+S while focus is in this panel (elsewhere, Ctrl+S saves the notebook)
   useEffect(() => {
@@ -576,15 +527,16 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
             })}
           </div>
         ) : (
-          /* Standard Code / Text Editor with Line Numbers. Keyed by path: each file gets a fresh
-             textarea whose cursor, selection and scroll position are restored from viewStatesRef. */
-          <CodeTextEditor
-            key={currentFile.path}
-            file={currentFile}
-            viewStates={viewStatesRef.current}
-            onChange={(value) => onContentChange(value, currentFile.path)}
-            onKeyDown={handleEditorKeyDown}
-          />
+          /* Code / text editor (CodeMirror): syntax highlighting, IntelliSense and diagnostics for
+             Python, folding, multi-cursor, find/replace, VS Code keyboard shortcuts */
+          <Suspense fallback={<div className="fe-cm-loading">Loading editor…</div>}>
+            <CodeEditor
+              path={currentFile.path}
+              value={currentFile.content}
+              states={viewStatesRef.current}
+              onChange={(value) => onContentChange(value, currentFile.path)}
+            />
+          </Suspense>
         )}
       </div>
 
@@ -643,115 +595,5 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
         </Modal>
       )}
     </aside>
-  );
-};
-
-interface CodeTextEditorProps {
-  file: OpenFileInfo;
-  viewStates: Map<string, EditorViewState>;
-  onChange: (value: string) => void;
-  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-}
-
-/*
- * Line-numbered text editor for one file. The textarea owns the scrolling; the gutter follows its
- * vertical scroll, so line numbers stay aligned on any screen size and with long files. Python files
- * get syntax highlighting: a coloured layer under the textarea (whose own text is transparent) that
- * follows both scroll axes.
- */
-const CodeTextEditor: React.FC<CodeTextEditorProps> = ({ file, viewStates, onChange, onKeyDown }) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const gutterInnerRef = useRef<HTMLDivElement>(null);
-  const highlightInnerRef = useRef<HTMLDivElement>(null);
-  const [caret, setCaret] = useState<number | null>(null);
-  const lineCount = file.content.split('\n').length;
-  const isPython = file.path.toLowerCase().endsWith('.py');
-  const tokens = useMemo(() => (isPython ? tokenizePython(file.content) : []), [isPython, file.content]);
-  const highlighted = useMemo(() => {
-    if (!isPython) return null;
-    const pair = caret === null ? null : findBracketPair(file.content, tokens, caret);
-    return renderHighlightedLines(file.content, tokens, pair ?? []);
-  }, [isPython, file.content, tokens, caret]);
-
-  const syncGutter = () => {
-    const el = textareaRef.current;
-    if (!el) return;
-    if (gutterInnerRef.current) gutterInnerRef.current.style.transform = `translateY(${-el.scrollTop}px)`;
-    if (highlightInnerRef.current) highlightInnerRef.current.style.transform = `translate(${-el.scrollLeft}px, ${-el.scrollTop}px)`;
-  };
-
-  const remember = () => {
-    const el = textareaRef.current;
-    if (!el) return;
-    viewStates.set(file.path, {
-      selectionStart: el.selectionStart,
-      selectionEnd: el.selectionEnd,
-      scrollTop: el.scrollTop,
-      scrollLeft: el.scrollLeft,
-    });
-  };
-
-  // Restore where the user was in this file; remember it again when switching away
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    const saved = viewStates.get(file.path);
-    if (el && saved) {
-      el.setSelectionRange(saved.selectionStart, saved.selectionEnd);
-      el.scrollTop = saved.scrollTop;
-      el.scrollLeft = saved.scrollLeft;
-      syncGutter();
-    }
-    return remember;
-    // Runs once per mounted file (the component is keyed by path)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return (
-    <div className="fe-code-editor">
-      {/* Line numbers gutter */}
-      <div className="fe-gutter code-font" aria-hidden="true">
-        <div ref={gutterInnerRef} className="fe-gutter-inner">
-          {Array.from({ length: lineCount }, (_, i) => (
-            <div key={i}>{i + 1}</div>
-          ))}
-        </div>
-      </div>
-
-      <div className="fe-code-area">
-      {highlighted && (
-        <div className="fe-highlight code-font" aria-hidden="true" data-testid="file-highlight-layer">
-          <div ref={highlightInnerRef} className="fe-highlight-inner">
-            {highlighted}
-          </div>
-        </div>
-      )}
-
-      {/* Editable code text area */}
-      <textarea
-        ref={textareaRef}
-        className={`code-font fe-textarea${highlighted ? ' fe-textarea--highlighted' : ''}`}
-        value={file.content}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        onScroll={() => {
-          syncGutter();
-          remember();
-        }}
-        onSelect={(e) => {
-          remember();
-          const el = e.currentTarget;
-          setCaret(el.selectionStart === el.selectionEnd ? el.selectionStart : null);
-        }}
-        onBlur={() => setCaret(null)}
-        aria-label={`Edit ${file.name}`}
-        data-testid="file-editor-textarea"
-        placeholder="Start typing file content..."
-        spellCheck={false}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-      />
-      </div>
-    </div>
   );
 };

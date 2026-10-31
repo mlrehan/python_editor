@@ -428,9 +428,27 @@ export class ApiClient {
     sessionId?: string,
     signal?: AbortSignal
   ) {
-    return this.request<{ completions: Array<{ label: string; type: string; detail?: string; documentation?: string; insert_text?: string }>; signatures: any[] }>('/editor/complete', {
+    return this.request<{
+      completions: Array<{ label: string; type: string; detail?: string; documentation?: string; insert_text?: string }>;
+      signatures: any[];
+      /** "column": DataFrame column keys replacing `prefix` (typed after `quote`) */
+      context?: string | null;
+      prefix?: string | null;
+      quote?: string | null;
+      /** Why runtime suggestions are missing or possibly out of date */
+      notice?: string | null;
+    }>('/editor/complete', {
       method: 'POST',
       body: JSON.stringify({ code, line, column, notebook_context: notebookContext, session_id: sessionId }),
+      signal,
+    });
+  }
+
+  // Structured documentation for a dotted name (suggestion details panel)
+  async inspectExpression(expression: string, code: string, line: number, column: number, notebookContext: string[] = [], sessionId?: string, signal?: AbortSignal) {
+    return this.request<{ doc: any | null; reason?: string }>('/editor/inspect', {
+      method: 'POST',
+      body: JSON.stringify({ expression, code, line, column, notebook_context: notebookContext, session_id: sessionId }),
       signal,
     });
   }

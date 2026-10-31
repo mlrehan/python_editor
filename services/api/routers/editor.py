@@ -2,6 +2,7 @@ import os
 import sys
 import ast
 import re
+import json
 import asyncio
 import importlib.util
 import importlib.machinery
@@ -13,6 +14,8 @@ import jedi
 from ..auth import get_current_user_or_guest, GuestUser
 from ..models import User
 from ..kernel_bridge import kernel_pool
+from ..python_docs import build_doc, doc_from_text
+from services.runtime_management.introspection import request_expression
 
 router = APIRouter(prefix="/editor", tags=["Language Service / IntelliSense"])
 
@@ -36,6 +39,21 @@ class CompletionItem(BaseModel):
 class CompletionResponse(BaseModel):
     completions: List[CompletionItem]
     signatures: List[Dict[str, Any]] = []
+    # "column": the items are DataFrame column keys; `prefix` is the text they replace (after any quote)
+    context: Optional[str] = None
+    prefix: Optional[str] = None
+    quote: Optional[str] = None
+    # Why runtime suggestions are missing or may be out of date (shown in the suggestion list)
+    notice: Optional[str] = None
+
+
+class InspectRequest(BaseModel):
+    code: str = ""
+    line: int = 1
+    column: int = 0
+    notebook_context: List[str] = []
+    session_id: Optional[str] = None
+    expression: str = Field(..., description="Dotted name to document, e.g. 'pd.read_csv' or 'df.reindex'")
 
 
 class SignatureRequest(BaseModel):
@@ -236,7 +254,7 @@ def _inspect_object_completions(obj: Any, cache_key: str) -> List[CompletionItem
         try:
             raw_doc = getattr(val, "__doc__", None)
             if isinstance(raw_doc, str) and raw_doc.strip():
-                doc = raw_doc.strip()[:400]
+                doc = raw_doc.strip()
         except Exception:
             pass
 
@@ -300,6 +318,176 @@ def _resolve_runtime_target(target_key: str) -> Optional[Any]:
         return importlib.import_module(target_key)
     except Exception:
         return None
+
+
+# Runtime results per (kernel client, request, execution count): any cell run can change them
+_RUNTIME_CACHE: Dict[Tuple[Any, ...], Any] = {}
+# Last good result per (kernel client, request), used while code is running
+_RUNTIME_LAST: Dict[Tuple[Any, ...], Any] = {}
+# Requests being answered right now: concurrent identical requests (fast typing) share one round trip
+_RUNTIME_INFLIGHT: Dict[Tuple[Any, ...], "asyncio.Future"] = {}
+
+
+async def _runtime_info(session: Any, request: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], bool]:
+    """Read-only kernel introspection, cached until the next execution. Returns (result, is_stale)."""
+    ident = (id(session.kc), json.dumps(request, sort_keys=True))
+    key = ident + (session.execution_count,)
+    if key in _RUNTIME_CACHE:
+        return _RUNTIME_CACHE[key], False
+    pending = _RUNTIME_INFLIGHT.get(key)
+    if pending is not None:
+        raw = await asyncio.shield(pending)
+    else:
+        pending = asyncio.ensure_future(session.evaluate_silently(request_expression(request)))
+        _RUNTIME_INFLIGHT[key] = pending
+        try:
+            raw = await asyncio.shield(pending)
+        finally:
+            _RUNTIME_INFLIGHT.pop(key, None)
+    if raw is None:
+        return _RUNTIME_LAST.get(ident), True
+    try:
+        result = json.loads(ast.literal_eval(raw))
+    except Exception:
+        return None, False
+    if len(_RUNTIME_CACHE) > 1000:
+        _RUNTIME_CACHE.clear()
+    if len(_RUNTIME_LAST) > 1000:
+        _RUNTIME_LAST.clear()
+    _RUNTIME_CACHE[key] = result
+    _RUNTIME_LAST[ident] = result
+    return result, False
+
+
+def _apply_runtime_types(namespace: Optional[Dict[str, str]], aliases: Dict[str, str], var_types: Dict[str, str]) -> None:
+    """The live namespace is the truth: it overrides types guessed from the code text."""
+    if not namespace or "error" in namespace:
+        return
+    for name, typ in namespace.items():
+        if not isinstance(typ, str):
+            continue
+        if typ.startswith("module:"):
+            aliases[name] = typ[len("module:"):]
+        elif typ.startswith("pandas.") and typ.endswith(".DataFrame"):
+            var_types[name] = "pandas.DataFrame"
+        elif typ.startswith("pandas.") and typ.endswith(".Series"):
+            var_types[name] = "pandas.Series"
+        else:
+            var_types[name] = typ
+
+
+# Methods whose arguments are column names (df.groupby('...'), df.sort_values(by=[...]), ...)
+_COLUMN_METHODS = frozenset({
+    "filter", "groupby", "sort_values", "set_index", "drop", "drop_duplicates", "dropna", "pivot_table",
+    "pivot", "melt", "value_counts", "nlargest", "nsmallest", "explode", "duplicated", "get", "pop",
+    "rename", "fillna", "astype", "agg", "aggregate", "plot", "hist", "boxplot",
+})
+_NAME_CHAIN = re.compile(r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*$")
+
+
+def _column_context(line_before_cursor: str) -> Optional[Dict[str, str]]:
+    """Detects a DataFrame column-key position: df[ / df[' / df[[ 'a', / df.loc[:, / df.groupby(' ...
+
+    Returns {"expr", "quote", "prefix"}: the DataFrame expression, the quote opened at the key (or ""),
+    and the text typed so far after it.
+    """
+    line = line_before_cursor
+    quote, quote_start, i = None, -1, 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote, quote_start = ch, i
+        elif ch == "#":
+            return None
+        i += 1
+    if quote:
+        prefix, head = line[quote_start + 1:], line[:quote_start]
+        if re.search(r"[A-Za-z0-9_]$", head):  # a string prefix such as f'...' is not a column key
+            return None
+    else:
+        prefix = re.search(r"\w*$", line).group(0)
+        head = line[: len(line) - len(prefix)]
+        # Unquoted: only right after the bracket/comma (a typed word is a variable used as the key)
+        if prefix or not re.search(r"[\[(,=]\s*$", head):
+            return None
+
+    # Innermost unclosed bracket in `head` (outside strings)
+    stack: List[Tuple[str, int]] = []
+    q = None
+    j = 0
+    while j < len(head):
+        ch = head[j]
+        if q:
+            if ch == "\\":
+                j += 2
+                continue
+            if ch == q:
+                q = None
+        elif ch in "'\"":
+            q = ch
+        elif ch in "([{":
+            stack.append((ch, j))
+        elif ch in ")]}" and stack:
+            stack.pop()
+        j += 1
+    if not stack:
+        return None
+
+    bracket, pos = stack[-1]
+    before = head[:pos].rstrip()
+    # A list literal of keys: df[['a', '|  df.filter(items=['|  df.loc[:, ['|
+    if bracket == "[" and (not before or before[-1] in "[(,=:"):
+        if len(stack) < 2:
+            return None
+        bracket, pos = stack[-2]
+        before = head[:pos].rstrip()
+    m = _NAME_CHAIN.search(before)
+    if not m:
+        return None
+    expr = m.group(1)
+    if bracket == "[":
+        between = head[pos + 1:]
+        if expr.endswith(".loc"):
+            # Columns are the part after the top-level comma: df.loc[rows, cols]
+            if "," not in between:
+                return None
+            expr = expr[: -len(".loc")]
+        elif expr.endswith(".iloc") or expr.endswith(".at") or expr.endswith(".iat"):
+            return None
+    elif bracket == "(":
+        if "." not in expr or expr.rsplit(".", 1)[1] not in _COLUMN_METHODS:
+            return None
+        expr = expr.rsplit(".", 1)[0]
+    else:
+        return None
+    return {"expr": expr, "quote": quote or "", "prefix": prefix}
+
+
+def _column_items(expr: str, info: Dict[str, Any], quote: str) -> List[CompletionItem]:
+    rows = (info.get("shape") or [None])[0]
+    items: List[CompletionItem] = []
+    for col in info.get("columns", []):
+        if quote:
+            if not col.get("is_str"):
+                continue  # only string keys can be completed inside quotes
+            insert = col["label"].replace("\\", "\\\\").replace(quote, "\\" + quote)
+        else:
+            insert = col["key"]
+        dtype = col.get("dtype") or ""
+        items.append(CompletionItem(
+            label=col["label"],
+            type="column",
+            detail=dtype,
+            documentation=f"Column of {expr}" + (f" · dtype {dtype}" if dtype else "") + (f" · {rows:,} rows" if isinstance(rows, int) else ""),
+            insert_text=insert,
+        ))
+    return items
 
 
 def _extract_receiver_and_prefix(line_before_cursor: str) -> Optional[Tuple[str, str]]:
@@ -547,7 +735,7 @@ def _get_top_level_builtins() -> List[CompletionItem]:
         doc = ""
         raw_doc = getattr(val, "__doc__", None)
         if isinstance(raw_doc, str):
-            doc = raw_doc.strip()[:300]
+            doc = raw_doc.strip()
         items.append(CompletionItem(label=name, type=btype, detail="builtin", documentation=doc, insert_text=name))
 
     _TOP_LEVEL_BUILTINS_CACHE = items
@@ -558,6 +746,23 @@ def _fast_resolve_signature(full_code: str, line_before_cursor: str, aliases: Di
     """
     Resolves function call signature in <0.5ms using inspect.signature or AST when inside parentheses.
     """
+    # A string still open at the caret (typing an argument: df.groupby('Cat) is part of the argument,
+    # not a closed literal: scan from where it starts
+    quote, quote_start, k = None, -1, 0
+    while k < len(line_before_cursor):
+        ch = line_before_cursor[k]
+        if quote:
+            if ch == "\\":
+                k += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote, quote_start = ch, k
+        k += 1
+    if quote:
+        line_before_cursor = line_before_cursor[:quote_start]
+
     # Find innermost unclosed '(' on line_before_cursor
     depth = 0
     open_paren_pos = -1
@@ -630,13 +835,16 @@ def _fast_resolve_signature(full_code: str, line_before_cursor: str, aliases: Di
     if target_fn is not None and callable(target_fn):
         try:
             sig = inspect.signature(target_fn)
-            params = [p.name for p in sig.parameters.values() if p.name != "self"]
-            doc = (getattr(target_fn, "__doc__", "") or "").strip()[:400]
+            # Methods looked up on a class: the bound instance is implicit, as in VS Code
+            sig = sig.replace(parameters=[p for p in sig.parameters.values() if p.name not in ("self", "cls")])
+            params = [p.name for p in sig.parameters.values()]
+            doc = build_doc(target_fn, fn_short_name)
             return [{
                 "name": fn_short_name,
                 "signature": f"{fn_short_name}{sig}",
                 "params": params,
-                "docstring": doc,
+                "docstring": doc.get("summary") or "",
+                "doc": doc,
                 "index": min(comma_count, max(0, len(params) - 1)) if params else 0,
             }]
         except Exception:
@@ -675,7 +883,7 @@ def _run_jedi_sync(
                     doc = ""
                     if fetch_docs:
                         try:
-                            doc = (c.docstring(raw=True, fast=True) or "")[:400]
+                            doc = c.docstring(raw=True, fast=True) or ""
                         except Exception:
                             doc = ""
                     comps_out.append(
@@ -694,11 +902,19 @@ def _run_jedi_sync(
             try:
                 sigs = script.get_signatures(eval_line, column)
                 for s in sigs:
+                    raw_doc = s.docstring(raw=True, fast=True) or ""
+                    param_strings = []
+                    for p in getattr(s, "params", []) or []:
+                        try:
+                            param_strings.append(re.sub(r"^param\s+", "", p.to_string()))
+                        except Exception:
+                            param_strings.append(p.name)
                     sigs_out.append({
                         "name": s.name,
                         "signature": s.to_string(),
                         "params": [p.name for p in s.params] if hasattr(s, "params") else [],
-                        "docstring": (s.docstring(raw=True, fast=True) or "")[:400],
+                        "docstring": raw_doc.strip().split("\n\n")[0][:300],
+                        "doc": doc_from_text(s.name, s.to_string(), raw_doc, param_strings),
                         "index": getattr(s, "index", 0),
                     })
             except Exception:
@@ -729,6 +945,45 @@ async def get_completions(
 
     aliases, var_types, user_symbols = _infer_code_types(full_code)
 
+    owner_id = (
+        f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else str(current_user.id)
+    )
+    session = kernel_pool.get_session(req.session_id, owner_id) if req.session_id else None
+    kernel_ready = session is not None and session.is_running and session.kc is not None
+
+    # 0. DataFrame column keys from the live kernel: df[ / df[' / df.loc[:, / df.groupby(' ...
+    col_ctx = _column_context(line_before_cursor)
+    if col_ctx is not None:
+        notice = None
+        if not kernel_ready:
+            notice = f"Run the cell that creates {col_ctx['expr']} to see its columns (Python is not running yet)."
+        else:
+            info, stale = await _runtime_info(session, {"kind": "columns", "expr": col_ctx["expr"]})
+            if info and info.get("kind") == "DataFrame":
+                items = _column_items(col_ctx["expr"], info, col_ctx["quote"])
+                # Inside a call (df.groupby(' or print(df[' ...): signature help alongside the columns
+                col_sigs: List[Dict[str, Any]] = []
+                if "(" in line_before_cursor:
+                    namespace, _ = await _runtime_info(session, {"kind": "namespace"})
+                    _apply_runtime_types(namespace, aliases, var_types)
+                    col_sigs = _fast_resolve_signature(full_code, line_before_cursor, aliases, var_types)
+                return CompletionResponse(
+                    completions=items,
+                    signatures=col_sigs,
+                    context="column",
+                    prefix=col_ctx["prefix"],
+                    quote=col_ctx["quote"],
+                    notice="Python is running a cell: these are the columns from before it started." if stale else None,
+                )
+            if info is None:
+                notice = "Python is busy running code; column names will appear when it finishes."
+            elif info.get("error") == "missing":
+                notice = f"{col_ctx['expr']} is not defined yet. Run the cell that creates it to see its columns."
+        if col_ctx["quote"] or notice:
+            # Inside a key string there is nothing else to suggest
+            return CompletionResponse(completions=[], signatures=[], context="column", prefix=col_ctx["prefix"],
+                                      quote=col_ctx["quote"], notice=notice)
+
     # Check if cursor is inside unclosed parentheses for signature help
     open_parens = 0
     for ch in req.code[: sum(len(l) + 1 for l in code_lines[: req.line - 1]) + req.column]:
@@ -738,12 +993,21 @@ async def get_completions(
             open_parens = max(0, open_parens - 1)
     is_inside_parens = open_parens > 0
 
+    # Types of names in the live kernel (e.g. a DataFrame named `sales`), used when the code text
+    # alone does not tell: member completion on a receiver, or the function being called
+    recv_info = _extract_receiver_and_prefix(line_before_cursor)
+    is_import_stmt = stripped_line.startswith(("import ", "from "))
+    needs_runtime_types = kernel_ready and (
+        is_inside_parens or (recv_info is not None and not _infer_expr_type(recv_info[0], aliases, var_types))
+    )
+    if needs_runtime_types:
+        namespace, _ = await _runtime_info(session, {"kind": "namespace"})
+        _apply_runtime_types(namespace, aliases, var_types)
+
     if is_inside_parens:
         signatures_list = _fast_resolve_signature(full_code, line_before_cursor, aliases, var_types)
 
     # 1. Fast-Path Member Completion (`<receiver>.<prefix>`)
-    recv_info = _extract_receiver_and_prefix(line_before_cursor)
-    is_import_stmt = stripped_line.startswith(("import ", "from "))
 
     if recv_info is not None and not is_import_stmt:
         receiver, prefix = recv_info
@@ -799,39 +1063,77 @@ async def get_completions(
             signatures_list = jedi_sigs
 
     # 4. Non-blocking Kernel Runtime Introspection (only if static/fast analysis returned no matches and kernel is idle)
+    if not completions_list and kernel_ready:
+        cursor_pos = sum(len(l) + 1 for l in code_lines[: req.line - 1]) + req.column
+        matches = await session.complete_quietly(req.code, cursor_pos, timeout=0.5)
+        for match in matches or []:
+            clean_match = match.split(".")[-1]
+            if clean_match and not clean_match.startswith("_") and clean_match not in seen_labels:
+                seen_labels.add(clean_match)
+                completions_list.append(
+                    CompletionItem(
+                        label=clean_match,
+                        type="variable",
+                        detail="Runtime Object (Active Kernel)",
+                        documentation="Inspected from running Python kernel state.",
+                        insert_text=clean_match,
+                    )
+                )
+
+    return CompletionResponse(completions=completions_list, signatures=signatures_list)
+
+
+def _resolve_documented_object(expression: str, aliases: Dict[str, str], var_types: Dict[str, str]) -> Optional[Any]:
+    """Resolves a dotted name to a real object for documentation, without running user code:
+    modules and installed libraries are imported (safe roots only), variables are resolved to their
+    type (a DataFrame variable documents pandas.DataFrame members)."""
+    parts = [p for p in expression.strip().split(".") if p]
+    if not parts or not all(re.fullmatch(r"[A-Za-z_]\w*", p) for p in parts):
+        return None
+    root, rest = parts[0], parts[1:]
+    obj: Any = None
+    if root in aliases:
+        obj = _resolve_runtime_target(aliases[root])
+    elif root in var_types:
+        obj = _resolve_runtime_target(var_types[root])
+    elif hasattr(builtins, root):
+        obj = getattr(builtins, root)
+    elif root.split(".")[0] in _SAFE_INTROSPECTION_ROOTS:
+        obj = _resolve_runtime_target(root)
+    for part in rest:
+        if obj is None:
+            return None
+        try:
+            obj = inspect.getattr_static(obj, part)
+            # Unwrap descriptors to the documented function
+            if isinstance(obj, (staticmethod, classmethod)):
+                obj = obj.__func__
+            elif isinstance(obj, property):
+                obj = obj.fget or obj
+        except AttributeError:
+            return None
+    return obj
+
+
+@router.post("/inspect")
+async def inspect_expression(
+    req: InspectRequest,
+    current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
+):
+    """Structured documentation (signature, parameters, returns, examples, see also) for a name."""
+    full_code, _ = _build_virtual_script(req.code, req.line, req.notebook_context)
+    aliases, var_types, _ = _infer_code_types(full_code)
     owner_id = (
         f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else str(current_user.id)
     )
     session = kernel_pool.get_session(req.session_id, owner_id) if req.session_id else None
-    if not completions_list and session is not None:
-        if session.is_running and session.kc and not session.is_busy:
-            try:
-                cursor_pos = sum(len(l) + 1 for l in code_lines[: req.line - 1]) + req.column
-                msg_id = session.kc.complete(req.code, cursor_pos)
-                deadline = time.monotonic() + 0.06
-                while time.monotonic() < deadline:
-                    rem = max(0.01, deadline - time.monotonic())
-                    reply = await asyncio.wait_for(session.kc.get_shell_msg(timeout=rem), timeout=rem + 0.01)
-                    if reply and reply.get("parent_header", {}).get("msg_id") == msg_id:
-                        if "content" in reply and "matches" in reply["content"]:
-                            for match in reply["content"]["matches"][:50]:
-                                clean_match = match.split(".")[-1]
-                                if clean_match and not clean_match.startswith("_") and clean_match not in seen_labels:
-                                    seen_labels.add(clean_match)
-                                    completions_list.append(
-                                        CompletionItem(
-                                            label=clean_match,
-                                            type="variable",
-                                            detail="Runtime Object (Active Kernel)",
-                                            documentation="Inspected from running Python kernel state.",
-                                            insert_text=clean_match,
-                                        )
-                                    )
-                        break
-            except Exception:
-                pass
-
-    return CompletionResponse(completions=completions_list, signatures=signatures_list)
+    if session is not None and session.is_running and session.kc is not None:
+        namespace, _ = await _runtime_info(session, {"kind": "namespace"})
+        _apply_runtime_types(namespace, aliases, var_types)
+    obj = _resolve_documented_object(req.expression, aliases, var_types)
+    if obj is None:
+        return {"doc": None, "reason": f"No documentation found for {req.expression}."}
+    return {"doc": build_doc(obj, req.expression.split(".")[-1])}
 
 
 @router.post("/signatures")

@@ -17,6 +17,8 @@ import re
 import pytest
 from playwright.async_api import async_playwright, expect
 
+import cm_helpers as cm
+
 pytestmark = pytest.mark.asyncio
 
 SERVER_URL = os.environ.get("PCS_E2E_URL", "http://127.0.0.1:8765")
@@ -102,8 +104,11 @@ async def test_pivot_table_keeps_real_column_names():
         table = cell.get_by_test_id("interactive-data-table")
         await expect(table).to_be_visible()
         headers = await column_headers(cell)
-        assert headers == ["Year"] + MONTHS, headers
+        # columns.name was cleared, so the corner is empty; the index name has its own row (as in Jupyter)
+        assert headers == [""] + MONTHS, headers
         assert not any(h.startswith("Col_") for h in headers)
+        await expect(cell.get_by_test_id("dataframe-index-names")).to_contain_text("Year")
+        assert await cell.get_by_test_id("dataframe-index-cell").count() == 6
         text = await table.inner_text()
         assert "6 rows × 12 columns" in text.replace("\n", " "), text[:200]
         # Index values and a known value layout: 6 years
@@ -138,7 +143,10 @@ display(pd.DataFrame(np.arange(16).reshape(4, 4), index=idx, columns=cols))
         await expect(band.first).to_be_visible()
         band_text = await band.first.inner_text()
         assert "Sales" in band_text and "Cost" in band_text
-        assert await column_headers(cell) == ["region", "year", "Q1", "Q2", "Q1", "Q2"]
+        # Corner of the leaf row: the column level name; index names on their own row
+        assert await column_headers(cell) == ["", "quarter", "Q1", "Q2", "Q1", "Q2"]
+        names = await cell.get_by_test_id("dataframe-index-names").locator("th").all_inner_texts()
+        assert [n.strip() for n in names[:2]] == ["region", "year"]
         body = await cell.locator("tbody").inner_text()
         assert body.count("North") == 2 and body.count("South") == 2, body  # rowspan values repeated per row
         await delete_cell(cell)
@@ -196,7 +204,8 @@ display(HTML('''<div id="probe">waiting</div>
 var r = [];
 try { r.push(parent.localStorage.getItem('pcs_token') === null ? 'storage:null' : 'storage:LEAK'); } catch (e) { r.push('storage:blocked'); }
 try { parent.document.body.setAttribute('data-pwned', '1'); r.push('dom:LEAK'); } catch (e) { r.push('dom:blocked'); }
-try { r.push(document.cookie === undefined ? 'cookie:none' : 'cookie:readable'); } catch (e) { r.push('cookie:blocked'); }
+try { r.push(document.cookie === '' ? 'cookie:none' : 'cookie:readable'); } catch (e) { r.push('cookie:blocked'); }
+try { localStorage.setItem('k', 'v'); r.push(localStorage.getItem('k') === 'v' ? 'own-storage:ok' : 'own-storage:broken'); } catch (e) { r.push('own-storage:throws'); }
 document.getElementById('probe').textContent = 'ran ' + r.join(' ');
 </script>'''))
 display(HTML('<img src="x" onerror="window.top.__pwned = 1"><b>inline handler</b>'))
@@ -205,7 +214,8 @@ display(HTML('<img src="x" onerror="window.top.__pwned = 1"><b>inline handler</b
         await expect(frame.locator("#probe")).to_contain_text("ran", timeout=10000)
         probe = await frame.locator("#probe").inner_text()
         assert "storage:blocked" in probe and "dom:blocked" in probe, probe
-        assert "cookie:blocked" in probe, probe
+        assert "own-storage:ok" in probe, probe  # libraries can use storage inside the sandbox
+        assert "cookie:blocked" in probe or "cookie:none" in probe, probe  # never the app's cookies
         assert await page.evaluate("document.body.getAttribute('data-pwned')") is None
         await page.wait_for_timeout(500)
         assert await page.evaluate("window.__pwned === undefined"), "inline event handler must not run in the app"
@@ -362,17 +372,20 @@ async def test_file_editor_highlights_python_files():
         if await page.get_by_test_id("left-resizer").count() == 0:
             await page.get_by_test_id("left-sidebar-toggle").click()
         await page.locator('[data-testid="file-tree-item"][data-path$="main.py"]').first.dblclick()
-        layer = page.get_by_test_id("file-highlight-layer")
-        await expect(layer.locator(".tok-keyword").first).to_be_visible()
-        editor = page.get_by_test_id("file-editor-textarea")
-        original = await editor.input_value()
-        await editor.evaluate("el => { el.focus(); el.setSelectionRange(0, 0); }")
-        await page.keyboard.type("value = 1\n")
-        await expect(layer.locator(".tok-number", has_text="1").first).to_be_visible()
-        await editor.evaluate("el => el.setSelectionRange(0, 0)")
-        await page.keyboard.press("Control+/")  # comments "value = 1"
-        await expect(layer.locator(".tok-comment", has_text="# value = 1")).to_be_visible()
+        await cm.wait_for_editor(page)
+        original = await cm.doc(page)
+        await cm.set_doc(page, "import sys\nvalue = 1  # note\n")
+        color = lambda text: page.locator(".cm-line span", has_text=text).first.evaluate("e => getComputedStyle(e).color")
+        keyword, number, comment = await color("import"), await color("1"), await color("# note")
+        assert len({keyword, number, comment}) == 3, (keyword, number, comment)
+        # Ctrl+/ on "import sys": the line is coloured as a comment immediately
+        await cm.set_cursor(page, 0)
+        await page.keyboard.press("Control+/")
+        assert (await cm.doc(page)).startswith("# import sys")
+        assert await color("# import sys") == comment
+        await page.keyboard.press("Control+z")
+        assert await color("import") == keyword
         # Leave the file as it was (nothing saved)
-        await editor.fill(original)
+        await cm.set_doc(page, original)
         assert not errors, errors
         await browser.close()

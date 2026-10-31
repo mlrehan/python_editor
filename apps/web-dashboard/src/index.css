@@ -139,7 +139,7 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-code, pre, textarea.code-font {
+code, pre, .code-font {
   font-family: 'JetBrains Mono', 'Fira Code', Menlo, Monaco, monospace;
 }
 
@@ -1071,42 +1071,6 @@ code, pre, textarea.code-font {
   .fe-btn { min-height: 34px; padding: 0 12px; }
 }
 
-/* Code editor: the textarea scrolls (both axes), the gutter follows it */
-.fe-code-editor { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-.fe-gutter {
-  flex-shrink: 0;
-  min-width: 42px;
-  overflow: hidden;
-  background-color: var(--bg-cell-gutter);
-  border-right: 1px solid var(--border-main);
-  color: var(--text-muted);
-  text-align: right;
-  user-select: none;
-  font-size: var(--fe-code-size);
-  line-height: 1.6;
-}
-.fe-gutter-inner { padding: 12px 8px 12px 6px; will-change: transform; }
-.fe-textarea {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  margin: 0;
-  padding: 12px;
-  border: none;
-  outline: none;
-  resize: none;
-  background-color: transparent;
-  color: var(--code-text);
-  font-size: var(--fe-code-size);
-  line-height: 1.6;
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow: auto;
-  tab-size: 4;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-}
-
 .fe-footer {
   display: flex;
   align-items: center;
@@ -1245,8 +1209,14 @@ code, pre, textarea.code-font {
   --syn-magic: #d7ba7d;
   --syn-operator: #d4d4d4;
   --syn-bracket: #ffd700;
-  --syn-bracket-match-bg: rgba(255, 215, 0, 0.18);
+  --syn-bracket-match-bg: rgba(255, 255, 255, 0.08);
+  --syn-bracket-match-border: #888888;
   --editor-selection: rgba(38, 79, 120, 0.85);
+  --cm-active-line: rgba(255, 255, 255, 0.04);
+  --cm-selection-match: rgba(173, 214, 255, 0.15);
+  --cm-search-match: rgba(234, 92, 0, 0.33);
+  --cm-search-match-border: rgba(234, 92, 0, 0.6);
+  --cm-search-match-selected: rgba(81, 92, 106, 0.9);
 }
 [data-theme='light'] {
   --syn-comment: #008000;
@@ -1263,8 +1233,14 @@ code, pre, textarea.code-font {
   --syn-magic: #b5651d;
   --syn-operator: #383a42;
   --syn-bracket: #0431fa;
-  --syn-bracket-match-bg: rgba(4, 49, 250, 0.12);
+  --syn-bracket-match-bg: rgba(0, 0, 0, 0.05);
+  --syn-bracket-match-border: #b9b9b9;
   --editor-selection: rgba(173, 214, 255, 0.85);
+  --cm-active-line: rgba(0, 0, 0, 0.04);
+  --cm-selection-match: rgba(173, 214, 255, 0.5);
+  --cm-search-match: rgba(234, 92, 0, 0.25);
+  --cm-search-match-border: rgba(234, 92, 0, 0.55);
+  --cm-search-match-selected: rgba(166, 210, 255, 0.9);
 }
 .tok-comment { color: var(--syn-comment); font-style: italic; }
 .tok-string { color: var(--syn-string); }
@@ -1280,24 +1256,110 @@ code, pre, textarea.code-font {
 .tok-magic { color: var(--syn-magic); }
 .tok-operator { color: var(--syn-operator); }
 .tok-bracket { color: var(--syn-bracket); }
-.tok-bracket-match { background-color: var(--syn-bracket-match-bg); outline: 1px solid var(--syn-bracket); border-radius: 2px; }
+/* Matching brackets: a subtle grey box like VS Code's, so the (accent-coloured) caret stays visible
+   between and next to them */
+.tok-bracket-match { background-color: var(--syn-bracket-match-bg); box-shadow: inset 0 0 0 1px var(--syn-bracket-match-border); border-radius: 2px; }
 
 /* The textarea above a highlight layer shows only the caret and the selection */
-.code-cell-editor::selection,
-.fe-textarea--highlighted::selection { background-color: var(--editor-selection); color: transparent; }
+.code-cell-editor::selection { background-color: var(--editor-selection); color: transparent; }
 
-/* File editor: highlight layer under the textarea, moved with its scroll position */
-.fe-code-area { position: relative; display: flex; flex: 1; min-width: 0; }
-.fe-highlight {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  color: var(--code-text);
-  font-size: var(--fe-code-size);
-  line-height: 1.6;
-  white-space: pre;
-  tab-size: 4;
+
+/* File editor: CodeMirror fills the panel body and scrolls itself */
+.fe-cm-host { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.fe-cm-host > .cm-editor { flex: 1; min-width: 0; }
+.fe-cm-loading { padding: 16px; color: var(--text-muted); font-size: 12.5px; }
+@media (pointer: coarse) {
+  .fe-cm-host .cm-tooltip-autocomplete > ul > li { padding: 8px 10px; }
 }
-.fe-highlight-inner { padding: 12px; will-change: transform; }
-.fe-textarea--highlighted { color: transparent; caret-color: var(--border-accent); }
+
+/* ---------------------------------------------------------------------------
+ * Python documentation (signature help, suggestion details)
+ * ------------------------------------------------------------------------- */
+.doc-view { font-family: Inter, system-ui, sans-serif; font-size: 12px; line-height: 1.5; color: var(--text-main); white-space: normal; }
+.doc-view--compact { font-size: 11.5px; }
+.doc-signature { font-family: 'JetBrains Mono', Consolas, monospace; color: var(--border-accent); font-weight: 600; margin-bottom: 6px; }
+.doc-summary { margin: 6px 0 4px; color: var(--text-main); }
+.doc-p { margin: 4px 0; color: var(--text-secondary); }
+.doc-missing { margin: 6px 0; color: var(--text-muted); font-style: italic; }
+.doc-active-param {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--border-accent);
+  border-radius: 4px;
+  background-color: var(--status-info-bg);
+}
+.doc-section { margin-top: 8px; }
+.doc-heading {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: default;
+}
+details.doc-section > summary.doc-heading { cursor: pointer; }
+.doc-params { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.doc-params li { padding: 2px 0; }
+.doc-params li.is-active { background-color: var(--status-info-bg); border-radius: 4px; padding: 2px 4px; }
+.doc-param-name { font-family: 'JetBrains Mono', Consolas, monospace; font-weight: 600; color: var(--syn-self); }
+.doc-param-type { font-family: 'JetBrains Mono', Consolas, monospace; color: var(--syn-class); }
+.doc-param-default { font-family: 'JetBrains Mono', Consolas, monospace; color: var(--syn-number); }
+.doc-param-kind { margin-left: 6px; font-size: 10px; color: var(--text-muted); }
+.doc-param-desc { color: var(--text-secondary); margin: 1px 0 0 2px; }
+.doc-code { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 0.95em; padding: 0 3px; border-radius: 3px; background-color: var(--bg-hover); }
+.doc-see-also { display: flex; flex-wrap: wrap; gap: 4px; }
+.doc-example {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-main);
+  background-color: var(--bg-cell);
+  color: var(--code-text);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+.completion-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-main);
+  background-color: var(--status-info-bg);
+  color: var(--status-info-text);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.completion-notice svg { flex-shrink: 0; margin-top: 2px; }
+.completion-details {
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-main);
+  background-color: var(--dropdown-header-bg);
+}
+
+/* ---------------------------------------------------------------------------
+ * DataFrame tables: index columns are row headers, visually distinct from data columns
+ * ------------------------------------------------------------------------- */
+:root,
+[data-theme='dark'] { --df-index-bg: #16233a; --df-index-text: #e2e8f0; --df-index-divider: #3b4a63; }
+[data-theme='light'] { --df-index-bg: #eef2f7; --df-index-text: #0f172a; --df-index-divider: #94a3b8; }
+.df-index-cell {
+  padding: 6px 12px;
+  background-color: var(--df-index-bg);
+  color: var(--df-index-text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-main);
+  border-right: 1px solid var(--border-main);
+}
+.df-index-corner,
+.df-index-name { background-color: var(--df-index-bg) !important; color: var(--df-index-text); font-weight: 700; }
+.df-index-name-filler { background-color: var(--bg-cell-header); }
+.df-index-last { border-right: 2px solid var(--df-index-divider) !important; }

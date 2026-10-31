@@ -10,7 +10,10 @@ import {
   Variable,
   Key,
   AlertTriangle,
+  Table,
+  Info,
 } from 'lucide-react';
+import { DocView, PythonDoc } from './DocView';
 
 interface CompletionItem {
   label: string;
@@ -34,8 +37,19 @@ interface SignatureItem {
   signature: string;
   params: string[];
   docstring?: string;
+  /** Structured documentation from the backend (signature facts + parsed docstring) */
+  doc?: PythonDoc;
   index: number;
 }
+
+// Methods whose arguments are DataFrame column names (mirrors _COLUMN_METHODS in the backend)
+const COLUMN_METHOD_CALL =
+  /\.(?:filter|groupby|sort_values|set_index|drop|drop_duplicates|dropna|pivot_table|pivot|melt|value_counts|nlargest|nsmallest|explode|duplicated|get|pop|rename|fillna|astype|agg|aggregate|plot|hist|boxplot)\(/;
+// Caret right after a key opener: df[ / df[' / df[['a', ' / df.loc[:, / df.groupby(by=' ...
+const COLUMN_KEY_POSITION = /[[(,=]\s*\[?\s*(?:(["'])[^"'\\]*)?$/;
+
+// Suggestion types that have documentation worth fetching for the details panel
+const DOCUMENTED_TYPES = new Set(['function', 'method', 'class', 'module', 'package', 'property', 'instance']);
 
 interface PythonCellEditorProps {
   cellId: string;
@@ -577,6 +591,16 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
 
   // Signature help state
   const [activeSignature, setActiveSignature] = useState<SignatureItem | null>(null);
+  // Keyword argument being typed inside a call (e.g. "fill_value" in "pivot_table(fill_value=")
+  const [activeKeyword, setActiveKeyword] = useState<string | null>(null);
+  // Explains missing or possibly stale runtime suggestions (e.g. "df is not defined yet")
+  const [completionNotice, setCompletionNotice] = useState<string | null>(null);
+  // DataFrame column-key completion in progress: the quote opened at the key ("" when none)
+  const columnCtxRef = useRef<{ quote: string } | null>(null);
+  // Receiver of the current member completion ("pd" for "pd.re"), used to document the selection
+  const completionReceiverRef = useRef('');
+  const [detailDoc, setDetailDoc] = useState<PythonDoc | null>(null);
+  const docCacheRef = useRef<Map<string, PythonDoc | null>>(new Map());
   const [signaturePos, setSignaturePos] = useState<{
     top: number;
     left: number;
@@ -807,8 +831,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         available >= SIGNATURE_MIN_HEIGHT ? Math.min(SIGNATURE_MAX_HEIGHT, available) : Math.max(40, available);
 
       const containerWidth = containerRef.current?.clientWidth || 600;
-      // Same as the popup's CSS width: 320px, or the cell's width on narrow screens
-      const dropdownWidth = Math.min(320, containerWidth - 20);
+      // Same as the popup's CSS width: 380px, or the cell's width on narrow screens
+      const dropdownWidth = Math.min(380, containerWidth - 20);
       const sigWidth = Math.min(SIGNATURE_WIDTH, Math.max(220, containerWidth - 20));
 
       // Clamp horizontal positions within container bounds
@@ -828,7 +852,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     const container = listRef.current;
     const activeItem = container.children[selectedIndex] as HTMLElement | undefined;
     if (activeItem) {
-      const itemTop = activeItem.offsetTop;
+      // offsetTop counts from the popup (the positioned ancestor), so subtract the list's own offset
+      const itemTop = activeItem.offsetTop - container.offsetTop;
       const itemBottom = itemTop + activeItem.offsetHeight;
       const containerTop = container.scrollTop;
       const containerBottom = containerTop + container.clientHeight;
@@ -926,7 +951,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   // 2. Trigger Autocomplete when cursor moves or code changes
   // Instant synchronous client-side suggestions (0ms lag) + non-blocking async backend enrichment
   const triggerAutocomplete = useCallback(
-    async (cursorIndex: number, explicit = false, overrideCode?: string) => {
+    // navigate: the caret moved (arrow keys, click) - update signature help only, never open suggestions
+    async (cursorIndex: number, explicit = false, overrideCode?: string, navigate = false) => {
       if (readOnly || !textareaRef.current) return;
 
       const currentCode = overrideCode ?? textareaRef.current?.value ?? code;
@@ -935,6 +961,59 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       const currentLine = linesBefore.length;
       const currentCol = linesBefore[linesBefore.length - 1].length;
       const currentLineText = linesBefore[linesBefore.length - 1];
+
+      // Keyword argument being typed (highlighted in the signature help)
+      const keywordMatch = textBeforeCursor.match(/[(,]\s*([A-Za-z_]\w*)\s*=[^,()=]*$/);
+      setActiveKeyword(keywordMatch ? keywordMatch[1] : null);
+
+      // DataFrame column keys (df[ / df[' / df.loc[:, / df.groupby(' ...) come from the live kernel,
+      // including inside the key's quotes, where other suggestions are suppressed
+      const maybeColumnKey =
+        !navigate &&
+        COLUMN_KEY_POSITION.test(currentLineText) &&
+        (/[A-Za-z_)\]]\s*(?:\.loc)?\[/.test(currentLineText) || COLUMN_METHOD_CALL.test(currentLineText));
+      columnCtxRef.current = null;
+      setCompletionNotice(null);
+      if (maybeColumnKey) {
+        const reqId = ++autocompleteReqIdRef.current;
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        userNavigatedRef.current = false;
+        updatePopupPositions(cursorIndex);
+        try {
+          const res = await api.getCompletions(
+            currentCode,
+            currentLine,
+            currentCol,
+            notebookContextRef.current,
+            sessionId,
+            controller.signal
+          );
+          if (reqId !== autocompleteReqIdRef.current || controller.signal.aborted) return;
+          if (res.context === 'column') {
+            const typed = (res.prefix ?? '').toLowerCase();
+            // Every column, in DataFrame order; case-insensitive filter, prefix matches first
+            const matches = (res.completions || []).filter((c) => c.label.toLowerCase().includes(typed));
+            const ranked = typed
+              ? [...matches.filter((c) => c.label.toLowerCase().startsWith(typed)), ...matches.filter((c) => !c.label.toLowerCase().startsWith(typed))]
+              : matches;
+            columnCtxRef.current = { quote: res.quote ?? '' };
+            completionReceiverRef.current = '';
+            setCompletions(ranked);
+            setSelectedIndex(0);
+            if (listRef.current) listRef.current.scrollTop = 0;
+            setCompletionNotice(res.notice ?? (ranked.length === 0 && typed ? `No column matches "${res.prefix}".` : null));
+            setIsDropdownOpen(ranked.length > 0 || !!res.notice || !!typed);
+            // In a call such as df.groupby(' the signature help stays alongside the columns
+            setActiveSignature(res.signatures && res.signatures.length > 0 ? res.signatures[0] : null);
+            return;
+          }
+        } catch (err: any) {
+          if (err?.name === 'AbortError' || controller.signal.aborted || reqId !== autocompleteReqIdRef.current) return;
+        }
+        // Not a column position: continue with the regular suggestions
+      }
 
       // Extract current word/prefix and trigger symbol
       const match = currentLineText.match(/([a-zA-Z0-9_\.]+)$/);
@@ -1031,7 +1110,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
 
       // Dropdown should ONLY open if explicit (Ctrl+Space), dot trigger, or a non-empty word token
       // NOT on empty paren trigger like print(
-      const shouldShowDropdown = explicit || isDotTrigger || (token.length >= 1 && !currentLineText.endsWith('('));
+      const shouldShowDropdown = !navigate && (explicit || isDotTrigger || (token.length >= 1 && !currentLineText.endsWith('(')));
+      completionReceiverRef.current = isMemberAccess ? receiverExpr : '';
 
       // --- PHASE 1: Instant Synchronous Client-Side Completions & Signature Help (0ms) ---
       const otherLines = currentCode.split('\n').filter((_, idx) => idx !== currentLine - 1);
@@ -1257,6 +1337,26 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       const lines = textBefore.split('\n');
       const currentLine = lines[lines.length - 1];
 
+      // DataFrame column key: replace what was typed after the quote (or insert the quoted key after
+      // the bracket), then step over an auto-closed quote: df['Amount'|]
+      const columnCtx = columnCtxRef.current;
+      if (columnCtx && item.type === 'column') {
+        const typed = columnCtx.quote ? currentLine.slice(currentLine.lastIndexOf(columnCtx.quote) + 1) : '';
+        const start = cursorPos - typed.length;
+        const insert = item.insert_text || item.label;
+        const newCode = currentValue.substring(0, start) + insert + currentValue.substring(cursorPos);
+        let caret = start + insert.length;
+        if (columnCtx.quote && newCode[caret] === columnCtx.quote) caret += 1;
+        autocompleteReqIdRef.current++;
+        abortControllerRef.current?.abort();
+        columnCtxRef.current = null;
+        editText(el, newCode, caret);
+        setIsDropdownOpen(false);
+        setCompletionNotice(null);
+        requestAnimationFrame(() => textareaRef.current?.focus());
+        return;
+      }
+
       // Match the incomplete token being completed:
       // Case A: Member completion after a dot: e.g. "pd.re", "pd.read_c", "pd."
       // The prefix to replace is whatever follows the last dot on this line.
@@ -1379,6 +1479,25 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       }
     }
 
+    // Moving the caret closes the suggestions (as in VS Code), so a later Enter/Tab cannot insert a
+    // suggestion at the new position; the signature help follows the caret
+    const navigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+    if (navigationKeys.includes(e.key) && !e.altKey) {
+      const el = e.currentTarget;
+      const before = el.selectionStart;
+      // After the browser has moved the caret: only an actual move closes the suggestions
+      requestAnimationFrame(() => {
+        if (el.selectionStart === before) return;
+        if (isDropdownOpen) {
+          autocompleteReqIdRef.current++;
+          abortControllerRef.current?.abort();
+          setIsDropdownOpen(false);
+          setCompletionNotice(null);
+        }
+        if (activeSignature) triggerAutocomplete(el.selectionStart, false, el.value, true);
+      });
+    }
+
     // Dismiss popups on Escape with single-key priority
     if (e.key === 'Escape') {
       if ((e.nativeEvent as any)?.__pcsHandledEscape) {
@@ -1494,7 +1613,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
 
   const handleClick = (e: React.MouseEvent<HTMLTextAreaElement>) => {
     if (isDropdownOpen) setIsDropdownOpen(false);
-    triggerAutocomplete(e.currentTarget.selectionStart, false, e.currentTarget.value);
+    // A click places the caret: update signature help, but do not pop up suggestions
+    triggerAutocomplete(e.currentTarget.selectionStart, false, e.currentTarget.value, true);
   };
 
   // Icon mapping for completion item types
@@ -1513,10 +1633,43 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       case 'property':
       case 'statement':
         return <span style={{ color: '#38bdf8', fontSize: '12px' }}>✦</span>;
+      case 'column':
+        return <Table size={13} color="#0ea5e9" />;
       default:
         return <Variable size={13} color="#10b981" />;
     }
   };
+
+  // Documentation of the selected suggestion (fetched lazily, cached per expression)
+  const selectedItem = isDropdownOpen ? completions[selectedIndex] : undefined;
+  useEffect(() => {
+    setDetailDoc(null);
+    if (!selectedItem || !DOCUMENTED_TYPES.has(selectedItem.type)) return;
+    const receiver = completionReceiverRef.current;
+    if (receiver && !/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/.test(receiver)) return;
+    const expression = receiver ? `${receiver}.${selectedItem.label}` : selectedItem.label;
+    const cached = docCacheRef.current.get(expression);
+    if (cached !== undefined) {
+      setDetailDoc(cached);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const el = textareaRef.current;
+        const res = await api.inspectExpression(expression, el?.value ?? code, 1, 0, notebookContextRef.current, sessionId, controller.signal);
+        docCacheRef.current.set(expression, res.doc ?? null);
+        if (!controller.signal.aborted) setDetailDoc(res.doc ?? null);
+      } catch {
+        /* the plain documentation line stays */
+      }
+    }, 120);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedItem?.label, selectedItem?.type, sessionId]);
 
   // Check if a line has an active diagnostic
   const getLineDiagnostic = (lineNum: number) => {
@@ -1817,17 +1970,31 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             outline: 'none',
           }}
         >
-          {renderSignatureHelp(activeSignature)}
-          {activeSignature.docstring && (
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
-              {activeSignature.docstring}
-            </div>
-          )}
+          {(() => {
+            // The keyword being typed decides the active parameter when it is one of the parameters
+            const kwIndex = activeKeyword ? activeSignature.params.findIndex((p) => p.replace(/^\*+/, '') === activeKeyword) : -1;
+            const sig = kwIndex >= 0 ? { ...activeSignature, index: kwIndex } : activeSignature;
+            const activeParam = sig.params[sig.index] ?? null;
+            return (
+              <>
+                {renderSignatureHelp(sig)}
+                {sig.doc ? (
+                  <DocView doc={sig.doc} activeParam={activeParam} hideSignature />
+                ) : (
+                  sig.docstring && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
+                      {sig.docstring}
+                    </div>
+                  )
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
       {/* 5. Google Colab-style Autocomplete Dropdown */}
-      {isDropdownOpen && completions.length > 0 && (
+      {isDropdownOpen && (completions.length > 0 || completionNotice) && (
         <div
           ref={dropdownRef}
           data-testid="autocomplete-dropdown"
@@ -1838,8 +2005,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             top: `${dropdownPos.top}px`,
             left: `${dropdownPos.left}px`,
             transform: dropdownPos.placement === 'above' ? 'translateY(-100%)' : 'none',
-            width: 'min(320px, calc(100% - 20px))',
-            maxHeight: '260px',
+            width: 'min(380px, calc(100% - 20px))',
+            maxHeight: '420px',
             backgroundColor: 'var(--dropdown-bg)',
             border: '1px solid var(--dropdown-border)',
             borderRadius: '8px',
@@ -1864,9 +2031,17 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
               userSelect: 'none',
             }}
           >
-            <span>SUGGESTIONS ({completions.length})</span>
+            <span>
+              {columnCtxRef.current ? 'COLUMNS' : 'SUGGESTIONS'} ({completions.length})
+            </span>
             <span>Tab / ↵ to insert</span>
           </div>
+          {completionNotice && (
+            <div className="completion-notice" role="status" data-testid="completion-notice">
+              <Info size={12} />
+              <span>{completionNotice}</span>
+            </div>
+          )}
 
           {/* Completion List */}
           <div
@@ -1934,15 +2109,19 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
                       marginLeft: '8px',
                     }}
                   >
-                    {item.type}
+                    {item.type === 'column' ? item.detail || 'column' : item.type}
                   </span>
                 </div>
               );
             })}
           </div>
 
-          {/* Selected Item Documentation Preview Footer */}
-          {completions[selectedIndex]?.documentation && (
+          {/* Selected item documentation: structured when available, else the plain description */}
+          {detailDoc ? (
+            <div className="completion-details" data-testid="completion-details">
+              <DocView doc={detailDoc} compact />
+            </div>
+          ) : completions[selectedIndex]?.documentation && (
             <div
               style={{
                 padding: '6px 10px',

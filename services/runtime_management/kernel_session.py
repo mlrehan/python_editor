@@ -6,6 +6,7 @@ import time
 from queue import Empty
 from typing import Dict, Any, List, Optional, Callable, Coroutine
 from jupyter_client.manager import AsyncKernelManager
+from .introspection import SETUP_CODE
 import weakref
 
 # Kernel start-up is CPU heavy (~1-3 s of CPU each). Starting dozens at once on a few cores makes
@@ -107,6 +108,8 @@ class KernelSession:
         self.execution_count = 0
         self.is_running = False
         self._lock = asyncio.Lock()
+        # True while an editor introspection (not user code) holds the lock
+        self._introspection_active = False
         # stdin state for the current execution: when the pending input_request started,
         # and how long execution has spent waiting on the user (excluded from the timeout)
         self._input_pending_since: Optional[float] = None
@@ -419,6 +422,74 @@ class KernelSession:
     @property
     def input_pending(self) -> bool:
         return self._input_pending_since is not None
+
+    async def _editor_shell_request(self, send: Callable[[], str], timeout: float) -> Optional[Dict[str, Any]]:
+        """Sends one editor request (introspection or completion) and returns its shell reply content.
+
+        Never runs alongside user code: skipped (None) while a cell runs or waits for input(). Editor
+        requests are serialized on the session lock, so each one reads only its own shell reply.
+        """
+        if not self.is_running or not self.kc or self.input_pending:
+            return None
+        # User code (or a restart) holds the lock: skip. Another editor request holds it: wait our turn.
+        if self._lock.locked() and not self._introspection_active:
+            return None
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        self._introspection_active = True
+        try:
+            if not self.kc:
+                return None
+            msg_id = send()
+            deadline = time.monotonic() + timeout
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                try:
+                    reply = await self.kc.get_shell_msg(timeout=remaining)
+                except Empty:
+                    return None
+                # Skip replies to earlier requests still queued on the shell channel
+                if reply.get("parent_header", {}).get("msg_id") == msg_id:
+                    return reply.get("content", {})
+        finally:
+            self._introspection_active = False
+            self._lock.release()
+
+    async def evaluate_silently(self, expression: str, timeout: float = 1.0) -> Optional[str]:
+        """Evaluates one editor-introspection expression (never user code) in the kernel namespace.
+
+        Runs as a silent request: no history, no execution count change, no output. Returns the
+        expression's text/plain repr, or None when the kernel is not ready, is running code or
+        waiting for input(), or does not answer within `timeout` seconds. A cell started meanwhile
+        waits at most `timeout`.
+        """
+        content = await self._editor_shell_request(
+            lambda: self.kc.execute(
+                SETUP_CODE,
+                silent=True,
+                store_history=False,
+                user_expressions={"r": expression},
+                allow_stdin=False,
+            ),
+            timeout,
+        )
+        if content is None:
+            return None
+        result = (content.get("user_expressions") or {}).get("r") or {}
+        if result.get("status") != "ok":
+            return None
+        return (result.get("data") or {}).get("text/plain")
+
+    async def complete_quietly(self, code: str, cursor_pos: int, timeout: float = 0.5) -> Optional[List[str]]:
+        """The kernel's own completer (IPython) for `code` at `cursor_pos`; None if unavailable."""
+        content = await self._editor_shell_request(lambda: self.kc.complete(code, cursor_pos), timeout)
+        if content is None:
+            return None
+        return list(content.get("matches") or [])
 
     def send_input(self, value: str) -> bool:
         """Answers the kernel's pending input_request. Returns False if nothing is waiting for input."""

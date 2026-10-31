@@ -14,6 +14,8 @@ import os
 import pytest
 from playwright.async_api import async_playwright, expect
 
+import cm_helpers as cm
+
 pytestmark = pytest.mark.asyncio
 
 SERVER_URL = os.environ.get("PCS_E2E_URL", "http://127.0.0.1:8765")
@@ -23,7 +25,8 @@ async def open_studio(p, width=1440, height=900, theme=None):
     browser = await p.chromium.launch(headless=True)
     context = await browser.new_context(viewport={"width": width, "height": height})
     if theme:
-        await context.add_init_script(f"localStorage.setItem('pcs_theme', '{theme}')")
+        # Init scripts also run in the sandboxed output frames, where storage is off limits: top page only
+        await context.add_init_script(f"if (window.top === window) localStorage.setItem('pcs_theme', '{theme}')")
     page = await context.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -148,23 +151,23 @@ async def test_file_editor_comment_toggle_undo_redo():
     async with async_playwright() as p:
         browser, page, errors = await open_studio(p)
         await page.get_by_text("main.py", exact=True).first.dblclick()
-        textarea = page.locator('[data-testid="right-file-editor-panel"] textarea')
-        await textarea.wait_for(state="visible", timeout=10000)
-        await expect(textarea).not_to_have_value("", timeout=10000)
-        original = await textarea.input_value()
+        await cm.wait_for_editor(page)
+        original = await cm.doc(page)
+        assert original
 
-        await select(textarea, 0, 0)
+        await cm.set_cursor(page, 0)
         await page.keyboard.press("Control+/")
-        value = await textarea.input_value()
+        value = await cm.doc(page)
         first = original.splitlines()[0]
         expected_first = first.replace("# ", "", 1) if first.lstrip().startswith("#") else "# " + first
         assert value.splitlines()[0] == expected_first, value.splitlines()[0]
         await page.keyboard.press("Control+z")
-        assert await state(textarea) == [original, 0, 0]
+        assert await cm.doc(page) == original
+        assert await cm.selection(page) == [0, 0]
         await page.keyboard.press("Control+Shift+z")
-        assert await textarea.input_value() == value
+        assert await cm.doc(page) == value
         await page.keyboard.press("Control+z")
-        await expect(textarea).to_have_value(original)
+        assert await cm.doc(page) == original
         assert not errors, errors
         await browser.close()
 

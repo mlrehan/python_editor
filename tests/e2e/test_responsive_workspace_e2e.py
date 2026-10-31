@@ -16,6 +16,8 @@ import os
 import pytest
 from playwright.async_api import async_playwright, expect
 
+import cm_helpers as cm
+
 pytestmark = pytest.mark.asyncio
 
 SERVER_URL = os.environ.get("PCS_E2E_URL", "http://127.0.0.1:8765")
@@ -148,14 +150,15 @@ async def test_phone_multi_file_editing_preserves_state():
         await expect(page.get_by_test_id("active-file-indicator")).to_contain_text("main.py")
 
         # Edit main.py at a known spot (unsaved), remember cursor and scroll
-        editor = page.get_by_test_id("file-editor-textarea")
-        original = await editor.input_value()
-        await editor.evaluate("el => { el.focus(); el.setSelectionRange(0, 0); }")
-        await page.keyboard.type("x_mobile = 1\n")
-        edited = await editor.input_value()
+        await cm.wait_for_editor(page)
+        original = await cm.doc(page)
+        await cm.set_cursor(page, 0)
+        await page.keyboard.type("x_mobile = 1")
+        await page.keyboard.press("Enter")
+        edited = await cm.doc(page)
         assert edited == "x_mobile = 1\n" + original
         await expect(page.get_by_test_id("dirty-indicator-main.py")).to_be_visible()
-        caret = await editor.evaluate("el => [el.selectionStart, el.selectionEnd]")
+        caret = await cm.selection(page)
 
         # The sidebar toggle stays usable above the full-screen editor: open a second file
         await toggle.tap()
@@ -174,8 +177,8 @@ async def test_phone_multi_file_editing_preserves_state():
         assert mb["x"] >= 0 and mb["x"] + mb["width"] <= 375, "switcher menu stays on screen"
         await menu.get_by_test_id("open-file-option-main.py").locator(".fe-switcher-select").tap()
         await expect(page.get_by_test_id("active-file-indicator")).to_contain_text("main.py")
-        await expect(editor).to_have_value(edited)
-        assert await editor.evaluate("el => [el.selectionStart, el.selectionEnd]") == caret
+        assert await cm.doc(page) == edited
+        assert await cm.selection(page) == caret
         await expect(page.get_by_test_id("dirty-indicator-main.py")).to_be_visible()
 
         # Tabs switch too; closing one tab keeps the other
@@ -184,7 +187,7 @@ async def test_phone_multi_file_editing_preserves_state():
         await page.get_by_test_id("close-tab-README.md").tap()
         await expect(page.get_by_test_id("file-tab-README.md")).to_have_count(0)
         await expect(page.get_by_test_id("active-file-indicator")).to_contain_text("main.py")
-        await expect(editor).to_have_value(edited)
+        assert await cm.doc(page) == edited
 
         # The mobile keyboard only changes the height: the editor must stay open
         await page.set_viewport_size({"width": 375, "height": 420})
@@ -208,17 +211,19 @@ async def test_file_editor_line_numbers_follow_scroll():
         if await page.get_by_test_id("left-resizer").count() == 0:
             await page.get_by_test_id("left-sidebar-toggle").click()
         await tree_item(page, "main.py").dblclick()
-        editor = page.get_by_test_id("file-editor-textarea")
-        await editor.wait_for(state="visible")
-        # Make the content taller than the editor (in memory only), scroll, check alignment
-        await editor.evaluate("el => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }")
-        await page.keyboard.insert_text("\n" * 80)
-        await editor.evaluate("el => { el.scrollTop = 300; el.dispatchEvent(new Event('scroll')); }")
-        await page.wait_for_timeout(100)
-        transform = await page.locator(".fe-gutter-inner").evaluate("el => getComputedStyle(el).transform")
-        assert transform.endswith(", -300)"), transform
-        for _ in range(80):
-            await page.keyboard.press("Backspace")
+        await cm.wait_for_editor(page)
+        original = await cm.doc(page)
+        # Taller than the editor (in memory only); scroll to the end: the last line and its number show
+        await cm.set_doc(page, "\n".join(f"line_{i} = {i}" for i in range(1, 201)))
+        await cm.set_cursor(page, len(await cm.doc(page)))
+        await page.wait_for_timeout(200)
+        last_line = page.locator(".cm-line", has_text="line_200 = 200")
+        await expect(last_line).to_be_visible()
+        number = page.locator(".cm-lineNumbers .cm-gutterElement", has_text="200").last
+        await expect(number).to_be_visible()
+        lb, nb = await last_line.bounding_box(), await number.bounding_box()
+        assert abs(lb["y"] - nb["y"]) < 2, "line number aligned with its line"
+        await cm.set_doc(page, original)
         assert not errors, errors
         await browser.close()
 

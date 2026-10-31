@@ -4,9 +4,9 @@
  * pandas layouts this handles:
  *  - a named index (df.index.name / pivot tables): an extra header row holding the index name with
  *    empty cells under the data columns. Taking only the last header row turned every data column
- *    header into an empty cell (rendered as Col_1, Col_2, ...). Index names are now merged into the
- *    index column labels instead.
- *  - a named column axis (df.columns.name): its name sits in the index column of the header row.
+ *    header into an empty cell (rendered as Col_1, Col_2, ...). The index names are kept as their own
+ *    row (`indexNames`), as Jupyter and Colab show them.
+ *  - a named column axis (df.columns.name): its name sits in the index corner of the header row.
  *  - MultiIndex columns: several header rows with colspan; each leaf column keeps its full path.
  *  - MultiIndex rows: index cells with rowspan; values are repeated into every row they span so
  *    sorting and filtering stay correct.
@@ -19,8 +19,10 @@ export interface DataFrameCell {
 }
 
 export interface DataFrameColumn {
-  /** Leaf label shown in the sortable header row */
+  /** Leaf label shown in the sortable header row (for index columns: the column-axis name, if any) */
   label: string;
+  /** Index columns: the index level's name (df.index.name / names), shown on the index-names row */
+  indexName?: string;
   /** Full label (all levels joined with " / "), used for copy / CSV export */
   fullLabel: string;
   isIndex: boolean;
@@ -39,6 +41,8 @@ export interface ParsedDataFrame {
   headerBands: HeaderBandCell[][];
   rows: DataFrameCell[][];
   indexCount: number;
+  /** True when pandas wrote an index-names row (a named index) */
+  hasIndexNames: boolean;
   /** Shape reported by pandas (includes rows hidden by truncation), when present */
   shape: { rows: number; columns: number } | null;
 }
@@ -148,9 +152,10 @@ export function parseDataFrameHtml(html: string): ParsedDataFrame | null {
     const isIndex = c < indexCount;
     const values = body.map((row) => cellText(row, c));
     if (isIndex) {
-      // Index name if pandas wrote one; otherwise the column-axis name shown in that corner
-      const label = indexNames[c] || cellText(leafRow, c);
-      columns.push({ label, fullLabel: label, isIndex, type: inferType(values) });
+      // The corner of the column header row holds the column-axis name; the index name has its own row
+      const indexName = indexNames[c] || '';
+      const label = cellText(leafRow, c);
+      columns.push({ label, indexName, fullLabel: indexName || label, isIndex, type: inferType(values) });
       continue;
     }
     const path = levels.map((row) => cellText(row, c));
@@ -185,5 +190,5 @@ export function parseDataFrameHtml(html: string): ParsedDataFrame | null {
   const dims = (doc.body.textContent || '').match(/([\d,]+)\s+rows?\s+[×x]\s+([\d,]+)\s+columns?/);
   if (dims) shape = { rows: parseInt(dims[1].replace(/,/g, ''), 10), columns: parseInt(dims[2].replace(/,/g, ''), 10) };
 
-  return { columns, headerBands, rows, indexCount, shape };
+  return { columns, headerBands, rows, indexCount, hasIndexNames: indexNames.some(Boolean), shape };
 }

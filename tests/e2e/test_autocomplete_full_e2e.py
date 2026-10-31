@@ -192,8 +192,8 @@ async def test_autocomplete_scrolling_escape_and_outside_click():
         print(f"Listbox scrollTop after 8 ArrowDown: {scrolled_pos}px")
         assert scrolled_pos > 0, "Listbox MUST scroll down automatically during ArrowDown navigation!"
 
-        # 3. Press ArrowUp 6 times to scroll back up
-        for _ in range(6):
+        # 3. Press ArrowUp back to the first item: the list must scroll back to the top
+        for _ in range(8):
             await page.keyboard.press("ArrowUp")
             await asyncio.sleep(0.08)
 

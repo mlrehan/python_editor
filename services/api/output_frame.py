@@ -58,6 +58,25 @@ OUTPUT_FRAME_HTML = r"""<!doctype html>
 (function () {
   var root = document.getElementById('root');
   window.element = root; // Jupyter's application/javascript outputs write into `element`
+
+  // This frame has no origin of its own (sandbox without allow-same-origin), so the browser throws on
+  // localStorage, sessionStorage and document.cookie. Libraries such as Plotly and Bokeh touch them;
+  // give outputs private in-memory versions instead (they never reach the app's real storage).
+  function memoryStorage() {
+    var data = {};
+    return {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+      setItem: function (k, v) { data[k] = String(v); },
+      removeItem: function (k) { delete data[k]; },
+      clear: function () { data = {}; },
+      key: function (i) { return Object.keys(data)[i] || null; },
+      get length() { return Object.keys(data).length; }
+    };
+  }
+  ['localStorage', 'sessionStorage'].forEach(function (name) {
+    try { Object.defineProperty(window, name, { value: memoryStorage(), configurable: true }); } catch (e) {}
+  });
+  try { Object.defineProperty(document, 'cookie', { get: function () { return ''; }, set: function () {}, configurable: true }); } catch (e) {}
   var KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/';
   var MARKED = 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js';
   var PLOTLY = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
@@ -185,6 +204,6 @@ async def output_frame() -> HTMLResponse:
         OUTPUT_FRAME_HTML,
         headers={
             "Content-Security-Policy": OUTPUT_FRAME_CSP,
-            "Cache-Control": "public, max-age=3600",
+            "Cache-Control": "public, max-age=300",
         },
     )
