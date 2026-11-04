@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sys
 import uuid
@@ -7,6 +8,41 @@ from queue import Empty
 from typing import Dict, Any, List, Optional, Callable, Coroutine
 from jupyter_client.manager import AsyncKernelManager
 from .introspection import SETUP_CODE
+
+logger = logging.getLogger(__name__)
+import json
+import shutil
+
+# Runs inside a pre-started kernel when it is handed to its owner (in its own globals: nothing is
+# added to the user's namespace). Puts the kernel in the owner's workspace with the environment a
+# fresh start there would have.
+_ADOPT_SCRIPT = """
+import os, sys, json
+new_env = json.loads(%(env)r)
+launch_env = json.loads(%(launch_env)r)
+workspace = %(workspace)r
+old_ws = os.environ.get("PYTHON_CLOUD_STUDIO_WORKSPACE", "")
+old_paths = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+# Only what the spare was launched with is replaced; what the kernel set up itself at start-up
+# (e.g. MPLBACKEND for inline plots, TERM) is kept, as in a kernel started for this owner
+for key in list(os.environ):
+    if key in launch_env and key not in new_env and os.environ[key] == launch_env[key]:
+        del os.environ[key]
+for key, value in new_env.items():
+    if key in launch_env and os.environ.get(key) != launch_env[key]:
+        continue  # changed by the kernel itself after launch
+    os.environ[key] = value
+os.chdir(workspace)
+new_paths = [p for p in new_env.get("PYTHONPATH", "").split(os.pathsep) if p]
+sys.path[:] = [p for p in sys.path if p not in old_paths and not (p and old_ws and os.path.abspath(p).startswith(old_ws))]
+at = 1 if sys.path and sys.path[0] == "" else 0
+for p in reversed(new_paths):
+    if p not in sys.path:
+        sys.path.insert(at, p)
+guard = sys.modules.get("sitecustomize")
+if guard is not None and hasattr(guard, "_canon_ws"):
+    guard._canon_ws = os.path.realpath(workspace).rstrip("\\\\/").replace("\\\\", "/")
+"""
 import weakref
 
 # Kernel start-up is CPU heavy (~1-3 s of CPU each). Starting dozens at once on a few cores makes
@@ -108,6 +144,10 @@ class KernelSession:
         self.execution_count = 0
         self.is_running = False
         self._lock = asyncio.Lock()
+        # A pre-started kernel this session may take over instead of starting one (see start())
+        self.warm_candidate: Optional["KernelSession"] = None
+        # Environment the kernel was launched with (replaced when a spare is taken)
+        self.launch_env: Dict[str, str] = {}
         # True while an editor introspection (not user code) holds the lock
         self._introspection_active = False
         # stdin state for the current execution: when the pending input_request started,
@@ -133,6 +173,14 @@ class KernelSession:
             if self.is_running:
                 return
 
+            # A pre-started kernel (libraries already imported) makes the first run much faster
+            warm, self.warm_candidate = self.warm_candidate, None
+            if warm is not None and await self._take_over(warm):
+                self.is_running = True
+                self.death_reason = None
+                self.last_active_at = time.time()
+                return
+
             self.km = AsyncKernelManager(kernel_name=self.kernel_name)
             # Build sanitized environment stripping server secrets and injecting user's .env
             try:
@@ -140,6 +188,7 @@ class KernelSession:
             except ImportError:
                 from ..api.package_security import get_sanitized_kernel_env
             clean_env = get_sanitized_kernel_env(self.workspace_dir, self.user_id, self.is_admin)
+            self.launch_env = dict(clean_env)
 
             # Launch kernel with cwd set to the user's workspace directory and isolated environment
             async with _start_slots():
@@ -232,7 +281,8 @@ class KernelSession:
         async with self._lock:
             start_time = time.time()
             self.last_active_at = start_time
-            self._cell_start_children = {p.pid for p in self._child_processes()}
+            # psutil walks the process tree: run it in a thread so other users' streams keep flowing
+            self._cell_start_children = {p.pid for p in await asyncio.to_thread(self._child_processes)}
             allow_stdin = on_input_request is not None
             msg_id = self.kc.execute(code, allow_stdin=allow_stdin)
             result = KernelExecutionResult(msg_id=msg_id)
@@ -423,6 +473,92 @@ class KernelSession:
     def input_pending(self) -> bool:
         return self._input_pending_since is not None
 
+    async def _take_over(self, warm: "KernelSession") -> bool:
+        """Takes over a pre-started kernel and moves it into this session's workspace (lock held)."""
+        if not warm.is_running or not warm.kc:
+            await warm.shutdown()
+            return False
+        self.km, self.kc = warm.km, warm.kc
+        warm.km = warm.kc = None
+        warm.is_running = False
+        try:
+            from services.api.package_security import get_sanitized_kernel_env
+        except ImportError:
+            from ..api.package_security import get_sanitized_kernel_env
+        env = get_sanitized_kernel_env(self.workspace_dir, self.user_id, self.is_admin)
+        # Spares run at low CPU priority; the owner's kernel gets normal priority (or a fresh kernel)
+        if not await asyncio.to_thread(self.set_cpu_priority, False):
+            logger.warning("Could not restore the CPU priority of a spare kernel; starting a fresh one")
+            shutil.rmtree(warm.workspace_dir, ignore_errors=True)
+            await self._discard_taken_kernel()
+            return False
+        script = _ADOPT_SCRIPT % {
+            "env": json.dumps(env),
+            "launch_env": json.dumps(warm.launch_env),
+            "workspace": self.workspace_dir,
+        }
+        content = await self._shell_request_unlocked(
+            lambda: self.kc.execute("exec(%r, {})" % script, silent=True, store_history=False, allow_stdin=False),
+            timeout=10.0,
+        )
+        shutil.rmtree(warm.workspace_dir, ignore_errors=True)
+        if content is not None and content.get("status") == "ok":
+            return True
+        # Could not move it: discard it and start a fresh kernel instead
+        await self._discard_taken_kernel()
+        return False
+
+    async def _discard_taken_kernel(self) -> None:
+        try:
+            self.kc.stop_channels()
+            await self.km.shutdown_kernel(now=True)
+        except Exception:
+            pass
+        self.km = self.kc = None
+
+    def set_cpu_priority(self, low: bool) -> bool:
+        """Lowers (spare kernels: they never slow down people's running code) or restores the kernel's
+        CPU priority. Returns False if it could not be set."""
+        pid = self._kernel_pid()
+        if pid is None:
+            return False
+        try:
+            import psutil
+            proc = psutil.Process(pid)
+            if sys.platform == "win32":
+                proc.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if low else psutil.NORMAL_PRIORITY_CLASS)
+            else:
+                # The API's own priority is "normal" for its kernels
+                proc.nice(psutil.Process().nice() + (10 if low else 0))
+            return True
+        except Exception:
+            return False
+
+    async def preload(self, modules: List[str], timeout: float = 120.0) -> None:
+        """Imports libraries into sys.modules (not the user's namespace), so `import pandas` is instant."""
+        code = "for _m in %r:\n    try:\n        __import__(_m)\n    except Exception:\n        pass\n" % list(modules)
+        async with self._lock:
+            await self._shell_request_unlocked(
+                lambda: self.kc.execute("exec(%r, {})" % code, silent=True, store_history=False, allow_stdin=False),
+                timeout,
+            )
+
+    async def _shell_request_unlocked(self, send: Callable[[], str], timeout: float) -> Optional[Dict[str, Any]]:
+        """Sends one shell request and waits for its reply (caller holds the lock)."""
+        msg_id = send()
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                reply = await self.kc.get_shell_msg(timeout=remaining)
+            except Empty:
+                return None
+            # Skip replies to earlier requests still queued on the shell channel
+            if reply.get("parent_header", {}).get("msg_id") == msg_id:
+                return reply.get("content", {})
+
     async def _editor_shell_request(self, send: Callable[[], str], timeout: float) -> Optional[Dict[str, Any]]:
         """Sends one editor request (introspection or completion) and returns its shell reply content.
 
@@ -442,19 +578,7 @@ class KernelSession:
         try:
             if not self.kc:
                 return None
-            msg_id = send()
-            deadline = time.monotonic() + timeout
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                try:
-                    reply = await self.kc.get_shell_msg(timeout=remaining)
-                except Empty:
-                    return None
-                # Skip replies to earlier requests still queued on the shell channel
-                if reply.get("parent_header", {}).get("msg_id") == msg_id:
-                    return reply.get("content", {})
+            return await self._shell_request_unlocked(send, timeout)
         finally:
             self._introspection_active = False
             self._lock.release()
@@ -645,6 +769,7 @@ class KernelSession:
             except ImportError:
                 from ..api.package_security import get_sanitized_kernel_env
             clean_env = get_sanitized_kernel_env(self.workspace_dir, self.user_id, self.is_admin)
+            self.launch_env = dict(clean_env)
 
             async with _start_slots():
                 await self.km.start_kernel(cwd=self.workspace_dir, env=clean_env)

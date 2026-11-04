@@ -11,6 +11,7 @@ from httpx import AsyncClient, ASGITransport
 
 from services.api.config import Settings, assert_production_secrets
 from services.api.main import app
+from services.api.guest_workspace import issue_guest_token
 from services.runtime_management.kernel_pool import KernelPoolManager, KernelCapacityError
 
 pytestmark = pytest.mark.asyncio
@@ -28,6 +29,8 @@ async def pool():
         detached_timeout_seconds=600,
         max_kernel_memory_mb=0,
     )
+    # Guest workspaces are private folders the API resolves (see services/api/guest_workspace.py)
+    manager.guest_path_resolver = lambda ws: os.makedirs(os.path.join(root, "workspaces", "guests", ws), exist_ok=True) or os.path.join(root, "workspaces", "guests", ws)
     yield manager
     await manager.shutdown_all()
     shutil.rmtree(root, ignore_errors=True)
@@ -52,10 +55,10 @@ async def test_server_cap_evicts_abandoned_kernel_first(pool):
 
 
 async def test_guest_cap_is_separate_from_users(pool):
-    g1 = await pool.get_or_create_session("nb", "guest_one")
+    g1 = await pool.get_or_create_session("nb", "guest_" + uuid.uuid4().hex)
     g1.attach_client()
     with pytest.raises(KernelCapacityError, match="guest"):
-        await pool.get_or_create_session("nb", "guest_two")
+        await pool.get_or_create_session("nb", "guest_" + uuid.uuid4().hex)
     # A signed-in user is not blocked by the guest cap
     user = await pool.get_or_create_session("nb", "user_a")
     assert user.is_running
@@ -133,7 +136,7 @@ async def test_completion_does_not_import_user_modules_into_api_process():
     sys.path.insert(0, marker_dir)
     try:
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(transport=transport, base_url="http://test", headers={"X-Guest-Token": issue_guest_token()}) as client:
             response = await client.post("/api/v1/editor/complete", json={
                 "code": f"import {module_name} as p\np.", "line": 2, "column": 2, "notebook_context": [],
             })

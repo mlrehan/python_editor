@@ -26,6 +26,13 @@ WS_URL = "ws://127.0.0.1:8765"
 CONCURRENT_USERS = 100
 
 
+async def issue_guest_tokens(n: int) -> list:
+    """Server-issued guest sessions, one per simulated visitor (made-up tokens are refused)."""
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        res = await asyncio.gather(*[client.post(f"{BASE_URL}/api/v1/auth/guest-session") for _ in range(n)])
+    return [r.json()["guest_token"] for r in res]
+
+
 def calculate_metrics(latencies: list, total_time: float, errors: int):
     if not latencies:
         return {}
@@ -106,10 +113,11 @@ async def test_100_concurrent_notebook_operations():
     latencies = []
     errors = 0
 
-    # Ensure initial guest token or authenticated token
+    tokens = await issue_guest_tokens(CONCURRENT_USERS)
+
     async def worker(user_idx: int):
         nonlocal errors
-        guest_token = f"load_test_guest_{user_idx}_{int(time.time())}"
+        guest_token = tokens[user_idx]
         headers = {"X-Guest-Token": guest_token}
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -188,11 +196,12 @@ async def test_100_concurrent_websocket_connections():
     latencies = []
     errors = 0
     active_connections = []
+    tokens = await issue_guest_tokens(CONCURRENT_USERS)
 
     async def ws_worker(idx: int):
         nonlocal errors
         session_id = f"load-ws-session-{idx}-{int(time.time())}"
-        guest_token = f"load_gst_ws_{idx}"
+        guest_token = tokens[idx]
         url = f"{WS_URL}/ws/kernels/{session_id}?token={guest_token}"
 
         t0 = time.perf_counter()
@@ -238,11 +247,12 @@ async def test_concurrent_kernel_executions():
     latencies = []
     errors = 0
     NUM_EXECUTIONS = 20
+    tokens = await issue_guest_tokens(NUM_EXECUTIONS)
 
     async def exec_worker(idx: int):
         nonlocal errors
         session_id = f"load-exec-session-{idx}-{int(time.time())}"
-        guest_token = f"exec_gst_{idx}"
+        guest_token = tokens[idx]
         code = f"x = {idx} * 2\nprint(f'COMPUTED_{idx}_RESULT:{{x}}')"
 
         t0 = time.perf_counter()

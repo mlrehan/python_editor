@@ -5,6 +5,7 @@ import uuid
 from starlette.testclient import TestClient
 
 from services.api.main import app
+from services.api.guest_workspace import guest_workspace_id, issue_guest_token
 
 
 def _receive_until(ws, msg_type, cell_id=None, limit=200):
@@ -19,7 +20,7 @@ def _receive_until(ws, msg_type, cell_id=None, limit=200):
 
 
 def _ws_url():
-    return f"/ws/kernels/test-stdin-{uuid.uuid4().hex[:8]}?token=gst_test_{uuid.uuid4().hex[:8]}"
+    return f"/ws/kernels/test-stdin-{uuid.uuid4().hex[:8]}?token={issue_guest_token()}"
 
 
 def test_input_round_trip_over_websocket():
@@ -68,11 +69,13 @@ def test_closed_connections_never_leave_a_kernel_marked_attached():
         for read_first in (False, True, False):
             with client.websocket_connect(url) as ws:
                 if read_first:
-                    _receive_until(ws, "kernel_status")
+                    # "starting" comes first; wait for the kernel to be ready
+                    while _receive_until(ws, "kernel_status")[0].get("status") != "ready":
+                        pass
         deadline = time.time() + 10
         session = None
         while time.time() < deadline:
-            session = kernel_pool.get_session(session_id, f"guest_{token}")
+            session = kernel_pool.get_session(session_id, f"guest_{guest_workspace_id(token)}")
             if session is not None and session.attached_clients == 0:
                 break
             time.sleep(0.2)

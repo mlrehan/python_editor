@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     KERNEL_MAINTENANCE_INTERVAL_SECONDS: int = 30
     # Kernels allowed to start at the same time (0 = one per CPU core); others wait their turn
     KERNEL_START_CONCURRENCY: int = 0
+    # Guest workspaces unused for this long are removed from the server (the browser keeps a copy
+    # and restores it on the next visit)
+    GUEST_WORKSPACE_IDLE_DAYS: int = 14
+    # Spare kernels kept started for new sessions (first run without the kernel start-up wait), and
+    # libraries they import in advance. Each spare uses memory (~150 MB with pandas); 0 turns it off.
+    KERNEL_WARM_POOL_SIZE: int = 2
+    KERNEL_PRELOAD_MODULES: str = "numpy,pandas"
+    # Wait before replacing a spare that was just used, so it does not slow that user's first runs
+    KERNEL_WARM_REFILL_DELAY_SECONDS: int = 20
     WORKSPACES_ROOT: str = "./storage/workspaces"
     STORAGE_BACKEND: str = "local"
     LOCAL_STORAGE_PATH: str = "./storage/artifacts"

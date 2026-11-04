@@ -4,25 +4,21 @@ from typing import List, Union
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from ..models import User
 from ..schemas import FileItemResponse, FileWriteRequest, FolderCreateRequest, FileRenameRequest, WorkspaceEnvUpdateRequest
-from ..auth import get_current_user_or_guest, GuestUser
-from ..kernel_bridge import kernel_pool
-from ..guest_ownership import guest_ownership
+from ..auth import get_current_user_or_guest, GuestUser, owner_id_of
+from ..kernel_bridge import kernel_pool, guest_workspaces
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
 
 def get_safe_workspace_root(current_user: Union[User, GuestUser]) -> str:
-    """Returns the canonical root directory for this user/guest session."""
-    if getattr(current_user, "is_guest", False):
-        return os.path.realpath(kernel_pool.get_public_workspace_path())
-    return os.path.realpath(kernel_pool.get_user_workspace_path(current_user.id))
+    """Returns the canonical root directory for this user, or this guest's private workspace."""
+    return os.path.realpath(kernel_pool.get_user_workspace_path(owner_id_of(current_user)))
 
 
 def get_safe_user_path(current_user: Union[User, GuestUser], relative_path: str = "") -> str:
     """
     Resolves and verifies that the target path is strictly contained within the user's workspace.
-    For guests: resolves to shared public workspace.
-    For authenticated users: resolves to isolated private workspace.
+    Every user and every guest has an isolated private workspace.
     Guarantees protection against path traversal (e.g. '../').
     """
     workspace_root = get_safe_workspace_root(current_user)
@@ -93,21 +89,11 @@ async def write_file(
     req: FileWriteRequest,
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
-    """Writes content to a file in the workspace, enforcing guest capability authorization if public."""
-    if getattr(current_user, "is_guest", False):
-        if not guest_ownership.can_modify(req.path, getattr(current_user, "guest_token", None)):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: Cannot modify public file owned by another guest session.",
-            )
-
+    """Writes content to a file in the caller's private workspace."""
     target_file = get_safe_user_path(current_user, req.path)
     os.makedirs(os.path.dirname(target_file), exist_ok=True)
     with open(target_file, "w", encoding="utf-8", newline="") as f:
         f.write(req.content)
-
-    if getattr(current_user, "is_guest", False):
-        guest_ownership.record_ownership(req.path, getattr(current_user, "guest_token", ""))
 
     return {"status": "ok", "path": req.path}
 
@@ -132,18 +118,8 @@ async def upload_file(
 
     rel_dest = os.path.relpath(destination, workspace_root).replace("\\", "/")
 
-    if getattr(current_user, "is_guest", False):
-        if os.path.exists(destination) and not guest_ownership.can_modify(rel_dest, getattr(current_user, "guest_token", None)):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: Cannot overwrite public file owned by another guest session.",
-            )
-
     with open(destination, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    if getattr(current_user, "is_guest", False):
-        guest_ownership.record_ownership(rel_dest, getattr(current_user, "guest_token", ""))
 
     return {
         "status": "ok",
@@ -159,12 +135,6 @@ async def delete_file(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Deletes a file or directory within the workspace."""
-    if getattr(current_user, "is_guest", False):
-        if not guest_ownership.can_modify(path, getattr(current_user, "guest_token", None)):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: Cannot delete public file owned by another guest session.",
-            )
 
     target_path = get_safe_user_path(current_user, path)
     if not os.path.exists(target_path):
@@ -174,9 +144,6 @@ async def delete_file(
         shutil.rmtree(target_path)
     else:
         os.remove(target_path)
-
-    if getattr(current_user, "is_guest", False):
-        guest_ownership.remove_ownership(path)
 
     return {"status": "ok", "deleted": path}
 
@@ -189,8 +156,6 @@ async def create_folder(
     """Creates a new folder within the workspace."""
     target_dir = get_safe_user_path(current_user, req.path)
     os.makedirs(target_dir, exist_ok=True)
-    if getattr(current_user, "is_guest", False):
-        guest_ownership.record_ownership(req.path, getattr(current_user, "guest_token", ""))
     return {"status": "ok", "path": req.path}
 
 
@@ -200,12 +165,6 @@ async def rename_file(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Renames or moves a file or folder within the workspace."""
-    if getattr(current_user, "is_guest", False):
-        if not guest_ownership.can_modify(req.old_path, getattr(current_user, "guest_token", None)):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: Cannot rename public file owned by another guest session.",
-            )
 
     old_target = get_safe_user_path(current_user, req.old_path)
     new_target = get_safe_user_path(current_user, req.new_path)
@@ -219,10 +178,23 @@ async def rename_file(
     os.makedirs(os.path.dirname(new_target), exist_ok=True)
     shutil.move(old_target, new_target)
 
-    if getattr(current_user, "is_guest", False):
-        guest_ownership.rename_ownership(req.old_path, req.new_path, getattr(current_user, "guest_token", ""))
-
     return {"status": "ok", "old_path": req.old_path, "new_path": req.new_path}
+
+
+@router.get("/workspace-info")
+async def workspace_info(current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest)):
+    """Guest workspaces: whether the server folder is new, so the browser should restore its copy."""
+    if not getattr(current_user, "is_guest", False):
+        return {"kind": "user", "restore_pending": False}
+    return {"kind": "guest", **guest_workspaces.info(current_user.workspace_id)}
+
+
+@router.post("/workspace-info/restored")
+async def workspace_restored(current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest)):
+    """The browser finished restoring (or had nothing to restore)."""
+    if getattr(current_user, "is_guest", False):
+        guest_workspaces.mark_restored(current_user.workspace_id)
+    return {"status": "ok"}
 
 
 @router.get("/download")

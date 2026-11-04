@@ -87,10 +87,13 @@ async def get_current_user(
 
 
 class GuestUser:
-    """Represents an unauthenticated guest accessing the public workspace."""
-    def __init__(self, guest_token: str):
+    """An unauthenticated guest with a private workspace (identified by a server-signed token)."""
+    def __init__(self, guest_token: str, workspace_id: str):
+        # Database rows that need a user (e.g. audit logs) use the system guest user
         self.id = "public_guest"
         self.guest_token = guest_token
+        # One-way id of this guest's private workspace and kernels (see guest_workspace.py)
+        self.workspace_id = workspace_id
         self.email = "guest@cloudstudio.internal"
         self.full_name = "Guest Visitor"
         self.role = "guest"
@@ -100,19 +103,34 @@ class GuestUser:
         self.theme_preference = "system"
 
 
-from fastapi import Header
+from fastapi import Header, Query
 from typing import Union
+
+from .guest_workspace import guest_workspace_id
+
+
+def owner_id_of(user: Union[User, "GuestUser"]) -> str:
+    """Owner of kernels and workspaces: the user id, or guest_<workspace id> for a guest."""
+    if getattr(user, "is_guest", False):
+        return f"guest_{user.workspace_id}"
+    return str(user.id)
 
 
 async def get_current_user_or_guest(
     token: Optional[str] = Depends(oauth2_scheme),
     x_guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
+    x_guest_token_query: Optional[str] = Query(None, alias="x_guest_token", include_in_schema=False),
+    token_query: Optional[str] = Query(None, alias="token", include_in_schema=False),
     db: AsyncSession = Depends(get_db)
 ) -> Union[User, GuestUser]:
     """
     Resolves the authenticated User from the Bearer JWT token if present.
-    If no valid token is supplied, returns a GuestUser bound to the public workspace.
+    Otherwise the caller must present a guest token this server issued (header, or query string
+    for plain links such as downloads); it maps to that guest's private workspace. There is no
+    shared fallback identity: without a valid token the request is refused.
     """
+    # Plain links (downloads, image previews) cannot send headers: accept the account token there too
+    token = token or token_query
     if token:
         try:
             payload = decode_access_token(token)
@@ -129,8 +147,14 @@ async def get_current_user_or_guest(
         except Exception:
             pass
 
-    token_str = x_guest_token or "gst_guest_session"
-    return GuestUser(token_str)
+    token_str = x_guest_token or x_guest_token_query
+    workspace_id = guest_workspace_id(token_str)
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="guest_session_required",
+        )
+    return GuestUser(token_str, workspace_id)
 
 
 def require_role(*allowed_roles: str):

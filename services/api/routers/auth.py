@@ -100,13 +100,13 @@ async def update_theme(
     return current_user
 
 
-from ..guest_ownership import guest_ownership
+from ..guest_workspace import issue_guest_token
 
 
 @router.post("/guest-session")
 async def create_guest_session():
-    """Generates an unguessable capability token for guest session in public workspace."""
-    token = guest_ownership.generate_token()
+    """Issues a signed guest token: the key to a new, private guest workspace."""
+    token = issue_guest_token()
     return {
         "guest_token": token,
         "workspace_type": "public",

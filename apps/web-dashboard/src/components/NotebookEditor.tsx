@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Play,
   Plus,
@@ -34,6 +34,9 @@ interface NotebookEditorProps {
   onRunCell: (cellId: string, sourceOverride?: string) => void;
   onAddCell: (index: number, cellType: 'code' | 'markdown') => void;
   onDeleteCell: (cellId: string) => void;
+  onRunCellsAbove?: (cellId: string) => void;
+  onRunCellsBelow?: (cellId: string) => void;
+  onChangeCellType?: (cellId: string, cellType: 'code' | 'markdown') => void;
   onMoveCell: (cellId: string, direction: 'up' | 'down') => void;
   onDuplicateCell: (cellId: string) => void;
   onClearCellOutput: (cellId: string) => void;
@@ -69,6 +72,17 @@ const SHORTCUT_SECTIONS: Array<{ title: string; rows: ShortcutRow[] }> = [
       { action: 'Render a Markdown cell', keys: ['Ctrl + Enter', 'Shift + Enter'], macKeys: ['⌘ + Enter', 'Shift + Enter'] },
       { action: 'Stop running code (when no text is selected)', keys: ['Ctrl + C'], macKeys: ['⌃ + C'] },
       { action: 'Submit a value typed into an input() box', keys: ['Enter'] },
+    ],
+  },
+  {
+    title: 'Command mode (cell selected, not editing)',
+    rows: [
+      { action: 'Leave the editor (command mode) / edit the selected cell', keys: ['Esc', 'Enter'] },
+      { action: 'Select the previous / next cell', keys: ['↑', '↓'] },
+      { action: 'Insert a code cell above / below', keys: ['A', 'B'] },
+      { action: 'Delete the selected cell', keys: ['D, D'] },
+      { action: 'Change the cell to Markdown / code', keys: ['M', 'Y'] },
+      { action: 'Run the cells above / this cell and all below', keys: ['Ctrl + F8', 'Ctrl + F10'], macKeys: ['⌘ + F8', '⌘ + F10'] },
     ],
   },
   {
@@ -173,6 +187,9 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
   onRunAndInsertBelow,
   activeCellId,
   onSelectCell,
+  onRunCellsAbove,
+  onRunCellsBelow,
+  onChangeCellType,
   sessionId,
   onUpdateCellMetadata,
   pendingInput,
@@ -211,15 +228,143 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
     setMarkdownPreviews((prev) => ({ ...prev, [cellId]: !prev[cellId] }));
   };
 
-  // Focus active cell textarea when activeCellId changes
-  useEffect(() => {
-    if (activeCellId && textareaRefs.current[activeCellId]) {
-      const el = textareaRefs.current[activeCellId];
-      if (document.activeElement !== el) {
-        el?.focus();
-      }
+  // Colab/Jupyter modes: 'edit' while a cell's editor has the keyboard, 'command' when the cell itself
+  // is selected (Esc / Enter switch). Focus only ever moves because of the user's own action.
+  const [mode, setMode] = useState<'edit' | 'command'>('command');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // Where the next selection change should put the keyboard (set by keyboard and toolbar actions)
+  const focusRequestRef = useRef<'edit' | 'command' | null>(null);
+  // First "D" of the D, D delete chord
+  const pendingDeleteRef = useRef<{ cellId: string; at: number } | null>(null);
+
+  const focusCell = useCallback((cellId: string, target: 'edit' | 'command') => {
+    const editor = target === 'edit' ? textareaRefs.current[cellId] : null;
+    if (editor) {
+      editor.focus();
+      return;
     }
-  }, [activeCellId]);
+    const wrapper = cellRefs.current[cellId];
+    if (wrapper) {
+      wrapper.focus({ preventScroll: true });
+      wrapper.scrollIntoView({ block: 'nearest' });
+    }
+  }, []);
+
+  // A new selection takes the keyboard only if the user is working in the notebook (or asked for
+  // it): page load, background saves and outputs never steal focus or move the caret
+  useEffect(() => {
+    if (!activeCellId) return;
+    const requested = focusRequestRef.current;
+    focusRequestRef.current = null;
+    const focusInside = !!containerRef.current?.contains(document.activeElement);
+    if (!requested && !focusInside) return;
+    const target = requested ?? mode;
+    const want = target === 'edit' ? textareaRefs.current[activeCellId] : cellRefs.current[activeCellId];
+    if (want && document.activeElement !== want) focusCell(activeCellId, target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCellId, cells.length]);
+
+  const selectCell = (cellId: string, target: 'edit' | 'command') => {
+    focusRequestRef.current = target;
+    onSelectCell(cellId);
+    if (cellId === activeCellId) focusCell(cellId, target);
+  };
+
+  // Deleting selects the neighbour in command mode (as in Colab), so the keyboard is never lost
+  const deleteCellAndSelectNeighbour = (cellId: string) => {
+    const idx = cells.findIndex((c) => c.id === cellId);
+    const neighbour = cells[idx + 1] ?? cells[idx - 1];
+    onDeleteCell(cellId);
+    if (neighbour) {
+      focusRequestRef.current = 'command';
+      onSelectCell(neighbour.id);
+    }
+  };
+
+  const addCellAndEdit = (index: number, cellType: 'code' | 'markdown') => {
+    focusRequestRef.current = 'edit';
+    onAddCell(index, cellType);
+  };
+
+  // Command-mode keys, handled only while the cell itself (not an editor or control) has the focus
+  const handleCommandKey = (e: React.KeyboardEvent<HTMLDivElement>, cell: NotebookCell, index: number) => {
+    if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey) return;
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (key !== 'd') pendingDeleteRef.current = null;
+    switch (key) {
+      case 'Enter':
+        if (e.shiftKey) return; // Shift+Enter runs (global shortcut)
+        e.preventDefault();
+        if (cell.cell_type === 'markdown' && markdownPreviews[cell.id]) {
+          setMarkdownPreviews((prev) => ({ ...prev, [cell.id]: false }));
+          focusRequestRef.current = 'edit';
+          requestAnimationFrame(() => focusCell(cell.id, 'edit'));
+        } else {
+          focusCell(cell.id, 'edit');
+        }
+        return;
+      case 'ArrowUp':
+      case 'k':
+        e.preventDefault();
+        if (index > 0) selectCell(cells[index - 1].id, 'command');
+        return;
+      case 'ArrowDown':
+      case 'j':
+        e.preventDefault();
+        if (index < cells.length - 1) selectCell(cells[index + 1].id, 'command');
+        return;
+      case 'a':
+        e.preventDefault();
+        focusRequestRef.current = 'command';
+        onAddCell(index, 'code');
+        return;
+      case 'b':
+        e.preventDefault();
+        focusRequestRef.current = 'command';
+        onAddCell(index + 1, 'code');
+        return;
+      case 'd': {
+        e.preventDefault();
+        const pending = pendingDeleteRef.current;
+        if (pending && pending.cellId === cell.id && Date.now() - pending.at < 800) {
+          pendingDeleteRef.current = null;
+          deleteCellAndSelectNeighbour(cell.id);
+        } else {
+          pendingDeleteRef.current = { cellId: cell.id, at: Date.now() };
+        }
+        return;
+      }
+      case 'm':
+        e.preventDefault();
+        onChangeCellType?.(cell.id, 'markdown');
+        return;
+      case 'y':
+        e.preventDefault();
+        onChangeCellType?.(cell.id, 'code');
+        return;
+      default:
+        return;
+    }
+  };
+
+  // Escape in a cell editor (when it did not just close a popup) switches to command mode
+  const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    if (target.tagName !== 'TEXTAREA') return;
+    const cellEl = target.closest<HTMLElement>('[data-testid="notebook-cell"]');
+    const cellId = cellEl?.dataset.cellId;
+    if (!cellId) return;
+    e.preventDefault();
+    focusCell(cellId, 'command');
+  };
+
+  // Buttons inside the notebook never take the keyboard focus: the caret stays in the editor (or
+  // the cell stays selected) while running, moving, duplicating or clearing cells
+  const handleContainerMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button')) e.preventDefault();
+  };
 
   // Global shortcut handler for active cell execution anywhere in the notebook
   useEffect(() => {
@@ -232,6 +377,16 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
       const isCtrlOrCmdEnter = (e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.shiftKey && !e.altKey;
       const isShiftEnter = e.shiftKey && e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey;
       const isAltEnter = e.altKey && e.key === 'Enter' && !e.ctrlKey && !e.metaKey;
+
+      // Colab: Ctrl+F8 runs the cells above, Ctrl+F10 this cell and all below
+      const isRunAbove = (e.ctrlKey || e.metaKey) && e.key === 'F8';
+      const isRunBelow = (e.ctrlKey || e.metaKey) && e.key === 'F10';
+      if ((isRunAbove || isRunBelow) && activeCellId) {
+        e.preventDefault();
+        if (isRunAbove) onRunCellsAbove?.(activeCellId);
+        else onRunCellsBelow?.(activeCellId);
+        return;
+      }
 
       if (!isCtrlOrCmdEnter && !isShiftEnter && !isAltEnter) return;
 
@@ -272,7 +427,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown, true);
     };
-  }, [cells, activeCellId, onRunCurrentCell, onRunAndAdvance, onRunAndInsertBelow]);
+  }, [cells, activeCellId, onRunCurrentCell, onRunAndAdvance, onRunAndInsertBelow, onRunCellsAbove, onRunCellsBelow]);
 
   // Code editor keyboard event handler (Shortcuts, Auto-indent, Bracket pairing, Tab)
   const handleEditorKeyDown = (
@@ -572,7 +727,11 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
 
   return (
     <div
+      ref={containerRef}
       data-testid="notebook-editor-container"
+      data-mode={mode}
+      onKeyDown={handleContainerKeyDown}
+      onMouseDown={handleContainerMouseDown}
       className="nb-container"
       style={{
         flex: 1,
@@ -631,7 +790,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              onClick={() => onAddCell(0, 'code')}
+              onClick={() => addCellAndEdit(0, 'code')}
               style={{
                 padding: '5px 10px',
                 backgroundColor: 'var(--btn-secondary-bg)',
@@ -651,7 +810,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
               <Plus size={13} /> Code
             </button>
             <button
-              onClick={() => onAddCell(0, 'markdown')}
+              onClick={() => addCellAndEdit(0, 'markdown')}
               style={{
                 padding: '5px 10px',
                 backgroundColor: 'var(--btn-secondary-bg)',
@@ -732,16 +891,41 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           return (
             <div
               key={cell.id}
+              ref={(el) => {
+                cellRefs.current[cell.id] = el;
+              }}
               data-testid="notebook-cell"
-              onClick={() => onSelectCell(cell.id)}
-              className={`cell-wrapper ${isActive ? 'active' : ''}`}
+              data-cell-id={cell.id}
+              data-cell-type={cell.cell_type}
+              tabIndex={-1}
+              aria-selected={isActive}
+              onFocus={(e) => {
+                if (e.target === e.currentTarget) {
+                  setMode('command');
+                  if (!isActive) onSelectCell(cell.id);
+                }
+              }}
+              onKeyDown={(e) => handleCommandKey(e, cell, index)}
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                // Clicking into an editor or a control edits / acts; anywhere else selects the cell
+                if (target.closest('textarea, input, select, button, a, iframe, [contenteditable="true"]')) {
+                  if (!isActive) onSelectCell(cell.id);
+                  return;
+                }
+                if ((window.getSelection()?.toString() ?? '').length > 0) return; // selecting output text
+                selectCell(cell.id, 'command');
+              }}
+              className={`cell-wrapper ${isActive ? 'active' : ''}${isActive && mode === 'edit' ? ' is-editing' : ''}${isActive && mode === 'command' ? ' is-selected' : ''}`}
               style={{
                 borderRadius: '8px',
-                border: isActive ? '1px solid var(--border-accent)' : '1px solid var(--border-main)',
+                // Editing: accent border; selected in command mode: accent bar on the left
+                border: isActive && mode === 'edit' ? '1px solid var(--border-accent)' : isActive ? '1px solid var(--border-secondary)' : '1px solid var(--border-main)',
                 backgroundColor: 'var(--bg-cell-wrapper)',
                 overflow: isActive ? 'visible' : 'hidden',
                 zIndex: isActive ? 40 : 1,
-                boxShadow: isActive ? '0 0 0 1px var(--border-accent)' : 'none',
+                outline: 'none',
+                boxShadow: isActive && mode === 'edit' ? '0 0 0 1px var(--border-accent)' : isActive ? 'inset 4px 0 0 var(--border-accent)' : 'none',
                 transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
                 position: 'relative',
               }}
@@ -909,6 +1093,33 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                     </button>
                     {cellMenuId === cell.id && (
                       <div className="cell-menu" role="menu" aria-label="Cell actions" data-testid="cell-menu" onClick={(e) => e.stopPropagation()}>
+                        {cell.cell_type === 'code' && onRunCellsAbove && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="cell-menu-item"
+                            disabled={index === 0}
+                            onClick={() => {
+                              setCellMenuId(null);
+                              onRunCellsAbove(cell.id);
+                            }}
+                          >
+                            <Play size={14} /> Run cells above
+                          </button>
+                        )}
+                        {cell.cell_type === 'code' && onRunCellsBelow && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="cell-menu-item"
+                            onClick={() => {
+                              setCellMenuId(null);
+                              onRunCellsBelow(cell.id);
+                            }}
+                          >
+                            <Play size={14} /> Run this and below
+                          </button>
+                        )}
                         <button
                           type="button"
                           role="menuitem"
@@ -965,7 +1176,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteCell(cell.id);
+                      deleteCellAndSelectNeighbour(cell.id);
                     }}
                     style={{
                       backgroundColor: 'transparent',
@@ -1088,7 +1299,10 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       onRunCurrentCell={(id, codeVal) => onRunCurrentCell(id, codeVal)}
                       onRunAndAdvance={(id, codeVal) => onRunAndAdvance(id, codeVal)}
                       onRunAndInsertBelow={(id, codeVal) => onRunAndInsertBelow(id, codeVal)}
-                      onFocus={() => onSelectCell(cell.id)}
+                      onFocus={() => {
+                        setMode('edit');
+                        onSelectCell(cell.id);
+                      }}
                       notebookContext={cells
                         .slice(0, index)
                         .filter((c) => c.cell_type === 'code')
@@ -1106,7 +1320,10 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       data-testid="markdown-cell-editor"
                       className="code-font markdown-cell-editor"
                       value={cell.source}
-                      onFocus={() => onSelectCell(cell.id)}
+                      onFocus={() => {
+                        setMode('edit');
+                        onSelectCell(cell.id);
+                      }}
                       onChange={(e) => onUpdateCellSource(cell.id, e.target.value)}
                       onKeyDown={(e) => handleEditorKeyDown(e, cell)}
                       placeholder="Write Markdown text here..."
@@ -1167,7 +1384,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           }}
         >
           <button
-            onClick={() => onAddCell(cells.length, 'code')}
+            onClick={() => addCellAndEdit(cells.length, 'code')}
             style={{
               padding: '8px 16px',
               backgroundColor: 'var(--btn-secondary-bg)',
@@ -1185,7 +1402,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             <Plus size={15} /> Add Code Cell
           </button>
           <button
-            onClick={() => onAddCell(cells.length, 'markdown')}
+            onClick={() => addCellAndEdit(cells.length, 'markdown')}
             style={{
               padding: '8px 16px',
               backgroundColor: 'var(--btn-secondary-bg)',

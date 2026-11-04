@@ -156,7 +156,7 @@ def _get_workspace_search_paths(
     user_key = "anon"
     if current_user:
         user_key = (
-            f"guest_{current_user.guest_token}"
+            f"guest_{current_user.workspace_id}"
             if getattr(current_user, "is_guest", False)
             else str(getattr(current_user, "id", "public"))
         )
@@ -946,7 +946,7 @@ async def get_completions(
     aliases, var_types, user_symbols = _infer_code_types(full_code)
 
     owner_id = (
-        f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else str(current_user.id)
+        f"guest_{current_user.workspace_id}" if getattr(current_user, "is_guest", False) else str(current_user.id)
     )
     session = kernel_pool.get_session(req.session_id, owner_id) if req.session_id else None
     kernel_ready = session is not None and session.is_running and session.kc is not None
@@ -1124,7 +1124,7 @@ async def inspect_expression(
     full_code, _ = _build_virtual_script(req.code, req.line, req.notebook_context)
     aliases, var_types, _ = _infer_code_types(full_code)
     owner_id = (
-        f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else str(current_user.id)
+        f"guest_{current_user.workspace_id}" if getattr(current_user, "is_guest", False) else str(current_user.id)
     )
     session = kernel_pool.get_session(req.session_id, owner_id) if req.session_id else None
     if session is not None and session.is_running and session.kc is not None:

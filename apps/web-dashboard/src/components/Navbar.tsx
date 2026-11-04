@@ -216,7 +216,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         data-testid={user ? 'workspace-indicator-private' : 'workspace-indicator-public'}
       >
         {user ? <Lock size={13} /> : <Globe size={13} />}
-        {user ? 'Signed In — Private Workspace' : 'Guest Mode — Public Workspace'}
+        {user ? 'Signed In — Private Workspace' : 'Guest Mode — Private Workspace'}
       </div>,
       <div key="sep-status" className="tb-menu-sep" role="separator" />
     );
@@ -506,16 +506,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div
             className={`tb-chip tb-chip--info${workspaceLabel ? '' : ' tb-chip--icon-only'}`}
             data-testid="workspace-indicator-public"
-            data-tip="Guest mode: files are public. Sign in for a private workspace"
+            data-tip="Guest mode: your work is private and saved in this browser. Sign in to use it on other devices"
             data-tip-align="end"
           >
             <Globe size={12} />
             {workspaceLabelFull ? (
-              <span className="tb-chip-label">Guest Mode — Public Workspace</span>
+              <span className="tb-chip-label">Guest Mode — Private Workspace</span>
             ) : (
               <>
-                {workspaceLabel && <span className="tb-chip-label" aria-hidden="true">Guest · Public</span>}
-                <span className="pcs-sr-only">Guest Mode — Public Workspace</span>
+                {workspaceLabel && <span className="tb-chip-label" aria-hidden="true">Guest · Private</span>}
+                <span className="pcs-sr-only">Guest Mode — Private Workspace</span>
               </>
             )}
           </div>

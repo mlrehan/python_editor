@@ -14,8 +14,22 @@ from ..schemas import (
     NotebookResponse,
     NotebookDetailResponse,
 )
-from ..auth import get_current_user_or_guest, GuestUser
-from ..kernel_bridge import kernel_pool
+from ..auth import get_current_user_or_guest, GuestUser, owner_id_of
+from ..kernel_bridge import kernel_pool, guest_workspaces
+
+
+def _is_guest(user) -> bool:
+    return getattr(user, "is_guest", False)
+
+
+def _mirror_ipynb(ws_dir: str, title: str, content_json: str) -> None:
+    """Keeps a <title>.ipynb copy in the workspace, so the notebook is also a file the code can use."""
+    try:
+        fname = title if title.endswith(".ipynb") else f"{title}.ipynb"
+        with open(os.path.join(ws_dir, fname), "w", encoding="utf-8") as f:
+            f.write(content_json)
+    except Exception:
+        pass
 
 router = APIRouter(prefix="/notebooks", tags=["Notebooks"])
 
@@ -30,6 +44,16 @@ def create_default_notebook_dict() -> Dict[str, Any]:
     return json.loads(nbf.writes(nb))
 
 
+def _guest_notebook_or_404(current_user, notebook_id: str) -> Dict[str, Any]:
+    try:
+        nb = guest_workspaces.get_notebook(current_user.workspace_id, notebook_id)
+    except ValueError:
+        nb = None
+    if not nb:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notebook not found")
+    return nb
+
+
 @router.post("", response_model=NotebookDetailResponse)
 async def create_notebook(
     req: NotebookCreate,
@@ -38,7 +62,12 @@ async def create_notebook(
 ):
     """Creates a new notebook with standard Jupyter v4 format in public or private workspace."""
     content = req.initial_content if req.initial_content else create_default_notebook_dict()
-    owner_id = "public_guest" if getattr(current_user, "is_guest", False) else current_user.id
+    if _is_guest(current_user):
+        # Guests' notebooks live in their private workspace store, never in the shared database
+        saved = guest_workspaces.save_notebook(current_user.workspace_id, None, req.title, content, req.kernel_name)
+        _mirror_ipynb(kernel_pool.get_user_workspace_path(owner_id_of(current_user)), req.title, json.dumps(content))
+        return NotebookDetailResponse(**saved)
+    owner_id = current_user.id
 
     notebook = Notebook(
         user_id=owner_id,
@@ -52,10 +81,7 @@ async def create_notebook(
     await db.refresh(notebook)
 
     try:
-        if getattr(current_user, "is_guest", False):
-            ws_dir = kernel_pool.get_public_workspace_path()
-        else:
-            ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
+        ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
         fname = notebook.title if notebook.title.endswith(".ipynb") else f"{notebook.title}.ipynb"
         with open(os.path.join(ws_dir, fname), "w", encoding="utf-8") as f:
             f.write(notebook.content_json)
@@ -81,7 +107,10 @@ async def list_notebooks(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Lists notebooks belonging to the current user (public for guests, strictly private for users)."""
-    owner_id = "public_guest" if getattr(current_user, "is_guest", False) else current_user.id
+    if _is_guest(current_user):
+        return [NotebookResponse(**{k: v for k, v in nb.items() if k != "content"})
+                for nb in guest_workspaces.list_notebooks(current_user.workspace_id)]
+    owner_id = current_user.id
     query = select(Notebook).where(Notebook.user_id == owner_id)
     if project_id and not getattr(current_user, "is_guest", False):
         query = query.where(Notebook.project_id == project_id)
@@ -99,7 +128,10 @@ async def get_notebook(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Retrieves full notebook content with server-side ownership isolation."""
-    owner_id = "public_guest" if getattr(current_user, "is_guest", False) else current_user.id
+    if _is_guest(current_user):
+        nb = _guest_notebook_or_404(current_user, notebook_id)
+        return NotebookDetailResponse(**nb)
+    owner_id = current_user.id
     result = await db.execute(
         select(Notebook).where(Notebook.id == notebook_id, Notebook.user_id == owner_id)
     )
@@ -139,7 +171,15 @@ async def export_notebook(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Exports notebook as a downloadable .ipynb file."""
-    owner_id = "public_guest" if getattr(current_user, "is_guest", False) else current_user.id
+    if _is_guest(current_user):
+        nb = _guest_notebook_or_404(current_user, notebook_id)
+        fname = nb["title"] if nb["title"].endswith(".ipynb") else f"{nb['title']}.ipynb"
+        return Response(
+            content=json.dumps(nb["content"]),
+            media_type="application/x-ipynb+json",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    owner_id = current_user.id
     result = await db.execute(
         select(Notebook).where(Notebook.id == notebook_id, Notebook.user_id == owner_id)
     )
@@ -170,7 +210,19 @@ async def update_notebook(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Saves notebook modifications with server-side ownership verification."""
-    owner_id = "public_guest" if getattr(current_user, "is_guest", False) else current_user.id
+    if _is_guest(current_user):
+        # Creates the notebook when missing: the browser restores notebooks the server cleaned up
+        try:
+            existing = guest_workspaces.get_notebook(current_user.workspace_id, notebook_id)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid notebook id")
+        title = req.title or (existing["title"] if existing else "Untitled Notebook")
+        content = req.content if req.content is not None else (existing["content"] if existing else create_default_notebook_dict())
+        saved = guest_workspaces.save_notebook(current_user.workspace_id, notebook_id, title, content,
+                                               existing["kernel_name"] if existing else "python3")
+        _mirror_ipynb(kernel_pool.get_user_workspace_path(owner_id_of(current_user)), title, json.dumps(content))
+        return NotebookDetailResponse(**saved)
+    owner_id = current_user.id
     result = await db.execute(
         select(Notebook).where(Notebook.id == notebook_id, Notebook.user_id == owner_id)
     )
@@ -187,10 +239,7 @@ async def update_notebook(
     await db.refresh(notebook)
 
     try:
-        if getattr(current_user, "is_guest", False):
-            ws_dir = kernel_pool.get_public_workspace_path()
-        else:
-            ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
+        ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
         fname = notebook.title if notebook.title.endswith(".ipynb") else f"{notebook.title}.ipynb"
         with open(os.path.join(ws_dir, fname), "w", encoding="utf-8") as f:
             f.write(notebook.content_json)
@@ -217,7 +266,18 @@ async def delete_notebook(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Deletes an authorized notebook."""
-    owner_id = "public_guest" if getattr(current_user, "is_guest", False) else current_user.id
+    if _is_guest(current_user):
+        nb = _guest_notebook_or_404(current_user, notebook_id)
+        guest_workspaces.delete_notebook(current_user.workspace_id, notebook_id)
+        try:
+            fname = nb["title"] if nb["title"].endswith(".ipynb") else f"{nb['title']}.ipynb"
+            nb_file = os.path.join(kernel_pool.get_user_workspace_path(owner_id_of(current_user)), fname)
+            if os.path.exists(nb_file):
+                os.remove(nb_file)
+        except Exception:
+            pass
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    owner_id = current_user.id
     result = await db.execute(
         select(Notebook).where(Notebook.id == notebook_id, Notebook.user_id == owner_id)
     )
@@ -230,10 +290,7 @@ async def delete_notebook(
     await db.commit()
 
     try:
-        if getattr(current_user, "is_guest", False):
-            ws_dir = kernel_pool.get_public_workspace_path()
-        else:
-            ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
+        ws_dir = kernel_pool.get_user_workspace_path(current_user.id)
         fname = title if title.endswith(".ipynb") else f"{title}.ipynb"
         nb_file = os.path.join(ws_dir, fname)
         if os.path.exists(nb_file):

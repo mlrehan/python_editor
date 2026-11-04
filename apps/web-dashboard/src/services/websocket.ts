@@ -72,7 +72,8 @@ export class KernelWebSocketClient {
       this.isConnected = true;
       this.reconnectAttempts = 0;
       this.startHeartbeat();
-      this.onStatus('idle');
+      // The server starts (or finds) the kernel after accepting the connection: stay "connecting"
+      // until it reports the kernel ready, so the status never claims a kernel that is not there yet
     };
 
     ws.onmessage = (event) => {
@@ -102,6 +103,8 @@ export class KernelWebSocketClient {
           this.onInputRequest?.(msg.cell_id, msg.prompt ?? '', !!msg.password);
         } else if (msg.type === 'status') {
           this.onStatus(msg.execution_state === 'busy' ? 'busy' : 'idle');
+        } else if (msg.type === 'kernel_status') {
+          this.onStatus(msg.status === 'ready' ? 'idle' : 'connecting');
         } else if (msg.type === 'restarted') {
           this.onStatus('idle');
           this.settleRestart();
@@ -125,9 +128,11 @@ export class KernelWebSocketClient {
       console.warn('Kernel WebSocket error:', err);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       // Ignore close events from a socket that has already been replaced
       if (this.ws !== ws) return;
+      // 4401: the session is not valid (no shared fallback identity); retrying would not help
+      if (event.code === 4401) this.closedByClient = true;
       this.isConnected = false;
       this.ws = null;
       this.stopHeartbeat();

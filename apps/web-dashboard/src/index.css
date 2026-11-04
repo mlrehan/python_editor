@@ -1114,7 +1114,8 @@ code, pre, .code-font {
 .cell-hdr-btn:disabled { opacity: 0.45; }
 .cell-actions-secondary { display: flex; align-items: center; gap: 4px; }
 
-.cell-more { position: relative; display: none; }
+/* The "More" menu is always there (run above/below); at narrow widths it also holds move/duplicate */
+.cell-more { position: relative; display: flex; }
 .cell-more-btn {
   padding: 3px 5px;
   border: none;

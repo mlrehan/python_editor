@@ -19,7 +19,7 @@ async def run_code(
     Executes Python code on the user's isolated IPyKernel.
     Guarantees genuine Python execution in public (guest) or private (user) workspace.
     """
-    target_user_id = f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else current_user.id
+    target_user_id = f"guest_{current_user.workspace_id}" if getattr(current_user, "is_guest", False) else current_user.id
 
     # 1. Enforce package installation permissions and system security boundaries
     from ..package_security import validate_code_security
@@ -99,7 +99,7 @@ async def control_kernel(
     current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest),
 ):
     """Controls kernel lifecycle: interrupt, restart, shutdown."""
-    target_user_id = f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else current_user.id
+    target_user_id = f"guest_{current_user.workspace_id}" if getattr(current_user, "is_guest", False) else current_user.id
     is_admin = getattr(current_user, "role", "") in ("super_admin", "admin") or target_user_id == "admin_super"
     # Only the caller's own kernel is ever returned (admins manage other kernels via /admin/runtimes)
     session = kernel_pool.get_session(req.session_id, target_user_id)
@@ -133,7 +133,7 @@ async def control_kernel(
 @router.get("/sessions")
 async def list_user_sessions(current_user: Union[User, GuestUser] = Depends(get_current_user_or_guest)):
     """Lists currently active kernel sessions for the current user."""
-    target_user_id = f"guest_{current_user.guest_token}" if getattr(current_user, "is_guest", False) else current_user.id
+    target_user_id = f"guest_{current_user.workspace_id}" if getattr(current_user, "is_guest", False) else current_user.id
     sessions = []
     for s_id, s in kernel_pool._sessions.items():
         if s.user_id == target_user_id or getattr(current_user, "role", "") in ("super_admin", "admin"):

@@ -42,13 +42,13 @@ async def test_layout_guest_mode_and_resizing():
         public_badge = await page.wait_for_selector('[data-testid="workspace-indicator-public"]', timeout=8000)
         assert public_badge is not None
         badge_text = await public_badge.text_content()
-        assert "Guest Mode" in badge_text and "Public Workspace" in badge_text
+        assert "Guest Mode" in badge_text and "Private Workspace" in badge_text
 
         # Dismissible Guest Privacy Notice Banner
         guest_banner = await page.wait_for_selector('[data-testid="guest-privacy-banner"]', timeout=5000)
         assert guest_banner is not None
         banner_text = await guest_banner.text_content()
-        assert "public workspace" in banner_text.lower()
+        assert "private" in banner_text.lower() and "saved in this browser" in banner_text.lower()
 
         # Sign In button visible in Navbar
         signin_btn = await page.wait_for_selector('[data-testid="signin-button"]', timeout=5000)
@@ -196,7 +196,7 @@ async def test_layout_guest_mode_and_resizing():
         reverted_badge = await page.wait_for_selector('[data-testid="workspace-indicator-public"]', timeout=6000)
         assert reverted_badge is not None
         rev_text = await reverted_badge.text_content()
-        assert "Guest Mode" in rev_text and "Public Workspace" in rev_text
+        assert "Guest Mode" in rev_text and "Private Workspace" in rev_text
 
         # Sign In button reappears
         assert await page.locator('[data-testid="signin-button"]').count() > 0

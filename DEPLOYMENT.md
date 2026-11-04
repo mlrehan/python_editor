@@ -330,7 +330,7 @@ http://localhost:8765
 Run through this quick verification sequence to ensure all subsystems are functioning:
 
 - [ ] **Frontend Loads:** Web UI loads with clean layout, zero console errors.
-- [ ] **Guest Isolation:** Create a file in Guest Mode; verify it appears with `[Public]` badge.
+- [ ] **Guest Isolation:** Create a file in Guest Mode; open the site in a private window (another guest) and verify the file is not there. Refresh the first window and verify the file and notebook are still there.
 - [ ] **Authentication:** Sign in with Super Admin; verify workspace shifts to `[Private]` badge.
 - [ ] **Code Execution:** Create a cell with `print(2 + 2)` and press `Shift+Enter`. Verify output `4` streams via WebSocket.
 - [ ] **Interactive Table:** Run `import pandas as pd; pd.DataFrame({'A':[1,2],'B':[3,4]})`. Verify `DataTableView` displays with sort/filter controls.
@@ -447,6 +447,10 @@ KERNEL_IDLE_TIMEOUT_SECONDS=3600
 KERNEL_DETACHED_TIMEOUT_SECONDS=600
 KERNEL_MAX_MEMORY_MB=1024
 KERNEL_START_CONCURRENCY=0      # 0 = one kernel start at a time per CPU core
+KERNEL_WARM_POOL_SIZE=2         # spare kernels kept started for new sessions (~150 MB each with pandas); 0 = off
+KERNEL_PRELOAD_MODULES=numpy,pandas  # imported in advance by the spare kernels
+KERNEL_WARM_REFILL_DELAY_SECONDS=20  # wait before starting a replacement spare (keeps CPU free for the new user)
+GUEST_WORKSPACE_IDLE_DAYS=14    # guest workspaces unused this long are removed (the browser copy restores them)
 API_CPU_LIMIT=6
 API_MEM_LIMIT=10G
 API_PIDS_LIMIT=4096

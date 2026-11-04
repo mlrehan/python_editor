@@ -1,11 +1,15 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from services.api.main import app
+from services.api.guest_workspace import issue_guest_token
+
+# A server-issued guest session (requests without one are refused)
+GUEST = {"X-Guest-Token": issue_guest_token()}
 
 @pytest.mark.asyncio
 async def test_numpy_autocomplete():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         # np.
         response = await client.post("/api/v1/editor/complete", json={
             "code": "import numpy as np\nnp.",
@@ -24,7 +28,7 @@ async def test_numpy_autocomplete():
 @pytest.mark.asyncio
 async def test_pandas_autocomplete():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         # pd.
         response = await client.post("/api/v1/editor/complete", json={
             "code": "import pandas as pd\npd.",
@@ -41,7 +45,7 @@ async def test_pandas_autocomplete():
 @pytest.mark.asyncio
 async def test_cross_cell_context_dataframe_autocomplete():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         # Cell 2 accessing df defined in Cell 1
         response = await client.post("/api/v1/editor/complete", json={
             "code": "df.",
@@ -59,7 +63,7 @@ async def test_cross_cell_context_dataframe_autocomplete():
 @pytest.mark.asyncio
 async def test_prefix_filtering():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         # np.ar
         response = await client.post("/api/v1/editor/complete", json={
             "code": "import numpy as np\nnp.ar",
@@ -78,7 +82,7 @@ async def test_prefix_filtering():
 @pytest.mark.asyncio
 async def test_signature_help():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         # np.linspace(
         response = await client.post("/api/v1/editor/signatures", json={
             "code": "import numpy as np\nnp.linspace(",
@@ -95,7 +99,7 @@ async def test_signature_help():
 @pytest.mark.asyncio
 async def test_diagnostics_clean_on_valid_code():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         # The user's exact code that was previously showing red squiggly underlines:
         code = "import numpy as np\nimport pandas as pd\n\ndf = pd.read_csv('sample_data.csv')\nprint(df.head())\n"
         response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
@@ -106,7 +110,7 @@ async def test_diagnostics_clean_on_valid_code():
 @pytest.mark.asyncio
 async def test_diagnostics_suppress_incomplete_expression():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         # Incomplete typing: np.
         code = "import numpy as np\nnp."
         response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
@@ -117,7 +121,7 @@ async def test_diagnostics_suppress_incomplete_expression():
 @pytest.mark.asyncio
 async def test_diagnostics_real_syntax_error():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         code = "def invalid_func(: pass"
         response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
         assert response.status_code == 200
@@ -129,7 +133,7 @@ async def test_diagnostics_real_syntax_error():
 @pytest.mark.asyncio
 async def test_diagnostics_missing_module_error():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         code = "import totally_fake_module_that_does_not_exist_404"
         response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
         assert response.status_code == 200
@@ -151,7 +155,7 @@ async def test_diagnostics_missing_module_error():
 ])
 async def test_diagnostics_ignore_ipython_magics_and_shell_escapes(code):
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
         assert response.status_code == 200
         assert response.json()["diagnostics"] == []
@@ -159,7 +163,7 @@ async def test_diagnostics_ignore_ipython_magics_and_shell_escapes(code):
 @pytest.mark.asyncio
 async def test_diagnostics_real_error_next_to_magic_keeps_line_number():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
         code = "!python main.py\nx = (1, \nprint('after')"
         response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
         diagnostics = response.json()["diagnostics"]

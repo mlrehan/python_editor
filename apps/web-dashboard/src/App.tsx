@@ -11,6 +11,7 @@ import { NotebooksModal } from './components/NotebooksModal';
 import { SecretsModal } from './components/SecretsModal';
 import { NotebookDocument, NotebookCell, KernelStatus, KernelOutput, UserProfile, FileItem, PendingInput } from './types';
 import { api } from './services/api';
+import { guestStore } from './services/guestStore';
 import { KernelWebSocketClient } from './services/websocket';
 import { Globe, X, Lock, LogIn, RotateCcw, CheckCircle, AlertCircle } from 'lucide-react';
 
@@ -81,6 +82,8 @@ export const App: React.FC = () => {
   const [kernelToast, setKernelToast] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [pendingInput, setPendingInput] = useState<PendingInput | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // False in private windows or when site storage is blocked: no browser copy of the guest workspace
+  const [guestStorageAvailable, setGuestStorageAvailable] = useState(true);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isDirtyRef = useRef(false);
 
@@ -239,16 +242,29 @@ export const App: React.FC = () => {
           api.clearToken();
         }
       }
-      // Zero Login Wall: Initialize Guest session in Public Workspace
-      try {
-        await api.initGuestSession();
-      } catch (e) {
-        console.warn('Guest session init error:', e);
-      }
+      // Zero Login Wall: this browser's private guest workspace (resumed with its existing token)
+      await startGuestWorkspace();
       await loadOrCreateInitialNotebook();
     };
     initAuth();
   }, []);
+
+  // Guest workspace: make sure of the session, restore the browser copy into a workspace the server
+  // has just recreated, and note whether this browser can keep a copy at all
+  const startGuestWorkspace = async () => {
+    try {
+      await api.initGuestSession();
+      setGuestStorageAvailable(await guestStore.isAvailable());
+      const restored = await api.restoreGuestWorkspace();
+      if (restored > 0) {
+        setKernelToast({ text: `Your guest workspace was restored from this browser (${restored} items).`, type: 'success' });
+        setTimeout(() => setKernelToast(null), 6000);
+        window.dispatchEvent(new CustomEvent('pcs-refresh-files'));
+      }
+    } catch (e) {
+      console.warn('Guest workspace start error:', e);
+    }
+  };
 
   const loadOrCreateInitialNotebook = async (preferredId?: string) => {
     try {
@@ -289,7 +305,9 @@ export const App: React.FC = () => {
   };
 
   const getKernelSessionId = (nbId: string): string => {
-    const scope = user?.id ? `usr_${user.id}` : `gst_${api.getGuestToken()}`;
+    // Never put the guest token (a secret) in the session id: it travels in the WebSocket URL.
+    // The server separates kernels by owner, so guest sessions only need the notebook id.
+    const scope = user?.id ? `usr_${user.id}` : 'guest';
     return `session-${scope}-${nbId}`;
   };
 
@@ -651,6 +669,35 @@ export const App: React.FC = () => {
     }
   };
 
+  // Run the code cells before / from a cell, in notebook order (queued on the kernel like Run All)
+  const handleRunCellsAbove = (cellId: string) => {
+    if (!notebook) return;
+    const idx = notebook.cells.findIndex((c) => c.id === cellId);
+    notebook.cells.slice(0, Math.max(0, idx)).filter((c) => c.cell_type === 'code').forEach((c) => handleRunCell(c.id));
+  };
+  const handleRunCellsBelow = (cellId: string) => {
+    if (!notebook) return;
+    const idx = notebook.cells.findIndex((c) => c.id === cellId);
+    if (idx < 0) return;
+    notebook.cells.slice(idx).filter((c) => c.cell_type === 'code').forEach((c) => handleRunCell(c.id));
+  };
+
+  // Command mode M / Y: a code cell becomes Markdown (its outputs go) or back to code
+  const handleChangeCellType = (cellId: string, cellType: 'code' | 'markdown') => {
+    setNotebook((prev) =>
+      prev
+        ? {
+            ...prev,
+            cells: prev.cells.map((c) =>
+              c.id === cellId && c.cell_type !== cellType && !c.is_running
+                ? { ...c, cell_type: cellType, outputs: cellType === 'markdown' ? [] : c.outputs, execution_count: cellType === 'markdown' ? null : c.execution_count }
+                : c
+            ),
+          }
+        : prev
+    );
+  };
+
   const handleRestartKernel = async () => {
     if (!notebook) return;
     setIsRestartingKernel(true);
@@ -818,6 +865,8 @@ export const App: React.FC = () => {
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
     }
+    // While cells run, outputs stream in: save once they finish rather than after every chunk
+    if (notebook.cells.some((c) => c.is_running)) return;
 
     autoSaveTimerRef.current = setTimeout(async () => {
       try {
@@ -991,11 +1040,7 @@ export const App: React.FC = () => {
     setActiveFilePath(null);
     setIsRightSidebarOpen(false);
     localStorage.removeItem('pcs_active_notebook_id');
-    try {
-      await api.initGuestSession();
-    } catch (err) {
-      console.warn('Guest session init error:', err);
-    }
+    await startGuestWorkspace();
     await loadOrCreateInitialNotebook();
     window.dispatchEvent(new CustomEvent('pcs-refresh-files'));
   };
@@ -1169,7 +1214,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Guest Mode Public Privacy Notice Banner */}
+      {/* Guest Mode notice: private workspace kept in this browser */}
       {!user && showGuestBanner && (
         <div
           data-testid="guest-privacy-banner"
@@ -1189,8 +1234,12 @@ export const App: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Globe size={15} color="var(--border-accent)" />
             <span>
-              <strong style={{ color: 'var(--border-accent)' }}>Guest Mode — Public Workspace:</strong>
-              <span className="guest-banner-detail"> You are working in the public workspace. Any files or notebooks you create are visible to other users.</span>
+              <strong style={{ color: 'var(--border-accent)' }}>Guest Mode — Private Workspace:</strong>
+              <span className="guest-banner-detail">
+                {guestStorageAvailable
+                  ? ' Your files and notebooks are private and saved in this browser. Sign in to use them on other devices.'
+                  : ' Your files and notebooks are private. This browser cannot keep a copy (private window or storage blocked), so unused guest work is removed from the server after 14 days.'}
+              </span>
             </span>
             <button
               onClick={() => setIsAuthModalOpen(true)}
@@ -1309,6 +1358,9 @@ export const App: React.FC = () => {
               onRunCurrentCell={handleRunCurrentCell}
               onRunAndAdvance={handleRunAndAdvance}
               onRunAndInsertBelow={handleRunAndInsertBelow}
+              onRunCellsAbove={handleRunCellsAbove}
+              onRunCellsBelow={handleRunCellsBelow}
+              onChangeCellType={handleChangeCellType}
               activeCellId={activeCellId}
               onSelectCell={setActiveCellId}
               sessionId={notebook ? getKernelSessionId(notebook.id) : undefined}

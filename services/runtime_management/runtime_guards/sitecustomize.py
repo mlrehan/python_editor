@@ -24,17 +24,18 @@ if not _is_admin and _current_ws:
           - Shared public workspace files
           - Standard library, virtualenv, and system packages
         Blocks:
-          - Access to /workspaces/user_<other_id>/
+          - Access to /workspaces/user_<other_id>/ and /workspaces/guests/<other_id>/
         """
         try:
             if not isinstance(path, (str, bytes, os.PathLike)):
                 return False
             path_str = os.fspath(path) if hasattr(os, "fspath") else str(path)
-            # Fast check
-            if "user_" not in path_str and "workspaces" not in path_str:
+            # Fast check, for absolute paths only: a relative path such as "../<other>/file" names no
+            # workspace in its text but can still lead into one, so it is always resolved
+            if os.path.isabs(path_str) and "user_" not in path_str and "workspaces" not in path_str:
                 return False
             real = os.path.realpath(path_str).rstrip("\\/").replace("\\", "/")
-            if "/workspaces/user_" in real:
+            if "/workspaces/user_" in real or "/workspaces/guests" in real:
                 if not (real == _canon_ws or real.startswith(_canon_ws + "/")):
                     return True
         except Exception:

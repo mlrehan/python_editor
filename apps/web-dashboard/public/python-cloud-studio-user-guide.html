@@ -2357,7 +2357,7 @@ details.doc-accordion[open] summary {
       <div class="step-content">
         <h4>Open the Application in Your Browser</h4>
         <p>Navigate to <code>http://localhost:8765</code> (or the web address provided by your administrator). The Studio opens immediately in <strong>Guest Mode</strong>, with a clean workspace ready for coding.</p>
-        <p>Notice the top navigation bar displays <span class="badge badge-guest">Guest Mode — Public Workspace</span> and the kernel indicator shows <span class="badge badge-idle">Python 3 (idle)</span>.</p>
+        <p>Notice the top navigation bar displays <span class="badge badge-guest">Guest Mode — Private Workspace</span> and the kernel indicator shows <span class="badge badge-idle">Python 3 (idle)</span>.</p>
       </div>
     </div>
 
@@ -2447,14 +2447,14 @@ print(f"Character count in your name: {len(name)}")</code></pre>
     <div class="two-column-grid">
       <div class="feature-card">
         <div class="feature-card-header">
-          <span class="badge badge-guest">Guest Mode (Public Workspace)</span>
+          <span class="badge badge-guest">Guest Mode (Private Workspace)</span>
         </div>
-        <h4>Instant Collaboration Sandbox</h4>
+        <h4>Private, No Login</h4>
         <ul>
-          <li><strong>No Login Required:</strong> Anyone who opens the application starts here immediately.</li>
-          <li><strong>Shared File Access:</strong> Files uploaded or created in Guest Mode live in <code>storage/workspaces/public/</code>.</li>
-          <li><strong>Capability Tokens:</strong> Your browser receives an <code>X-Guest-Token</code> to track your temporary session.</li>
-          <li><strong>Ideal For:</strong> Quick code testing, temporary calculations, and public classroom demonstrations.</li>
+          <li><strong>No Login Required:</strong> Anyone who opens the application starts here immediately, with a few starter files.</li>
+          <li><strong>Private to This Browser:</strong> Your files, notebooks and Python kernel are your own. Other guests (another browser, another person, a private window) cannot see or change them.</li>
+          <li><strong>Kept in This Browser:</strong> A copy of your files and notebooks is saved in this browser, so they are still there after a refresh or when you come back. If the server removed an unused guest workspace, it is restored from this copy. Variables in Python are not kept: re-run your cells after a long break.</li>
+          <li><strong>Limits:</strong> Clearing site data, or a private window once closed, removes the browser copy. The banner tells you when this browser cannot keep one. Sign in to keep your work on the server and use it on other devices.</li>
         </ul>
       </div>
 
@@ -2493,7 +2493,7 @@ print(f"Character count in your name: {len(name)}")</code></pre>
         <ul>
           <li>Your JWT session token is instantly destroyed from browser memory.</li>
           <li>All active file editor tabs and notebook handles associated with your private account are closed immediately.</li>
-          <li>The left file explorer automatically switches back to the <strong>Public Workspace</strong>.</li>
+          <li>The left file explorer automatically switches back to this browser's private <strong>guest workspace</strong>.</li>
           <li>Your private files are <strong>NEVER visible</strong> to anyone who uses the browser after you log out.</li>
         </ul>
       </div>
@@ -2878,6 +2878,21 @@ print(f"Character count in your name: {len(name)}")</code></pre>
         <span class="badge badge-verified">Rapid Expansion</span>
       </div>
     </div>
+
+    <h3>Command Mode (Keyboard Cell Editing)</h3>
+    <p>
+      As in Google Colab and Jupyter, a cell is either being <strong>edited</strong> (the caret is in its code, accent border) or <strong>selected</strong> (accent bar on its left, no caret). Press <kbd>Esc</kbd> in a cell, or click its header, to select it; press <kbd>Enter</kbd> to edit it again. While a cell is selected:
+    </p>
+    <ul>
+      <li><kbd>↑</kbd> / <kbd>↓</kbd> (or <kbd>K</kbd> / <kbd>J</kbd>): select the cell above / below.</li>
+      <li><kbd>A</kbd> / <kbd>B</kbd>: insert a code cell above / below.</li>
+      <li><kbd>D</kbd> <kbd>D</kbd> (press D twice): delete the cell; the next one is selected.</li>
+      <li><kbd>M</kbd> / <kbd>Y</kbd>: change the cell to Markdown text / code.</li>
+      <li><kbd>Shift</kbd> + <kbd>Enter</kbd> and <kbd>Ctrl</kbd> + <kbd>Enter</kbd> run it as usual.</li>
+    </ul>
+    <p>
+      <kbd>Ctrl</kbd> + <kbd>F8</kbd> runs all cells above the current one, and <kbd>Ctrl</kbd> + <kbd>F10</kbd> runs the current cell and all below; both are also in each cell's <strong>⋯</strong> menu. Clicking a cell's buttons (Run, Move, Duplicate) never takes the caret out of your code.
+    </p>
 
     <h3>Understanding the Execution Gutter</h3>
     <p>
@@ -3827,7 +3842,7 @@ print("Key configured:", bool(api_key))</code></pre>
     </div>
     <h2 class="section-title">Sharing & Collaboration</h2>
     <p class="section-lead">
-      Export your notebooks for colleagues, share analysis via the Public Workspace, and present findings cleanly.
+      Export your notebooks for colleagues, give new guests starter files, and present findings cleanly.
     </p>
   </div>
 
@@ -3839,8 +3854,8 @@ print("Key configured:", bool(api_key))</code></pre>
         <p>In the Notebooks Modal, click <strong>Download .ipynb</strong>. The file can be uploaded to GitHub, emailed to colleagues, or imported into Google Colab.</p>
       </div>
       <div class="feature-card">
-        <h4>2. Public Workspace Sharing</h4>
-        <p>Save or copy a notebook into the Public Workspace to make it immediately viewable and runnable by students and team guests.</p>
+        <h4>2. Starter Files for Guests</h4>
+        <p>Guest workspaces are private, so guests cannot share files with each other. An administrator can place notebooks and data in the server's <code>storage/workspaces/public/</code> folder: every new guest workspace starts with a copy of them.</p>
       </div>
       <div class="feature-card">
         <h4>3. Classroom Assignments</h4>
@@ -4341,8 +4356,8 @@ plt.show()</code></pre>
       <dt>Diagnostics</dt>
       <dd>Real-time static code analysis that flags syntax errors and missing imports with red squiggly underlines.</dd>
 
-      <dt>Public Workspace</dt>
-      <dd>The zero-login guest sandbox environment where temporary files can be created and tested without an account.</dd>
+      <dt>Guest Workspace</dt>
+      <dd>The zero-login workspace each browser gets: private to that browser, with a copy kept in the browser so work survives a refresh or a return visit.</dd>
 
       <dt>Private Workspace</dt>
       <dd>The isolated tenant storage directory assigned to a registered user, protected by JWT authentication.</dd>

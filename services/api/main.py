@@ -22,8 +22,11 @@ async def lifespan(app: FastAPI):
     maintenance = asyncio.create_task(
         kernel_pool.run_maintenance(settings.KERNEL_MAINTENANCE_INTERVAL_SECONDS)
     )
+    # Spare kernels for new sessions start in the background (start-up is not delayed)
+    warm_pool = asyncio.create_task(kernel_pool.fill_warm_pool())
     yield
     maintenance.cancel()
+    warm_pool.cancel()
     # Shutdown: clean up any running kernels
     await kernel_pool.shutdown_all()
 

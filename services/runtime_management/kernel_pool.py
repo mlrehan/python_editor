@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import shutil
 import time
 import os
+import uuid
 from typing import Callable, Dict, List, Optional
 from .kernel_session import KernelSession, set_start_concurrency
 
@@ -32,6 +34,9 @@ class KernelPoolManager:
         detached_timeout_seconds: int = 600,
         max_kernel_memory_mb: int = 1024,
         start_concurrency: int = 0,
+        warm_pool_size: int = 0,
+        preload_modules: Optional[List[str]] = None,
+        warm_refill_delay_seconds: float = 20.0,
     ):
         self.workspaces_root = os.path.abspath(workspaces_root)
         self.max_kernels_per_user = max_kernels_per_user
@@ -44,9 +49,21 @@ class KernelPoolManager:
         self._sessions: Dict[str, KernelSession] = {}
         self._lock = asyncio.Lock()
         os.makedirs(self.workspaces_root, exist_ok=True)
+        # Pre-started kernels handed to new sessions (each used by exactly one owner, never returned)
+        self.warm_pool_size = warm_pool_size
+        self.preload_modules = preload_modules or []
+        self._warm: List[KernelSession] = []
+        self._warm_filling = False
+        # A spare is replaced only after this delay: starting it (and importing pandas) right away
+        # would compete for CPU with the new user's first runs
+        self.warm_refill_delay_seconds = warm_refill_delay_seconds
+        # Set by the API: maps a guest workspace id to its private folder
+        self.guest_path_resolver: Optional[Callable[[str], str]] = None
+        # Extra work for each maintenance pass (e.g. removing long-unused guest workspaces)
+        self.maintenance_hooks: List[Callable[[], None]] = []
 
     def get_public_workspace_path(self) -> str:
-        """Computes shared public workspace directory path for unauthenticated guest users."""
+        """The starter files copied into every new guest workspace (never a guest's working folder)."""
         path = os.path.join(self.workspaces_root, "public")
         os.makedirs(path, exist_ok=True)
         self._seed_default_workspace(path)
@@ -54,8 +71,10 @@ class KernelPoolManager:
 
     def get_user_workspace_path(self, user_id: str, project_id: Optional[str] = None) -> str:
         """Computes isolated canonical workspace directory path for a user/project."""
+        if user_id and user_id.startswith("guest_") and self.guest_path_resolver:
+            return self.guest_path_resolver(user_id[len("guest_"):])
         if not user_id or user_id in ("public", "guest", "public_guest") or user_id.startswith("guest_"):
-            return self.get_public_workspace_path()
+            raise ValueError("Guest kernels need a private guest workspace")
         if project_id:
             path = os.path.join(self.workspaces_root, f"user_{user_id}", f"project_{project_id}")
         else:
@@ -151,6 +170,9 @@ class KernelPoolManager:
                     kernel_name=kernel_name,
                     is_admin=is_admin
                 )
+                if self._warm and not is_admin:
+                    session.warm_candidate = self._warm.pop(0)
+                    asyncio.create_task(self.fill_warm_pool(delay=self.warm_refill_delay_seconds))
                 self._sessions[effective_id] = session
 
         await self._shutdown_quietly(evicted)
@@ -166,6 +188,33 @@ class KernelPoolManager:
                 await self._shutdown_quietly([session])
                 raise
         return session
+
+    async def fill_warm_pool(self, delay: float = 0.0) -> None:
+        """Keeps `warm_pool_size` spare kernels started, with common libraries already imported."""
+        if delay:
+            await asyncio.sleep(delay)
+        if self._warm_filling or self.warm_pool_size <= 0:
+            return
+        self._warm_filling = True
+        try:
+            while len(self._warm) < self.warm_pool_size and len(self._sessions) + len(self._warm) < self.max_total_kernels:
+                warm_dir = os.path.join(self.workspaces_root, ".warm", uuid.uuid4().hex)
+                warm = KernelSession(session_id=f"warm-{uuid.uuid4().hex[:8]}", user_id="warm", workspace_dir=warm_dir)
+                try:
+                    await warm.start()
+                    # Low CPU priority while spare: starting and preloading it never slows down
+                    # the code people are running (normal priority is restored when it is taken)
+                    await asyncio.to_thread(warm.set_cpu_priority, True)
+                    if self.preload_modules:
+                        await warm.preload(self.preload_modules)
+                except Exception:
+                    logger.exception("Could not start a spare kernel")
+                    await self._shutdown_quietly([warm])
+                    shutil.rmtree(warm_dir, ignore_errors=True)
+                    return
+                self._warm.append(warm)
+        finally:
+            self._warm_filling = False
 
     def _make_room_locked(self, user_id: str) -> List[KernelSession]:
         """
@@ -255,12 +304,19 @@ class KernelPoolManager:
         await self._shutdown_quietly([session])
         return True
 
+    async def shutdown_warm_pool(self) -> None:
+        warm, self._warm = self._warm, []
+        await self._shutdown_quietly(warm)
+        for s in warm:
+            shutil.rmtree(s.workspace_dir, ignore_errors=True)
+
     async def shutdown_all(self) -> None:
         """Halts all active kernels (used during server shutdown)."""
         async with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
         await self._shutdown_quietly(sessions)
+        await self.shutdown_warm_pool()
 
     async def reap_idle_sessions(self, now: Optional[float] = None) -> List[str]:
         """
@@ -294,7 +350,8 @@ class KernelPoolManager:
         limit_bytes = self.max_kernel_memory_mb * 1024 * 1024
         killed: List[str] = []
         for s_id, s in list(self._sessions.items()):
-            usage = s.memory_usage_bytes()
+            # psutil walks each process tree: in a thread, so the shared event loop never stalls
+            usage = await asyncio.to_thread(s.memory_usage_bytes)
             if usage is not None and usage > limit_bytes:
                 await s.kill(
                     f"The Python kernel was stopped because it used {usage // (1024 * 1024)} MB of memory, "
@@ -323,6 +380,8 @@ class KernelPoolManager:
             try:
                 await self.reap_idle_sessions()
                 await self.enforce_memory_limits()
+                for hook in self.maintenance_hooks:
+                    hook()
             except asyncio.CancelledError:
                 raise
             except Exception:

@@ -1,5 +1,6 @@
 import json
 import asyncio
+import time
 from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
 from ..auth import decode_access_token
@@ -20,8 +21,10 @@ async def kernel_websocket(
     Streams outputs token-by-token and manages execution state.
     """
     # 1. Authenticate WebSocket connection token
+    from ..guest_workspace import guest_workspace_id
+
     user_id = "public"
-    token_str = token if token and token.startswith("gst_") else "guest_default"
+    token_str = token if token and token.startswith("gst_") else None
     if token and not token.startswith("gst_"):
         try:
             payload = decode_access_token(token)
@@ -39,11 +42,23 @@ async def kernel_websocket(
             user = res_user.scalar_one_or_none()
 
     if not user:
+        workspace_id = guest_workspace_id(token_str)
+        if workspace_id is None:
+            # No valid account token and no server-issued guest token: there is no shared fallback
+            await websocket.accept()
+            await websocket.send_json({"type": "error", "code": "guest_session_required", "message": "Session expired. Reconnecting..."})
+            await websocket.close(code=4401)
+            return
         from ..auth import GuestUser
-        user = GuestUser(guest_token=token_str)
-        user_id = f"guest_{token_str}"
+        user = GuestUser(guest_token=token_str, workspace_id=workspace_id)
+        user_id = f"guest_{workspace_id}"
 
     await websocket.accept()
+    # Starting a kernel takes a moment: say so, so the page does not show a ready kernel too early
+    try:
+        await websocket.send_json({"type": "kernel_status", "session_id": session_id, "status": "starting"})
+    except Exception:
+        return
 
     try:
         # 2. Retrieve or provision user kernel session
@@ -72,6 +87,9 @@ async def kernel_websocket(
             "execution_count": session.execution_count,
         })
     except Exception:
+        # Gone before the kernel was ready: count the kernel as left without a browser from now on
+        if session.attached_clients == 0 and session.detached_at is None:
+            session.detached_at = time.time()
         return
 
     from ..package_security import validate_code_security

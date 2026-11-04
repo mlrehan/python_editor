@@ -589,9 +589,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     : '1px solid rgba(59, 130, 246, 0.3)'
                   : '1px solid rgba(234, 179, 8, 0.3)',
               }}
-              title={user ? (user.role === 'super_admin' ? 'SuperAdmin Workspace' : 'Private Workspace') : 'Public Workspace (Guest)'}
+              title={user ? (user.role === 'super_admin' ? 'SuperAdmin Workspace' : 'Private Workspace') : 'Guest workspace (private, saved in this browser)'}
             >
-              {user ? (user.role === 'super_admin' ? 'Admin' : 'Private') : 'Public'}
+              {user ? (user.role === 'super_admin' ? 'Admin' : 'Private') : 'Guest'}
             </span>
             {activeDirectory && (
               <span

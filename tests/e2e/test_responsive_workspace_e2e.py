@@ -41,7 +41,8 @@ async def no_page_overflow(page):
 
 async def settle(page):
     """Wait for open/close animations (drawers slide in) before measuring."""
-    await page.evaluate("Promise.all(document.getAnimations().map(a => a.finished))")
+    # allSettled: an animation cancelled meanwhile (e.g. the kernel badge stops pulsing) is fine
+    await page.evaluate("Promise.allSettled(document.getAnimations().map(a => a.finished))")
 
 
 def tree_item(page, name):
