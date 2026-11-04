@@ -71,6 +71,8 @@ class DiagnosticItem(BaseModel):
     to_col: int
     message: str
     severity: str = "error"  # "error", "warning"
+    # Python's exception class for this problem (SyntaxError, IndentationError, ModuleNotFoundError...)
+    error_type: Optional[str] = None
 
 
 class DiagnosticsRequest(BaseModel):
@@ -1231,9 +1233,11 @@ async def get_diagnostics(
             is_incomplete_expression = True
             break
 
-    # 1. Genuine Syntax Error Detection via Python's AST parser
+    # 1. Genuine Syntax Error Detection: Python's own parser and compiler (which also reports, for
+    # example, 'return' outside function). Top-level await is valid in notebooks.
     try:
         tree = ast.parse(parse_code)
+        compile(tree, "<cell>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT, dont_inherit=True)
     except SyntaxError as e:
         err_line = e.lineno or 1
         # Suppress transient syntax errors on the line currently being typed if it ends with a dot or operator
@@ -1247,8 +1251,10 @@ async def get_diagnostics(
                     from_col=from_col,
                     to_line=e.end_lineno or err_line,
                     to_col=to_col,
-                    message=f"Syntax Error: {e.msg or 'Invalid Python syntax'}",
+                    # Exactly what Python reports: IndentationError, TabError or SyntaxError and its message
+                    message=f"{type(e).__name__}: {e.msg or 'invalid syntax'}",
                     severity="error",
+                    error_type=type(e).__name__,
                 )
             )
         return DiagnosticsResponse(diagnostics=diagnostics)
@@ -1283,8 +1289,9 @@ async def get_diagnostics(
                             from_col=node.col_offset,
                             to_line=getattr(node, "end_lineno", node.lineno),
                             to_col=getattr(node, "end_col_offset", node.col_offset + len(alias.name) + 7),
-                            message=f"Unresolved import '{alias.name}': No module named '{root_pkg}' found in active Python runtime.",
+                            message=f"ModuleNotFoundError: No module named '{root_pkg}'",
                             severity="error",
+                            error_type="ModuleNotFoundError",
                         )
                     )
         elif isinstance(node, ast.ImportFrom):
@@ -1297,8 +1304,9 @@ async def get_diagnostics(
                             from_col=node.col_offset,
                             to_line=getattr(node, "end_lineno", node.lineno),
                             to_col=getattr(node, "end_col_offset", node.col_offset + len(node.module) + 5),
-                            message=f"Unresolved import '{node.module}': No module named '{root_pkg}' found in active Python runtime.",
+                            message=f"ModuleNotFoundError: No module named '{root_pkg}'",
                             severity="error",
+                            error_type="ModuleNotFoundError",
                         )
                     )
 

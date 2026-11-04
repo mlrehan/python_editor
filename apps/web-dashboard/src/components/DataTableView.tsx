@@ -569,7 +569,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                             textAlign: isNumeric ? 'right' : 'left',
                             color: cell.isIndex ? 'var(--text-muted)' : 'var(--text-main)',
                             fontWeight: cell.isIndex ? 600 : 400,
-                            fontFamily: isNumeric || cell.isIndex ? "'JetBrains Mono', monospace" : 'inherit',
+                            fontFamily: isNumeric || cell.isIndex ? 'var(--code-font-family)' : 'inherit',
                             fontSize: isNumeric || cell.isIndex ? '12px' : '12.5px',
                             whiteSpace: 'nowrap',
                           }}
@@ -581,7 +581,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({ html }) => {
                                 padding: '1px 5px',
                                 borderRadius: '3px',
                                 fontSize: '11px',
-                                fontFamily: "'JetBrains Mono', monospace",
+                                fontFamily: 'var(--code-font-family)',
                                 backgroundColor: 'var(--badge-bg)',
                                 color: 'var(--text-muted)',
                                 fontStyle: 'italic',

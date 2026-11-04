@@ -106,15 +106,19 @@ async def serve_user_guide():
         return FileResponse(dist_guide, media_type="text/html")
     return {"error": "User guide not found"}
 
+# The page itself is always revalidated, so a new release is picked up on the next load (its
+# scripts and styles have content-hashed names and can be cached)
+_INDEX_HEADERS = {"Cache-Control": "no-cache"}
+
 if os.path.exists(dist_path) and os.path.exists(index_html):
     @app.get("/")
     async def serve_root():
-        return FileResponse(index_html)
+        return FileResponse(index_html, headers=_INDEX_HEADERS)
 
     @app.get("/app")
     @app.get("/app/")
     async def serve_app():
-        return FileResponse(index_html)
+        return FileResponse(index_html, headers=_INDEX_HEADERS)
 else:
     @app.get("/")
     async def root():

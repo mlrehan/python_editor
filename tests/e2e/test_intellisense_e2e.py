@@ -132,7 +132,7 @@ async def test_moving_caret_closes_suggestions_so_enter_inserts_newline():
         browser, page, errors = await open_studio(p)
         cell, editor = await add_cell(page)
         await type_in(page, editor, "pri")
-        dropdown = cell.get_by_test_id("autocomplete-dropdown")
+        dropdown = page.get_by_test_id("autocomplete-dropdown")
         await expect(dropdown).to_be_visible(timeout=8000)
         await page.keyboard.press("ArrowLeft")
         await expect(dropdown).to_have_count(0)
@@ -155,7 +155,7 @@ async def test_dataframe_columns_from_live_kernel():
         count_after_setup = await setup.locator(".cell-header").first.inner_text()
 
         cell, editor = await add_cell(page)
-        dropdown = cell.get_by_test_id("autocomplete-dropdown")
+        dropdown = page.get_by_test_id("autocomplete-dropdown")
         options = dropdown.locator('[role="option"]')
 
         # df[ : every column (77, more than the old 50 cap), quoted keys inserted
@@ -189,19 +189,20 @@ async def test_dataframe_columns_from_live_kernel():
         await type_in(page, editor, "customer.groupby('ci")
         await expect(options).to_have_count(1, timeout=8000)
         # Columns and the signature help together, as in VS Code
-        await expect(cell.get_by_test_id("signature-help-tooltip")).to_contain_text("groupby(", timeout=8000)
+        await expect(page.get_by_test_id("signature-help-tooltip")).to_contain_text("groupby(", timeout=8000)
         await page.keyboard.press("Escape")
         await page.keyboard.press("Escape")
 
         # Not defined: a notice instead of silence; not a DataFrame: no column list
         await editor.fill("")
         await type_in(page, editor, "orders['")
-        await expect(cell.get_by_test_id("completion-notice")).to_contain_text("orders is not defined yet", timeout=8000)
+        await expect(page.get_by_test_id("completion-notice")).to_contain_text("orders is not defined yet", timeout=8000)
         await page.keyboard.press("Escape")
         await editor.fill("")
         await type_in(page, editor, "lookup['")
         await page.wait_for_timeout(1200)
-        assert await dropdown.count() == 0
+        shown = await dropdown.inner_text() if await dropdown.count() else ""
+        assert shown == "", f"unexpected suggestions for lookup[': {shown!r} (code {await editor.input_value()!r})"
 
         # Columns follow the runtime: add one, run, suggestions update
         await editor.fill("customer['Revenue'] = 5")
@@ -232,7 +233,7 @@ async def test_signature_documentation_and_details_panel():
         await run(setup)
         cell, editor = await add_cell(page)
         await type_in(page, editor, "pv.reindex(")
-        tip = cell.get_by_test_id("signature-help-tooltip")
+        tip = page.get_by_test_id("signature-help-tooltip")
         await expect(tip).to_be_visible(timeout=8000)
         await expect(tip.locator(".doc-heading", has_text="Parameters")).to_be_visible()
         await expect(tip.locator(".doc-heading", has_text="Returns")).to_be_visible()
@@ -252,7 +253,7 @@ async def test_signature_documentation_and_details_panel():
         # Details panel for the selected suggestion
         await editor.fill("")
         await type_in(page, editor, "pd.read_cs")
-        details = cell.get_by_test_id("completion-details")
+        details = page.get_by_test_id("completion-details")
         await expect(details).to_contain_text("read_csv(", timeout=8000)
         await expect(details.locator(".doc-heading", has_text="Parameters")).to_be_visible()
         await page.keyboard.press("Escape")

@@ -431,6 +431,21 @@ export const App: React.FC = () => {
   }, []);
 
   // Open file in right sidebar (called on double-click from File Explorer)
+  // Traceback link to a workspace file: open it and put the caret on that line
+  const handleOpenFileAtLine = async (path: string, line: number) => {
+    if (!openFiles.some((f) => f.path === path)) {
+      try {
+        await api.readFile(path);
+      } catch {
+        setKernelToast({ text: `${path} is not in your workspace (it may have been moved or deleted).`, type: 'error' });
+        setTimeout(() => setKernelToast(null), 5000);
+        return;
+      }
+    }
+    await handleOpenFile({ name: path.split('/').pop() || path, path, is_dir: false, size: 0, modified_at: 0 });
+    setOpenFiles((prev) => prev.map((f) => (f.path === path ? { ...f, revealLine: line, revealNonce: Date.now() } : f)));
+  };
+
   const handleOpenFile = async (fileItem: FileItem) => {
     if (isCompact) setIsLeftSidebarOpen(false);
     // If file is already open in tabs, select its tab
@@ -837,6 +852,8 @@ export const App: React.FC = () => {
   // while focused) instead of the browser's "Save page"; Ctrl/Cmd+B shows or hides the Files sidebar
   useEffect(() => {
     const handleAppShortcuts = (e: KeyboardEvent) => {
+      // A key an editor already used (e.g. Ctrl+B for Bold in a text cell) is not an app shortcut
+      if (e.defaultPrevented) return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       const key = e.key.toLowerCase();
       if (key === 's' || e.code === 'KeyS') {
@@ -1017,6 +1034,43 @@ export const App: React.FC = () => {
     });
     setActiveCellId(newCell.id);
   };
+
+  // Runs a .py file the way Jupyter/Colab do: a new "%run file.py" cell at the end of the notebook,
+  // so the output shows there and the file's variables and functions are available to later cells
+  const runFileCellRef = useRef<string | null>(null);
+  const handleRunFile = async (path: string) => {
+    if (!notebook) return;
+    const open = openFiles.find((f) => f.path === path);
+    if (open?.isDirty) {
+      try {
+        await handleSaveOpenFile(path, open.content);
+      } catch (err) {
+        setKernelToast({ text: `Could not save ${open.name} before running it.`, type: 'error' });
+        return;
+      }
+    }
+    const target = /[\s'"]/.test(path) ? JSON.stringify(path) : path;
+    const cell: NotebookCell = {
+      id: `cell-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      cell_type: 'code',
+      source: `%run ${target}`,
+      outputs: [],
+    };
+    runFileCellRef.current = cell.id;
+    setNotebook((prev) => (prev ? { ...prev, cells: [...prev.cells, cell] } : prev));
+    setActiveCellId(cell.id);
+    // On small screens the file editor covers the notebook: show the notebook with the output
+    if (isCompact) setIsRightSidebarOpen(false);
+  };
+  useEffect(() => {
+    const id = runFileCellRef.current;
+    if (!id || !notebook?.cells.some((c) => c.id === id)) return;
+    runFileCellRef.current = null;
+    handleRunCell(id);
+    requestAnimationFrame(() =>
+      document.querySelector(`[data-cell-id="${id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    );
+  }, [notebook]);
 
   const handleInsertCodeSnippet = (code: string) => {
     if (!notebook) return;
@@ -1307,6 +1361,7 @@ export const App: React.FC = () => {
               onOpenFile={handleOpenFile}
               onOpenNotebookFile={handleOpenNotebookFile}
               onCreateNewNotebook={handleCreateNewNotebook}
+              onRunFile={handleRunFile}
               activeFilePath={activeFilePath || undefined}
               width={isCompact ? leftDrawerWidth : leftSidebarWidth}
             />
@@ -1361,6 +1416,7 @@ export const App: React.FC = () => {
               onRunCellsAbove={handleRunCellsAbove}
               onRunCellsBelow={handleRunCellsBelow}
               onChangeCellType={handleChangeCellType}
+              onOpenFileAtLine={handleOpenFileAtLine}
               activeCellId={activeCellId}
               onSelectCell={setActiveCellId}
               sessionId={notebook ? getKernelSessionId(notebook.id) : undefined}
@@ -1416,6 +1472,7 @@ export const App: React.FC = () => {
                 onSave={handleSaveOpenFile}
                 onContentChange={handleContentChange}
                 onOpenAsNotebook={handleOpenNotebookFile}
+                onRunFile={handleRunFile}
                 width={rightPanelWidth}
                 layout={isPhone ? 'fullscreen' : isCompact ? 'drawer' : 'docked'}
               />

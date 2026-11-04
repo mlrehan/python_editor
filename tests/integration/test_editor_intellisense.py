@@ -128,7 +128,8 @@ async def test_diagnostics_real_syntax_error():
         data = response.json()
         assert len(data["diagnostics"]) > 0
         assert data["diagnostics"][0]["severity"] == "error"
-        assert "Syntax Error" in data["diagnostics"][0]["message"]
+        assert data["diagnostics"][0]["message"].startswith("SyntaxError: ")
+        assert data["diagnostics"][0]["error_type"] == "SyntaxError"
 
 @pytest.mark.asyncio
 async def test_diagnostics_missing_module_error():
@@ -139,7 +140,8 @@ async def test_diagnostics_missing_module_error():
         assert response.status_code == 200
         data = response.json()
         assert len(data["diagnostics"]) > 0
-        assert "Unresolved import" in data["diagnostics"][0]["message"]
+        assert data["diagnostics"][0]["message"].startswith("ModuleNotFoundError: No module named")
+        assert data["diagnostics"][0]["error_type"] == "ModuleNotFoundError"
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code", [
@@ -168,6 +170,35 @@ async def test_diagnostics_real_error_next_to_magic_keeps_line_number():
         response = await client.post("/api/v1/editor/diagnostics", json={"code": code})
         diagnostics = response.json()["diagnostics"]
         assert len(diagnostics) == 1
-        assert "Syntax Error" in diagnostics[0]["message"]
+        assert diagnostics[0]["message"].startswith("SyntaxError: ")
         assert diagnostics[0]["from_line"] >= 2
 
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code,error_type,message,line", [
+    ("if True:\nprint(1)", "IndentationError", "expected an indented block after 'if' statement on line 1", 2),
+    ("x = 1\n    y = 2", "IndentationError", "unexpected indent", 2),
+    ("def f(:\n    pass", "SyntaxError", "invalid syntax", 1),
+    ("print('a'", "SyntaxError", "'(' was never closed", 1),
+    ("x = 1\nreturn x", "SyntaxError", "'return' outside function", 2),
+    ("for i in range(3):\n    pass\nbreak", "SyntaxError", "'break' outside loop", 3),
+])
+async def test_diagnostics_report_pythons_exact_error(code, error_type, message, line):
+    """The exception class, Python's own message and the line, as Python itself reports them."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
+        res = await client.post("/api/v1/editor/diagnostics", json={"code": code})
+    d = res.json()["diagnostics"]
+    assert len(d) == 1, d
+    assert d[0]["error_type"] == error_type
+    assert d[0]["message"] == f"{error_type}: {message}"
+    assert d[0]["from_line"] == line
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_allow_top_level_await():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=GUEST) as client:
+        res = await client.post("/api/v1/editor/diagnostics", json={"code": "import asyncio\nawait asyncio.sleep(0)"})
+    assert res.json()["diagnostics"] == []

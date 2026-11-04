@@ -90,7 +90,7 @@ class KernelPoolManager:
                 # 1. README.md
                 readme_path = os.path.join(path, "README.md")
                 with open(readme_path, "w", encoding="utf-8", newline="") as f:
-                    f.write("# Enterprise Python Cloud Studio\n\nWelcome to your cloud workspace!\n\n- Double-click any file in the left sidebar to preview and edit in the right panel.\n- Double-click `.ipynb` files to open as interactive notebooks.\n- Run Python code using the Run button or Shift+Enter.\n")
+                    f.write("# Enterprise Python Cloud Studio\n\nWelcome to your cloud workspace!\n\n- Double-click any file in the left sidebar to preview and edit in the right panel.\n- Double-click `.ipynb` files to open as interactive notebooks.\n- Open a `.py` file and click the green Run button to run it in your notebook (or type `%run file.py` in a cell).\n- Run Python code using the Run button or Shift+Enter.\n")
 
                 # 2. main.py
                 main_py_path = os.path.join(path, "main.py")

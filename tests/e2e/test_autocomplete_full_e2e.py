@@ -183,17 +183,17 @@ async def test_autocomplete_scrolling_escape_and_outside_click():
         initial_scroll = await listbox.evaluate("el => el.scrollTop")
         assert initial_scroll == 0, f"Expected initial scrollTop 0, got {initial_scroll}"
 
-        # 2. Press ArrowDown 8 times to navigate deep into the list
-        for _ in range(8):
+        # 2. Navigate past the visible rows (the list shows up to 10 at once)
+        for _ in range(14):
             await page.keyboard.press("ArrowDown")
             await asyncio.sleep(0.08)
 
         scrolled_pos = await listbox.evaluate("el => el.scrollTop")
-        print(f"Listbox scrollTop after 8 ArrowDown: {scrolled_pos}px")
+        print(f"Listbox scrollTop after 14 ArrowDown: {scrolled_pos}px")
         assert scrolled_pos > 0, "Listbox MUST scroll down automatically during ArrowDown navigation!"
 
         # 3. Press ArrowUp back to the first item: the list must scroll back to the top
-        for _ in range(8):
+        for _ in range(14):
             await page.keyboard.press("ArrowUp")
             await asyncio.sleep(0.08)
 

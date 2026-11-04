@@ -2879,6 +2879,48 @@ print(f"Character count in your name: {len(name)}")</code></pre>
       </div>
     </div>
 
+    <h3>Running a Python (.py) File</h3>
+    <p>
+      You can keep code in <code>.py</code> files and run them from your notebook:
+    </p>
+    <ol>
+      <li>In the <strong>Files</strong> panel on the left (open it with the top-left panel button or <kbd>Ctrl</kbd> + <kbd>B</kbd>), click <strong>+ File</strong>, type a name ending in <code>.py</code> (for example <code>hello.py</code>) and confirm. The file opens in the editor on the right.</li>
+      <li>Write your code, for example <code>print('Hello!')</code>.</li>
+      <li>Click the green <strong>▷ Run</strong> button above the editor. The file is saved, and a new cell <code>%run hello.py</code> is added at the end of your notebook and run. Its output appears under that cell.</li>
+    </ol>
+    <p>
+      You can also right-click a <code>.py</code> file in the Files panel and choose <strong>Run in notebook</strong>, or type <code>%run hello.py</code> in any code cell yourself. Variables and functions defined in the file are available in later cells (for example, call a function from the file in the next cell). Paths are relative to your workspace folder, so a file in a folder runs as <code>%run "my scripts/report.py"</code>.
+    </p>
+
+    <h3>Formatting Text Cells (No Markdown Needed)</h3>
+    <p>
+      Text cells hold your notes and explanations. Click <strong>+ Text</strong> (or double-click an existing text cell) and a formatting toolbar appears above the text, with a live preview beside it. Select some words and click a button, just like in a word processor:
+    </p>
+    <ul>
+      <li><strong>Style</strong> menu: Heading 1, 2, 3 or normal text.</li>
+      <li><strong>B</strong>, <em>I</em>, strikethrough, inline code, <mark>highlight</mark> and text colour.</li>
+      <li>Bulleted list, numbered list and checklist. Press <kbd>Enter</kbd> to add the next item; <kbd>Enter</kbd> on an empty item ends the list; <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> nest or un-nest an item.</li>
+      <li>Link and image: type the web address in the small form (or choose an image from your computer, up to 1.5 MB; it is stored inside the notebook). Quote and divider.</li>
+      <li>Code block (choose the language) and maths: inline <code>$x^2$</code> or a maths block, shown with proper mathematical typesetting.</li>
+    </ul>
+    <p>
+      Shortcuts: <kbd>Ctrl</kbd> + <kbd>B</kbd> bold, <kbd>Ctrl</kbd> + <kbd>I</kbd> italic, <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> strikethrough, <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> highlight, <kbd>Ctrl</kbd> + <kbd>E</kbd> inline code, <kbd>Ctrl</kbd> + <kbd>K</kbd> link, <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>7</kbd> / <kbd>8</kbd> / <kbd>9</kbd> numbered list / bulleted list / checklist, <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>1</kbd>–<kbd>3</kbd> headings (<kbd>0</kbd> normal text), and <kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> to undo and redo. On macOS use <kbd>⌘</kbd>.
+    </p>
+    <p>
+      Press <kbd>Esc</kbd>, <kbd>Shift</kbd> + <kbd>Enter</kbd> or click another cell to see the text formatted. The toolbar writes standard Markdown, so your notebooks look the same in Jupyter and Google Colab, and text you wrote in Markdown yourself is kept exactly as written. Hide or show the live preview with the button at the right of the toolbar.
+    </p>
+
+    <h3>Understanding Errors</h3>
+    <ul>
+      <li><strong>While you type:</strong> a problem Python would refuse to run (for example an <code>IndentationError</code> or a missing module) is underlined in red, with a red dot next to the line number. Hover over the underline or the dot to see Python's exact message, the error type and the line and column. Click the red note at the bottom of the cell to jump to the problem.</li>
+      <li><strong>After running:</strong> the line that raised an error (<code>NameError</code>, <code>TypeError</code>, <code>ValueError</code>…) is marked the same way; hover over it for the details. The complete traceback stays in the output. Under the error, <strong>Where:</strong> lists the places the traceback points at: click one to go to that line in the notebook, or to open a <code>.py</code> file of your workspace at that line.</li>
+    </ul>
+
+    <h3>Editor Font and Indentation</h3>
+    <p>
+      Code uses JetBrains Mono at 14 px. Change the size from the <strong>⋯</strong> menu in the top bar (<strong>Editor font size</strong>); your choice is remembered in this browser and applies to notebook cells and the file editor. Indentation is four spaces: <kbd>Enter</kbd> indents after a line ending in <code>:</code> and inside brackets, and goes back a level after <code>return</code>, <code>pass</code>, <code>break</code>, <code>continue</code> and <code>raise</code>; <kbd>Backspace</kbd> in the spaces at the start of a line removes a whole level; typing <code>else:</code>, <code>elif</code>, <code>except</code> or <code>finally:</code> lines it up with its <code>if</code> or <code>try</code>.
+    </p>
+
     <h3>Command Mode (Keyboard Cell Editing)</h3>
     <p>
       As in Google Colab and Jupyter, a cell is either being <strong>edited</strong> (the caret is in its code, accent border) or <strong>selected</strong> (accent bar on its left, no caret). Press <kbd>Esc</kbd> in a cell, or click its header, to select it; press <kbd>Enter</kbd> to edit it again. While a cell is selected:

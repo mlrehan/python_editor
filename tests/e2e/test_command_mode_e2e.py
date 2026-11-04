@@ -83,6 +83,10 @@ async def test_command_mode_keys():
         await expect(container).to_have_attribute("data-mode", "command")
         assert await focused_is_cell(page) and await focused_cell_id(page) == second
         await expect(page.locator(f'[data-cell-id="{second}"]')).to_have_class(re.compile("is-selected"))
+        # The selection bar is drawn above the cell's contents (visible, not covered)
+        bar = await page.evaluate("""(id) => { const s = getComputedStyle(document.querySelector(`[data-cell-id="${id}"]`), '::before');
+            return [s.width, s.zIndex, s.backgroundColor]; }""", second)
+        assert bar[0] == "4px" and int(bar[1]) > 0 and bar[2] not in ("rgba(0, 0, 0, 0)", "transparent"), bar
 
         # Up / Down move the selection
         await page.keyboard.press("ArrowUp")

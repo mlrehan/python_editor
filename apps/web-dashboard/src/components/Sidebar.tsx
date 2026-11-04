@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Edit3,
   FilePlus,
+  Play,
 } from 'lucide-react';
 import { FileItem, UserProfile } from '../types';
 import { api } from '../services/api';
@@ -29,6 +30,8 @@ interface SidebarProps {
   onOpenFile: (file: FileItem) => void;
   onOpenNotebookFile: (path: string) => void;
   onCreateNewNotebook: () => void;
+  /** Runs a .py file in the notebook's Python */
+  onRunFile?: (path: string) => void;
   activeFilePath?: string;
   width?: number;
   user?: UserProfile | null;
@@ -38,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenFile,
   onOpenNotebookFile,
   onCreateNewNotebook,
+  onRunFile,
   activeFilePath,
   width = 280,
   user,
@@ -1154,6 +1158,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* 3. If right-clicked on a file */}
           {contextMenu.target && !contextMenu.target.is_dir && (
             <>
+              {onRunFile && contextMenu.target.name.toLowerCase().endsWith('.py') && (
+                <div
+                  role="menuitem"
+                  data-testid="file-menu-run"
+                  onClick={() => {
+                    onRunFile(contextMenu.target!.path);
+                    setContextMenu({ visible: false, x: 0, y: 0, target: null, targetDir: '' });
+                  }}
+                  className="pcs-menu-item"
+                  style={{
+                    padding: '7px 12px',
+                    fontSize: '12px',
+                    color: 'var(--text-main)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <Play size={14} color="#22c55e" /> Run in notebook
+                </div>
+              )}
               <div
                 onClick={() => {
                   handleItemDoubleClick(contextMenu.target!);

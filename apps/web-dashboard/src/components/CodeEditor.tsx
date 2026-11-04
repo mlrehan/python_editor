@@ -34,10 +34,12 @@ import {
   closeBracketsKeymap,
   CompletionContext,
   CompletionResult,
+  completionStatus,
 } from '@codemirror/autocomplete';
 import { linter, lintGutter, lintKeymap, Diagnostic } from '@codemirror/lint';
 import { tags } from '@lezer/highlight';
 import { api } from '../services/api';
+import { smartEnter } from '../utils/pythonIndent';
 
 /*
  * VS Code-style code editor (CodeMirror 6) for workspace files.
@@ -60,6 +62,8 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   /** Per-file editor states, owned by the caller so they outlive tab switches */
   states: Map<string, StoredEditorState>;
+  /** Moves the caret to this line and scrolls to it (e.g. a traceback location); `nonce` repeats it */
+  reveal?: { line: number; nonce: number };
 }
 
 // Marks changes that came from outside (props), so they are not echoed back through onChange
@@ -85,13 +89,13 @@ const highlightStyle = HighlightStyle.define([
 const editorTheme = EditorView.theme({
   '&': {
     height: '100%',
-    fontSize: 'var(--fe-code-size, 13px)',
+    fontSize: 'var(--code-font-size, 14px)',
     color: 'var(--code-text)',
     backgroundColor: 'var(--bg-panel)',
   },
   '.cm-scroller': {
-    fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace",
-    lineHeight: '1.6',
+    fontFamily: 'var(--code-font-family)',
+    lineHeight: 'var(--code-line-height, 22px)',
     overscrollBehavior: 'contain',
   },
   '.cm-content': { padding: '8px 0', caretColor: 'var(--border-accent)' },
@@ -122,7 +126,7 @@ const editorTheme = EditorView.theme({
     borderRadius: '6px',
     boxShadow: 'var(--shadow-popover)',
   },
-  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: "'JetBrains Mono', Consolas, monospace", maxHeight: '260px' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--code-font-family)', maxHeight: '260px' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '3px 8px' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
     backgroundColor: 'var(--dropdown-item-selected)',
@@ -150,11 +154,37 @@ const editorTheme = EditorView.theme({
 
 function languageFor(path: string): Extension[] {
   const ext = path.split('.').pop()?.toLowerCase() || '';
-  if (ext === 'py' || ext === 'pyw' || ext === 'pyi') return [python(), pythonIntelligence()];
+  if (ext === 'py' || ext === 'pyw' || ext === 'pyi') return [python(), pythonIntelligence(), Prec.high(keymap.of([{ key: 'Enter', run: pythonEnter }]))];
   if (ext === 'json' || ext === 'ipynb') return [json()];
   if (ext === 'md' || ext === 'markdown') return [markdown()];
   return [];
 }
+
+// Enter in Python files: the same indentation rules as notebook cells (blocks, brackets, dedent after
+// return / pass / break...). An open suggestion list keeps Enter for accepting the suggestion.
+const pythonEnter: Command = (view) => {
+  const { state } = view;
+  if (completionStatus(state) === 'active' || state.selection.ranges.length !== 1 || state.readOnly) return false;
+  const { from, to } = state.selection.main;
+  const doc = state.doc.toString();
+  const edit = smartEnter(doc, from, to);
+  // Only the changed span is replaced, so undo and other extensions see a minimal edit
+  let start = 0;
+  while (start < doc.length && start < edit.value.length && doc[start] === edit.value[start]) start++;
+  let endOld = doc.length;
+  let endNew = edit.value.length;
+  while (endOld > start && endNew > start && doc[endOld - 1] === edit.value[endNew - 1]) {
+    endOld--;
+    endNew--;
+  }
+  view.dispatch({
+    changes: { from: start, to: endOld, insert: edit.value.slice(start, endNew) },
+    selection: { anchor: edit.selectionStart },
+    scrollIntoView: true,
+    userEvent: 'input',
+  });
+  return true;
+};
 
 // IntelliSense and diagnostics for Python files, from the backend language service
 function pythonIntelligence(): Extension[] {
@@ -285,7 +315,7 @@ function createState(path: string, doc: string, onChangeRef: React.MutableRefObj
   });
 }
 
-export const CodeEditor: React.FC<CodeEditorProps> = ({ path, value, onChange, states }) => {
+export const CodeEditor: React.FC<CodeEditorProps> = ({ path, value, onChange, states, reveal }) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const pathRef = useRef(path);
@@ -347,6 +377,21 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ path, value, onChange, s
       annotations: [External.of(true), Transaction.addToHistory.of(false)],
     });
   }, [value, path]);
+
+  // Go to a line (traceback links): select it, centre it and give the editor the focus
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !reveal || pathRef.current !== path) return;
+    const lineNo = Math.min(Math.max(1, reveal.line), view.state.doc.lines);
+    const line = view.state.doc.line(lineNo);
+    const indent = line.text.length - line.text.trimStart().length;
+    view.dispatch({
+      selection: { anchor: line.from + indent, head: line.to },
+      effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+    });
+    view.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.nonce, path]);
 
   return <div ref={hostRef} className="fe-cm-host" data-testid="file-code-editor" />;
 };

@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   ChevronDown,
   Check,
+  Play,
 } from 'lucide-react';
 import { api } from '../services/api';
 import type { StoredEditorState } from './CodeEditor';
@@ -30,6 +31,9 @@ export interface OpenFileInfo {
   name: string;
   content: string;
   isDirty: boolean;
+  /** A line to show (traceback links); revealNonce changes each time it is requested */
+  revealLine?: number;
+  revealNonce?: number;
 }
 
 /** docked: desktop side panel; drawer: overlay on tablets; fullscreen: the whole workspace on phones */
@@ -47,6 +51,8 @@ interface FileEditorPanelProps {
   onSave: (path: string, newContent: string) => Promise<void>;
   onContentChange: (newContent: string, path?: string) => void;
   onOpenAsNotebook?: (path: string) => void;
+  /** Runs a .py file in the notebook's Python (saving it first) */
+  onRunFile?: (path: string) => void;
   width?: number;
   layout?: FileEditorLayout;
 }
@@ -62,6 +68,7 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
   onSave,
   onContentChange,
   onOpenAsNotebook,
+  onRunFile,
   width = 420,
   layout = 'docked',
 }) => {
@@ -409,6 +416,21 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
               </button>
             )}
 
+            {/* Run a Python file in the notebook (its output appears in a new cell there) */}
+            {onRunFile && currentFile.name.toLowerCase().endsWith('.py') && (
+              <button
+                type="button"
+                className="fe-btn fe-btn--run"
+                onClick={() => onRunFile(currentFile.path)}
+                title={`Run ${currentFile.name} in the notebook (saves it first). Output appears in a new cell.`}
+                aria-label={`Run ${currentFile.name} in the notebook`}
+                data-testid="file-run-btn"
+              >
+                <Play size={12} />
+                Run
+              </button>
+            )}
+
             {/* Save Button */}
             {!isNotebook && !isImage && (
               <button
@@ -534,6 +556,7 @@ export const FileEditorPanel: React.FC<FileEditorPanelProps> = ({
               path={currentFile.path}
               value={currentFile.content}
               states={viewStatesRef.current}
+              reveal={currentFile.revealNonce ? { line: currentFile.revealLine ?? 1, nonce: currentFile.revealNonce } : undefined}
               onChange={(value) => onContentChange(value, currentFile.path)}
             />
           </Suspense>

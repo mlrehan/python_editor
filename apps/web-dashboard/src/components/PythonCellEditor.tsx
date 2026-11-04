@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../services/api';
 import { isToggleCommentShortcut, toggleLineComments } from '../utils/lineComments';
 import { applyTabIndent } from '../utils/indentation';
+import { electricColon, smartBackspace, smartEnter } from '../utils/pythonIndent';
 import { applyTextareaEdit } from '../utils/textareaEdit';
 import { tokenizePython, findBracketPair, renderHighlightedLines } from '../utils/pythonSyntax';
 import {
@@ -14,6 +16,7 @@ import {
   Info,
 } from 'lucide-react';
 import { DocView, PythonDoc } from './DocView';
+import { CODE_FONT_FAMILY, useEditorFont } from '../editorSettings';
 
 interface CompletionItem {
   label: string;
@@ -30,6 +33,17 @@ interface DiagnosticItem {
   to_col: number;
   message: string;
   severity: string;
+  /** Python's exception class (SyntaxError, IndentationError, NameError...) */
+  error_type?: string;
+  /** "static": found while typing; "runtime": raised when the cell last ran */
+  source?: 'static' | 'runtime';
+}
+
+/** The error the cell raised when it last ran, at a line of this cell */
+export interface CellRuntimeError {
+  line: number;
+  ename: string;
+  evalue: string;
 }
 
 interface SignatureItem {
@@ -67,6 +81,8 @@ interface PythonCellEditorProps {
   customHeight?: number;
   onHeightChange?: (cellId: string, height: number | undefined) => void;
   isActive?: boolean;
+  /** The error raised by the last run of this cell, marked at its line */
+  runtimeError?: CellRuntimeError | null;
 }
 
 const PYTHON_KEYWORDS = [
@@ -395,9 +411,17 @@ function resolveReceiverType(receiver: string, aliases: Record<string, string>, 
 const SIGNATURE_WIDTH = 480;
 const SIGNATURE_MAX_HEIGHT = 360;
 const SIGNATURE_MIN_HEIGHT = 80;
+// Suggestion list: up to 10 rows at once (the rest scroll), never taller than the space available
+const DROPDOWN_WIDTH = 380;
+const DROPDOWN_MAX_HEIGHT = 360;
+const DROPDOWN_MIN_HEIGHT = 120;
+const DOC_PANEL_WIDTH = 420;
+const DOC_PANEL_MIN_WIDTH = 260;
+const POPUP_MARGIN = 8;
 
-// The part of the viewport where an editor popup is actually visible: inside the nearest scrolling
-// ancestor (which clips the popup) and below any sticky overlay in it (the notebook toolbar).
+// The part of the viewport where the editor's text is actually visible: inside the nearest scrolling
+// ancestor and below any sticky overlay in it (the notebook toolbar), which also sits below the app's
+// top bar. Popups stay inside it, so they never cover (or hide under) the toolbars.
 function getVisibleBounds(el: HTMLElement): { top: number; bottom: number; scroller: HTMLElement | null } {
   let top = 0;
   let bottom = window.innerHeight;
@@ -477,8 +501,10 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   editorRef,
   customHeight,
   onHeightChange,
+  runtimeError = null,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { fontSize, lineHeight } = useEditorFont();
   // True while editText() applies a programmatic edit (its input event must not open autocomplete)
   const programmaticEditRef = useRef(false);
 
@@ -583,11 +609,21 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   const [completions, setCompletions] = useState<CompletionItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; placement: 'above' | 'below' }>({
-    top: 0,
-    left: 0,
-    placement: 'below',
-  });
+  // Popups are drawn in a page-level layer (position: fixed), so these are viewport coordinates.
+  // "above": `top` is the bottom edge (the popup is moved up by its own height).
+  const [dropdownPos, setDropdownPos] = useState<{
+    top: number;
+    left: number;
+    placement: 'above' | 'below';
+    width: number;
+    maxHeight: number;
+    /** The caret is scrolled out of view: the popups wait, hidden */
+    hidden: boolean;
+    /** Where the selected suggestion's documentation goes: beside the list, or inside it (narrow screens) */
+    docSide: 'right' | 'left' | 'inside';
+    docLeft: number;
+    docWidth: number;
+  }>({ top: 0, left: 0, placement: 'below', width: DROPDOWN_WIDTH, maxHeight: DROPDOWN_MAX_HEIGHT, hidden: false, docSide: 'right', docLeft: 0, docWidth: DOC_PANEL_WIDTH });
 
   // Signature help state
   const [activeSignature, setActiveSignature] = useState<SignatureItem | null>(null);
@@ -601,6 +637,12 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   const completionReceiverRef = useRef('');
   const [detailDoc, setDetailDoc] = useState<PythonDoc | null>(null);
   const docCacheRef = useRef<Map<string, PythonDoc | null>>(new Map());
+  // Read by the popup placement (sizes the list for the suggestions it shows)
+  const completionCountRef = useRef(0);
+  completionCountRef.current = completions.length;
+  const completionNoticeRef = useRef<string | null>(null);
+  completionNoticeRef.current = completionNotice;
+  const docPanelRef = useRef<HTMLDivElement>(null);
   const [signaturePos, setSignaturePos] = useState<{
     top: number;
     left: number;
@@ -623,8 +665,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
   const tokens = useMemo(() => tokenizePython(code), [code]);
   const highlightedLines = useMemo(() => {
     const pair = caret === null ? null : findBracketPair(code, tokens, caret);
-    return renderHighlightedLines(code, tokens, pair ?? [], '21px');
-  }, [code, tokens, caret]);
+    return renderHighlightedLines(code, tokens, pair ?? [], `${lineHeight}px`);
+  }, [code, tokens, caret, lineHeight]);
 
   // 1. Fetch Diagnostics (Debounced 300ms, only when this cell's code changes or kernel refreshes)
   const diagnosticsAbortRef = useRef<AbortController | null>(null);
@@ -754,95 +796,95 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     return false;
   }, [isDropdownOpen, activeSignature]);
 
-  // Dynamically compute caret coordinates and non-overlapping popup positioning
+  // Places the suggestion list, its documentation and the signature help next to the caret, in
+  // viewport coordinates (the popups live in a page-level layer, so no scroll area clips them):
+  //  - the list opens below the caret, or above it when there is clearly more room there, and is
+  //    never taller than the room it has (it scrolls inside); it never covers the toolbars
+  //  - the selected suggestion's documentation goes beside the list (right, else left), or inside
+  //    the list's box on narrow screens, so it never covers the suggestions
+  //  - the signature help takes the other side of the caret, so the two never overlap
   const updatePopupPositions = useCallback((cursorIndex: number) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     try {
       const coords = getCaretCoordinates(textarea, cursorIndex);
-      const textareaRect = textarea.getBoundingClientRect();
-      const scrollTop = textarea.scrollTop || 0;
-      const scrollLeft = textarea.scrollLeft || 0;
+      const box = textarea.getBoundingClientRect();
+      const lineHeight = coords.lineHeight || 22;
+      const caretX = box.left + coords.left - (textarea.scrollLeft || 0);
+      const lineTop = box.top + coords.top - (textarea.scrollTop || 0);
+      const lineBottom = lineTop + lineHeight;
 
-      // Offset of the textarea from the container's left edge: the line number gutter, whose width
-      // varies with the layout (narrower on small screens)
-      const gutterWidth = gutterRef.current?.offsetWidth ?? 44;
-      const cursorXInContainer = coords.left + gutterWidth - scrollLeft;
-      const cursorYInContainer = coords.top - scrollTop;
-      const lineHeight = coords.lineHeight || 21;
-      const lineTop = cursorYInContainer;
-      const lineBottom = cursorYInContainer + lineHeight;
-
-      // Vertical placement (above vs below cursor) uses the space actually visible: the notebook's
-      // scroll area clips popups, and its sticky toolbar covers the top of it
-      const cursorViewportY = textareaRect.top + coords.top - scrollTop;
       const visible = getVisibleBounds(containerRef.current ?? textarea);
-      const dropdownHeight = 260; // Max height of autocomplete dropdown
-      const spaceBelow = visible.bottom - (cursorViewportY + lineHeight + 10);
-      const spaceAbove = cursorViewportY - visible.top - 10;
+      const viewportW = document.documentElement.clientWidth || window.innerWidth;
+      const top = visible.top + POPUP_MARGIN;
+      const bottom = Math.min(window.innerHeight, visible.bottom) - POPUP_MARGIN;
+      // The caret's line is scrolled out of the notebook's view: hide the popups until it is back
+      const hidden = lineBottom <= visible.top || lineTop >= visible.bottom;
 
-      // 1. Dropdown positioning (Google Colab style: below cursor if space permits, above if tight below)
-      let dropTop: number;
-      let dropPlacement: 'above' | 'below';
+      const spaceBelow = bottom - (lineBottom + 4);
+      const spaceAbove = lineTop - 4 - top;
 
-      if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
-        // Open dropdown ABOVE cursor line
-        dropTop = lineTop - 6;
-        dropPlacement = 'above';
-      } else {
-        // Open dropdown BELOW cursor line
-        dropTop = lineBottom + 6;
-        dropPlacement = 'below';
+      // 1. Suggestions: the height they need (rows actually rendered, up to 10) decides the side
+      const rowHeight = (listRef.current?.firstElementChild as HTMLElement | null)?.offsetHeight || 31;
+      const chrome = 28 + (completionNoticeRef.current ? 34 : 0);
+      const wanted = Math.min(DROPDOWN_MAX_HEIGHT, chrome + Math.max(1, Math.min(10, completionCountRef.current)) * rowHeight);
+      const below = spaceBelow >= Math.min(wanted, DROPDOWN_MIN_HEIGHT) || spaceBelow >= spaceAbove;
+      const dropPlacement: 'above' | 'below' = below ? 'below' : 'above';
+      const dropSpace = Math.max(DROPDOWN_MIN_HEIGHT / 2, below ? spaceBelow : spaceAbove);
+      const dropWidth = Math.min(DROPDOWN_WIDTH, viewportW - 2 * POPUP_MARGIN);
+      const dropLeft = Math.max(POPUP_MARGIN, Math.min(caretX - 12, viewportW - dropWidth - POPUP_MARGIN));
+      const dropTop = below ? lineBottom + 4 : lineTop - 4;
+
+      // 2. Documentation of the selected suggestion: beside the list when there is room
+      const roomRight = viewportW - (dropLeft + dropWidth) - POPUP_MARGIN - 6;
+      const roomLeft = dropLeft - POPUP_MARGIN - 6;
+      let docSide: 'right' | 'left' | 'inside' = 'inside';
+      let docWidth = dropWidth;
+      let docLeft = dropLeft;
+      if (roomRight >= DOC_PANEL_MIN_WIDTH) {
+        docSide = 'right';
+        docWidth = Math.min(DOC_PANEL_WIDTH, roomRight);
+        docLeft = dropLeft + dropWidth + 6;
+      } else if (roomLeft >= DOC_PANEL_MIN_WIDTH) {
+        docSide = 'left';
+        docWidth = Math.min(DOC_PANEL_WIDTH, roomLeft);
+        docLeft = dropLeft - 6 - docWidth;
       }
 
-      // 2. Signature Help positioning (Google Colab style: opposite side of dropdown so they never collide)
-      let sigTop: number;
-      let sigPlacement: 'above' | 'below';
+      setDropdownPos({
+        top: dropTop,
+        left: dropLeft,
+        placement: dropPlacement,
+        width: dropWidth,
+        maxHeight: Math.floor(Math.min(below ? DROPDOWN_MAX_HEIGHT : DROPDOWN_MAX_HEIGHT, dropSpace)),
+        hidden,
+        docSide,
+        docLeft,
+        docWidth,
+      });
 
-      if (dropPlacement === 'below') {
-        // Dropdown is below -> place signature help ABOVE the cursor line
-        // If space above in viewport is very tight (< 60px) and dropdown is NOT open, place signature help below
-        if (!isDropdownOpen && spaceAbove < 60 && spaceBelow > spaceAbove) {
-          sigTop = lineBottom + 6;
-          sigPlacement = 'below';
-        } else {
-          sigTop = lineTop - 6;
-          sigPlacement = 'above';
-        }
-      } else {
-        // Dropdown is above -> place signature help BELOW the cursor line
-        sigTop = lineBottom + 6;
-        sigPlacement = 'below';
-      }
-
-      // Flip the signature to the roomier side when its side is too small: always if it cannot fit
-      // its minimum height (being visible beats avoiding the dropdown), and without a dropdown
-      // competing for space whenever its side is too small for useful documentation
-      const sigSpace = () => (sigPlacement === 'above' ? spaceAbove : spaceBelow) - 6;
-      const otherSpace = () => (sigPlacement === 'above' ? spaceBelow : spaceAbove) - 6;
-      if ((sigSpace() < SIGNATURE_MIN_HEIGHT || (!isDropdownOpen && sigSpace() < 160)) && otherSpace() > sigSpace()) {
+      // 3. Signature help: the side of the caret the suggestions do not use (the roomier side when
+      // no suggestions are shown, or when its side cannot show anything useful)
+      let sigPlacement: 'above' | 'below' = isDropdownOpen ? (below ? 'above' : 'below') : spaceAbove >= 160 || spaceAbove > spaceBelow ? 'above' : 'below';
+      const sigSpace = () => (sigPlacement === 'above' ? spaceAbove : spaceBelow);
+      const otherSpace = () => (sigPlacement === 'above' ? spaceBelow : spaceAbove);
+      if (sigSpace() < SIGNATURE_MIN_HEIGHT && otherSpace() > sigSpace() && !isDropdownOpen) {
         sigPlacement = sigPlacement === 'above' ? 'below' : 'above';
-        sigTop = sigPlacement === 'above' ? lineTop - 6 : lineBottom + 6;
       }
-      // Fit the tooltip into the visible space (never taller than it); its content scrolls inside
       const available = Math.floor(sigSpace());
-      const sigMaxHeight =
-        available >= SIGNATURE_MIN_HEIGHT ? Math.min(SIGNATURE_MAX_HEIGHT, available) : Math.max(40, available);
-
-      const containerWidth = containerRef.current?.clientWidth || 600;
-      // Same as the popup's CSS width: 380px, or the cell's width on narrow screens
-      const dropdownWidth = Math.min(380, containerWidth - 20);
-      const sigWidth = Math.min(SIGNATURE_WIDTH, Math.max(220, containerWidth - 20));
-
-      // Clamp horizontal positions within container bounds
-      const dropLeft = Math.max(10, Math.min(cursorXInContainer + 8, containerWidth - dropdownWidth - 16));
-      const sigLeft = Math.max(10, Math.min(cursorXInContainer + 8, containerWidth - sigWidth - 16));
-
-      setDropdownPos({ top: dropTop, left: dropLeft, placement: dropPlacement });
-      setSignaturePos({ top: sigTop, left: sigLeft, placement: sigPlacement, maxHeight: sigMaxHeight, width: sigWidth });
+      const sigMaxHeight = available >= SIGNATURE_MIN_HEIGHT ? Math.min(SIGNATURE_MAX_HEIGHT, available) : Math.max(40, available);
+      const sigWidth = Math.min(SIGNATURE_WIDTH, viewportW - 2 * POPUP_MARGIN);
+      const sigLeft = Math.max(POPUP_MARGIN, Math.min(caretX - 12, viewportW - sigWidth - POPUP_MARGIN));
+      setSignaturePos({
+        top: sigPlacement === 'above' ? lineTop - 4 : lineBottom + 4,
+        left: sigLeft,
+        placement: sigPlacement,
+        maxHeight: sigMaxHeight,
+        width: sigWidth,
+      });
     } catch {
-      // Fallback
+      // Measuring can fail while the editor is being removed; the popups keep their last place
     }
   }, [isDropdownOpen]);
 
@@ -877,6 +919,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       // Inside dropdown or signature tooltip -> keep open
       if (dropdownRef.current && dropdownRef.current.contains(target)) return;
       if (signatureRef.current && signatureRef.current.contains(target)) return;
+      if (docPanelRef.current && docPanelRef.current.contains(target)) return;
 
       // Inside this cell's textarea -> let textarea handle cursor placement
       if (textareaRef.current && textareaRef.current.contains(target)) return;
@@ -931,22 +974,35 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     // updatePopupPositions is omitted on purpose: it changes with isDropdownOpen, already listed
   }, [isDropdownOpen, activeSignature]);
 
-  // Reposition on window resize and when the notebook scrolls (the visible space changes)
+  // Reposition (once per frame) on window resize and when anything that moves the caret on screen
+  // scrolls: the notebook, a panel, or the editor itself. Scrolling inside the popups does not.
   useEffect(() => {
     if (!isDropdownOpen && !activeSignature) return;
-    const reposition = () => {
-      if (textareaRef.current) {
-        updatePopupPositions(textareaRef.current.selectionStart);
-      }
+    let frame = 0;
+    const reposition = (e?: Event) => {
+      const target = e?.target as Node | null;
+      if (target && target instanceof Node && (dropdownRef.current?.contains(target) || signatureRef.current?.contains(target) || docPanelRef.current?.contains(target))) return;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (textareaRef.current) updatePopupPositions(textareaRef.current.selectionStart);
+      });
     };
-    const scroller = containerRef.current ? getVisibleBounds(containerRef.current).scroller : null;
     window.addEventListener('resize', reposition);
-    scroller?.addEventListener('scroll', reposition, { passive: true });
+    // Capture: scroll events do not bubble, so nested scroll areas are seen only this way
+    document.addEventListener('scroll', reposition, { capture: true, passive: true });
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener('resize', reposition);
-      scroller?.removeEventListener('scroll', reposition);
+      document.removeEventListener('scroll', reposition, { capture: true });
     };
   }, [isDropdownOpen, activeSignature, updatePopupPositions]);
+
+  // The list's height follows its content (number of suggestions, a notice, documentation)
+  useEffect(() => {
+    if (isDropdownOpen && textareaRef.current) updatePopupPositions(textareaRef.current.selectionStart);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDropdownOpen, completions.length, completionNotice, detailDoc]);
 
   // 2. Trigger Autocomplete when cursor moves or code changes
   // Instant synchronous client-side suggestions (0ms lag) + non-blocking async backend enrichment
@@ -1393,12 +1449,10 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       setIsDropdownOpen(false);
       setActiveSignature(null);
 
-      // Restore focus and update cursor position
+      // Keep the focus (editText placed the caret). The caret is not set again here: keys typed
+      // before this frame would otherwise end up in the wrong place.
       requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          textareaRef.current.focus();
-          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
-        }
+        if (textareaRef.current && document.activeElement !== textareaRef.current) textareaRef.current.focus();
       });
     },
     [onChange]
@@ -1472,10 +1526,21 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        e.stopPropagation();
-        acceptCompletion(completions[selectedIndex]);
-        return;
+        const item = completions[selectedIndex];
+        const el = e.currentTarget;
+        const typedWord = el.value.substring(0, el.selectionStart).match(/[A-Za-z0-9_]+$/)?.[0] ?? '';
+        const nextChar = el.value[el.selectionEnd] ?? '';
+        // The word is already complete (e.g. "pass"): Enter starts a new line instead
+        if (e.key === 'Enter' && item && typedWord === (item.insert_text || item.label) && !/[A-Za-z0-9_]/.test(nextChar)) {
+          autocompleteReqIdRef.current++;
+          abortControllerRef.current?.abort();
+          setIsDropdownOpen(false);
+        } else {
+          e.preventDefault();
+          e.stopPropagation();
+          acceptCompletion(item);
+          return;
+        }
       }
     }
 
@@ -1507,6 +1572,17 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       if (dismissTopmostPopup()) {
         e.preventDefault();
         e.stopPropagation();
+        return;
+      }
+    }
+
+    // Smart Backspace: back to the previous indentation stop in leading spaces (as in VS Code)
+    if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !readOnly) {
+      const el = e.currentTarget;
+      const edit = smartBackspace(el.value, el.selectionStart, el.selectionEnd);
+      if (edit) {
+        e.preventDefault();
+        editText(el, edit.value, edit.selectionStart, edit.selectionEnd);
         return;
       }
     }
@@ -1559,24 +1635,24 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
       }
     }
 
-    // 6. Auto-indentation after colon
-    if (e.key === 'Enter') {
+    // 6. ":" after else / elif / except / finally lines the block up with its if / try
+    if (e.key === ':' && !e.ctrlKey && !e.metaKey && !e.altKey && !readOnly) {
       const el = e.currentTarget;
-      const currentVal = el.value;
-      const cursor = el.selectionStart;
-      const lineBeforeCursor = currentVal.substring(0, cursor).split('\n').pop() || '';
-      const matchIndent = lineBeforeCursor.match(/^(\s*)/);
-      const currentIndent = matchIndent ? matchIndent[1] : '';
-      const extraIndent = lineBeforeCursor.trim().endsWith(':') ? '    ' : '';
-
-      if (currentIndent || extraIndent) {
+      const edit = electricColon(el.value, el.selectionStart, el.selectionEnd);
+      if (edit) {
         e.preventDefault();
-        const insertText = '\n' + currentIndent + extraIndent;
-        const newCode = currentVal.substring(0, cursor) + insertText + currentVal.substring(cursor);
-        const newPos = cursor + insertText.length;
-        editText(el, newCode, newPos);
+        editText(el, edit.value, edit.selectionStart, edit.selectionEnd);
         return;
       }
+    }
+
+    // 7. Enter: Python-aware indentation (blocks, brackets, dedent after return / pass / break...)
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !readOnly) {
+      const el = e.currentTarget;
+      const edit = smartEnter(el.value, el.selectionStart, el.selectionEnd);
+      e.preventDefault();
+      editText(el, edit.value, edit.selectionStart, edit.selectionEnd);
+      return;
     }
   };
 
@@ -1671,9 +1747,151 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedItem?.label, selectedItem?.type, sessionId]);
 
+  // Problems shown in the code: found while typing, plus the error the last run raised (if any)
+  const shownDiagnostics = useMemo<DiagnosticItem[]>(() => {
+    const list: DiagnosticItem[] = diagnostics.map((d) => ({ ...d, source: 'static' as const }));
+    const re = runtimeError;
+    if (re && re.line >= 1 && re.line <= lines.length && !list.some((d) => d.from_line === re.line)) {
+      const text = lines[re.line - 1];
+      const from = text.length - text.trimStart().length;
+      list.push({
+        from_line: re.line,
+        from_col: from,
+        to_line: re.line,
+        to_col: Math.max(from + 1, text.trimEnd().length),
+        message: re.evalue ? `${re.ename}: ${re.evalue}` : re.ename,
+        severity: 'error',
+        error_type: re.ename,
+        source: 'runtime',
+      });
+    }
+    return list.sort((a, b) => a.from_line - b.from_line);
+  }, [diagnostics, runtimeError, lines]);
+
   // Check if a line has an active diagnostic
   const getLineDiagnostic = (lineNum: number) => {
-    return diagnostics.find((d) => d.from_line === lineNum);
+    return shownDiagnostics.find((d) => d.from_line === lineNum);
+  };
+
+  // --- Error hover (like VS Code): the exact problem, its type and where it is ---
+  const [hoverDiag, setHoverDiag] = useState<{ diag: DiagnosticItem; top: number; left: number } | null>(null);
+  const hoverHideTimerRef = useRef<number | undefined>(undefined);
+  const charWidthRef = useRef<{ font: string; width: number } | null>(null);
+
+  const charWidth = (el: HTMLElement) => {
+    const cs = getComputedStyle(el);
+    const font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    if (charWidthRef.current?.font !== font) {
+      const ctx = document.createElement('canvas').getContext('2d');
+      let width = fontSize * 0.6;
+      if (ctx) {
+        ctx.font = font;
+        width = ctx.measureText('MMMMMMMMMM').width / 10 || width;
+      }
+      charWidthRef.current = { font, width };
+    }
+    return charWidthRef.current.width;
+  };
+
+  const cancelHideDiag = () => window.clearTimeout(hoverHideTimerRef.current);
+  const scheduleHideDiag = () => {
+    cancelHideDiag();
+    hoverHideTimerRef.current = window.setTimeout(() => setHoverDiag(null), 250);
+  };
+
+  // Places the error card just below the problem's line, aligned with where the problem starts
+  const showDiag = (diag: DiagnosticItem) => {
+    const el = textareaRef.current;
+    const container = containerRef.current;
+    if (!el || !container) return;
+    cancelHideDiag();
+    const cs = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    const outer = container.getBoundingClientRect();
+    const top = box.top - outer.top + parseFloat(cs.paddingTop) + diag.from_line * lineHeight - el.scrollTop + 2;
+    const rawLeft = box.left - outer.left + parseFloat(cs.paddingLeft) + diag.from_col * charWidth(el) - el.scrollLeft;
+    const left = Math.max(4, Math.min(rawLeft, outer.width - 340));
+    setHoverDiag((prev) => (prev && prev.diag === diag && prev.top === top ? prev : { diag, top, left }));
+  };
+
+  const handleEditorMouseMove = (e: React.MouseEvent<HTMLTextAreaElement>) => {
+    if (shownDiagnostics.length === 0) return;
+    const el = e.currentTarget;
+    const cs = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    const y = e.clientY - box.top - parseFloat(cs.paddingTop) + el.scrollTop;
+    const x = e.clientX - box.left - parseFloat(cs.paddingLeft) + el.scrollLeft;
+    const lineNum = Math.floor(y / lineHeight) + 1;
+    const col = Math.floor(x / charWidth(el));
+    const lineLen = lines[lineNum - 1]?.length ?? 0;
+    const hit = shownDiagnostics.find((d) => {
+      if (d.from_line !== lineNum) return false;
+      const from = Math.min(d.from_col, Math.max(0, lineLen - 1));
+      const to = Math.max(from + 1, Math.min(d.to_col, lineLen));
+      return col >= from && col < to;
+    });
+    if (hit) showDiag(hit);
+    else if (hoverDiag) scheduleHideDiag();
+  };
+
+  // Typing or running hides the card; it comes back on the next hover
+  useEffect(() => {
+    setHoverDiag(null);
+  }, [code, runtimeError]);
+  useEffect(() => () => cancelHideDiag(), []);
+
+  // Selects the problem in the code (from the badge)
+  const goToDiagnostic = (diag: DiagnosticItem) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    let offset = 0;
+    for (let i = 0; i < diag.from_line - 1 && i < lines.length; i++) offset += lines[i].length + 1;
+    const lineLen = lines[diag.from_line - 1]?.length ?? 0;
+    const from = offset + Math.min(diag.from_col, lineLen);
+    const to = offset + Math.max(Math.min(diag.to_col, lineLen), Math.min(diag.from_col, lineLen));
+    el.focus();
+    el.setSelectionRange(from, to);
+    el.scrollTop = Math.max(0, (diag.from_line - 2) * lineHeight);
+    containerRef.current?.scrollIntoView({ block: 'nearest' });
+    showDiag(diag);
+  };
+
+  const renderDiagnosticCard = () => {
+    if (!hoverDiag) return null;
+    const { diag } = hoverDiag;
+    const type = diag.error_type || (diag.severity === 'warning' ? 'Warning' : 'Error');
+    const description = diag.message.startsWith(`${type}: `) ? diag.message.slice(type.length + 2) : diag.message;
+    const lineText = lines[diag.from_line - 1] ?? '';
+    const from = Math.min(diag.from_col, lineText.length);
+    const width = Math.max(1, Math.min(diag.to_col, Math.max(lineText.length, from + 1)) - from);
+    return (
+      <div
+        role="tooltip"
+        data-testid="diagnostic-tooltip"
+        className="diag-card"
+        onMouseEnter={cancelHideDiag}
+        onMouseLeave={scheduleHideDiag}
+        style={{ top: `${hoverDiag.top}px`, left: `${hoverDiag.left}px` }}
+      >
+        <div className="diag-card-head">
+          <AlertTriangle size={13} />
+          <span className="diag-card-type" data-testid="diagnostic-type">{type}</span>
+          <span className="diag-card-source">{diag.source === 'runtime' ? 'raised when this cell ran' : 'found in this cell'}</span>
+        </div>
+        <div className="diag-card-message" data-testid="diagnostic-message">{description}</div>
+        <div className="diag-card-location" data-testid="diagnostic-location">
+          Line {diag.from_line}
+          {diag.source !== 'runtime' && `, column ${from + 1}`}
+        </div>
+        {lineText.trim() && (
+          <pre className="diag-card-code">
+            {lineText}
+            {'\n'}
+            <span className="diag-card-caret">{' '.repeat(from) + '^'.repeat(Math.min(width, 80))}</span>
+          </pre>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1700,15 +1918,15 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             backgroundColor: 'var(--bg-cell-gutter)',
             borderRight: '1px solid var(--border-main)',
             color: 'var(--text-muted)',
-            fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-            fontSize: '12.5px',
-            lineHeight: '21px',
+            fontFamily: CODE_FONT_FAMILY,
+            fontSize: `${fontSize - 1}px`,
+            lineHeight: `${lineHeight}px`,
             textAlign: 'right',
             userSelect: 'none',
             flexShrink: 0,
             overflowY: 'hidden',
             height: liveHeight ? `${liveHeight}px` : undefined,
-            minHeight: liveHeight ? `${liveHeight}px` : `${Math.max(68, lines.length * 21 + 20)}px`,
+            minHeight: liveHeight ? `${liveHeight}px` : `${Math.max(68, lines.length * lineHeight + 20)}px`,
             maxHeight: liveHeight ? `${liveHeight}px` : undefined,
           }}
         >
@@ -1720,7 +1938,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
                 key={lineNum}
                 style={{
                   paddingRight: '10px',
-                  height: '21px',
+                  height: `${lineHeight}px`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'flex-end',
@@ -1728,7 +1946,10 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
                   color: diag ? '#ef4444' : 'var(--text-muted)',
                   fontWeight: diag ? 700 : 400,
                 }}
-                title={diag ? diag.message : undefined}
+                aria-label={diag ? `Line ${lineNum}: ${diag.message}` : undefined}
+                data-testid={diag ? 'diagnostic-gutter-marker' : undefined}
+                onMouseEnter={diag ? () => showDiag(diag) : undefined}
+                onMouseLeave={diag ? scheduleHideDiag : undefined}
               >
                 {diag && <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#ef4444' }} />}
                 {lineNum}
@@ -1749,9 +1970,9 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
               position: 'absolute',
               inset: 0,
               padding: '10px var(--cell-code-pad-x, 14px)',
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-              fontSize: '13.5px',
-              lineHeight: '21px',
+              fontFamily: CODE_FONT_FAMILY,
+              fontSize: `${fontSize}px`,
+              lineHeight: `${lineHeight}px`,
               pointerEvents: 'none',
               whiteSpace: 'pre',
               zIndex: 0,
@@ -1772,9 +1993,9 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
               position: 'absolute',
               inset: 0,
               padding: '10px var(--cell-code-pad-x, 14px)',
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-              fontSize: '13.5px',
-              lineHeight: '21px',
+              fontFamily: CODE_FONT_FAMILY,
+              fontSize: `${fontSize}px`,
+              lineHeight: `${lineHeight}px`,
               pointerEvents: 'none',
               whiteSpace: 'pre',
               zIndex: 1,
@@ -1791,7 +2012,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
 
               if (!diag) {
                 return (
-                  <div key={lineIdx} style={{ height: '21px' }}>
+                  <div key={lineIdx} style={{ height: `${lineHeight}px` }}>
                     {lineStr || ' '}
                   </div>
                 );
@@ -1805,7 +2026,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
               const after = lineStr.substring(toCol);
 
               return (
-                <div key={lineIdx} style={{ height: '21px' }}>
+                <div key={lineIdx} style={{ height: `${lineHeight}px` }}>
                   <span>{before}</span>
                   <span
                     style={{
@@ -1836,6 +2057,8 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             onChange={handleInput}
             onInput={handleInput}
             onClick={handleClick}
+            onMouseMove={handleEditorMouseMove}
+            onMouseLeave={() => hoverDiag && scheduleHideDiag()}
             onKeyDown={handleKeyDown}
             onScroll={handleScroll}
             onSelect={(e) => {
@@ -1853,16 +2076,16 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             style={{
               width: '100%',
               height: liveHeight ? `${liveHeight}px` : undefined,
-              minHeight: liveHeight ? `${liveHeight}px` : `${Math.max(68, lines.length * 21 + 20)}px`,
+              minHeight: liveHeight ? `${liveHeight}px` : `${Math.max(68, lines.length * lineHeight + 20)}px`,
               maxHeight: liveHeight ? `${liveHeight}px` : undefined,
               backgroundColor: 'transparent',
               border: 'none',
               outline: 'none',
               // Transparent: the highlight layer underneath draws the text
               color: 'transparent',
-              fontSize: '13.5px',
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-              lineHeight: '21px',
+              fontSize: `${fontSize}px`,
+              fontFamily: CODE_FONT_FAMILY,
+              lineHeight: `${lineHeight}px`,
               padding: '10px var(--cell-code-pad-x, 14px)',
               resize: 'none',
               whiteSpace: 'pre',
@@ -1874,33 +2097,29 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             }}
           />
 
-          {/* Hover Diagnostic Tooltip */}
+          {/* Problems found while typing: click to select the problem and see the details */}
           {diagnostics.length > 0 && (
-            <div
+            <button
+              type="button"
               data-testid="diagnostic-badge"
-              style={{
-                position: 'absolute',
-                right: '12px',
-                bottom: '8px',
-                zIndex: 3,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: '5px',
-                padding: '3px 8px',
-                fontSize: '11px',
-                color: '#ef4444',
-                pointerEvents: 'none',
+              className="diag-badge"
+              title={`Go to line ${diagnostics[0].from_line}`}
+              onClick={() => {
+                const first = shownDiagnostics.find((d) => d.source === 'static');
+                if (first) goToDiagnostic(first);
               }}
             >
-              <AlertTriangle size={12} color="#ef4444" />
-              <span>{diagnostics[0].message}</span>
-            </div>
+              <AlertTriangle size={12} />
+              <span>
+                Line {diagnostics[0].from_line}: {diagnostics[0].message}
+                {diagnostics.length > 1 && ` (+${diagnostics.length - 1} more)`}
+              </span>
+            </button>
           )}
         </div>
       </div>
+
+      {renderDiagnosticCard()}
 
       {/* 3. Draggable vertical resize handle */}
       <div
@@ -1932,8 +2151,20 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         />
       </div>
 
+      {/* Popups (signature help, suggestions, documentation) are drawn in a page-level layer with
+          fixed positions: no scroll area clips them and the toolbars never cover them. React events
+          from the layer are kept from reaching the cell (a click in a popup does not select the cell). */}
+      {createPortal(
+        <div
+          className="editor-popup-layer"
+          data-cell-popups={cellId}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
       {/* 4. Floating Signature Help Tooltip */}
-      {activeSignature && (
+      {activeSignature && !dropdownPos.hidden && (
         <div
           ref={signatureRef}
           data-testid="signature-help-tooltip"
@@ -1944,7 +2175,7 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
           // Interactive like VS Code's hover: the pointer can enter it to scroll, select and copy.
           // Clicks inside are ignored by the outside-click dismissal; Escape closes it.
           style={{
-            position: 'absolute',
+            position: 'fixed',
             top: `${signaturePos.top}px`,
             left: `${signaturePos.left}px`,
             transform: signaturePos.placement === 'above' ? 'translateY(-100%)' : 'none',
@@ -1959,10 +2190,10 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
             border: '1px solid var(--border-accent)',
             borderRadius: '6px',
             padding: '6px 12px',
-            zIndex: 1001,
+            zIndex: 'var(--z-editor-popup, 450)' as unknown as number,
             boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
             fontSize: '12px',
-            fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+            fontFamily: CODE_FONT_FAMILY,
             color: 'var(--text-main)',
             overflowWrap: 'anywhere',
             userSelect: 'text',
@@ -1993,152 +2224,146 @@ const PythonCellEditorInner: React.FC<PythonCellEditorProps> = ({
         </div>
       )}
 
-      {/* 5. Google Colab-style Autocomplete Dropdown */}
-      {isDropdownOpen && (completions.length > 0 || completionNotice) && (
-        <div
-          ref={dropdownRef}
-          data-testid="autocomplete-dropdown"
-          role="dialog"
-          aria-label="Code Suggestions"
-          style={{
-            position: 'absolute',
-            top: `${dropdownPos.top}px`,
-            left: `${dropdownPos.left}px`,
-            transform: dropdownPos.placement === 'above' ? 'translateY(-100%)' : 'none',
-            width: 'min(380px, calc(100% - 20px))',
-            maxHeight: '420px',
-            backgroundColor: 'var(--dropdown-bg)',
-            border: '1px solid var(--dropdown-border)',
-            borderRadius: '8px',
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)',
-            zIndex: 1000,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {/* Header indicator */}
-          <div
-            style={{
-              padding: '5px 10px',
-              backgroundColor: 'var(--dropdown-header-bg)',
-              borderBottom: '1px solid var(--border-main)',
-              fontSize: '10.5px',
-              color: 'var(--text-muted)',
-              fontWeight: 600,
-              display: 'flex',
-              justifyContent: 'space-between',
-              userSelect: 'none',
-            }}
-          >
-            <span>
-              {columnCtxRef.current ? 'COLUMNS' : 'SUGGESTIONS'} ({completions.length})
-            </span>
-            <span>Tab / ↵ to insert</span>
-          </div>
-          {completionNotice && (
-            <div className="completion-notice" role="status" data-testid="completion-notice">
-              <Info size={12} />
-              <span>{completionNotice}</span>
-            </div>
-          )}
+      {/* 5. Suggestions (Google Colab style): next to the caret, sized to the room available */}
+      {isDropdownOpen && !dropdownPos.hidden && (completions.length > 0 || completionNotice) && (() => {
+        const selected = completions[selectedIndex];
+        const doc = detailDoc ? (
+          <DocView doc={detailDoc} compact />
+        ) : selected?.documentation ? (
+          <div className="completion-doc-text">{selected.documentation}</div>
+        ) : null;
+        const anchor: React.CSSProperties = {
+          position: 'fixed',
+          top: `${dropdownPos.top}px`,
+          transform: dropdownPos.placement === 'above' ? 'translateY(-100%)' : 'none',
+          maxHeight: `${dropdownPos.maxHeight}px`,
+          zIndex: 'var(--z-editor-popup, 450)' as unknown as number,
+        };
+        return (
+          <>
+            <div
+              ref={dropdownRef}
+              data-testid="autocomplete-dropdown"
+              data-placement={dropdownPos.placement}
+              role="dialog"
+              aria-label="Code Suggestions"
+              className="completion-popup"
+              style={{ ...anchor, left: `${dropdownPos.left}px`, width: `${dropdownPos.width}px` }}
+            >
+              {/* Header indicator */}
+              <div className="completion-popup-header">
+                <span>
+                  {columnCtxRef.current ? 'COLUMNS' : 'SUGGESTIONS'} ({completions.length})
+                </span>
+                <span>Tab / ↵ to insert</span>
+              </div>
+              {completionNotice && (
+                <div className="completion-notice" role="status" data-testid="completion-notice">
+                  <Info size={12} />
+                  <span>{completionNotice}</span>
+                </div>
+              )}
 
-          {/* Completion List */}
-          <div
-            ref={listRef}
-            role="listbox"
-            tabIndex={-1}
-            style={{
-              overflowY: 'auto',
-              maxHeight: '220px',
-              overscrollBehavior: 'contain',
-            }}
-          >
-            {completions.map((item, idx) => {
-              const isSelected = idx === selectedIndex;
-              return (
-                <div
-                  key={`${item.label}-${idx}`}
-                  role="option"
-                  aria-selected={isSelected}
-                  data-testid={`completion-item-${item.label}`}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    acceptCompletion(item);
-                  }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    acceptCompletion(item);
-                  }}
-                  onMouseEnter={() => {
-                    userNavigatedRef.current = true;
-                    setSelectedIndex(idx);
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '6px 10px',
-                    backgroundColor: isSelected ? 'var(--dropdown-item-selected)' : 'transparent',
-                    cursor: 'pointer',
-                    fontSize: '12.5px',
-                    fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-                    borderBottom: '1px solid var(--border-main)',
-                    transition: 'background-color 0.05s ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                    {renderItemIcon(item.type)}
-                    <span
+              {/* Completion list: scrolls on its own (mouse wheel, trackpad, arrow keys) */}
+              <div
+                ref={listRef}
+                role="listbox"
+                tabIndex={-1}
+                data-testid="autocomplete-list"
+                className="completion-list"
+              >
+                {completions.map((item, idx) => {
+                  const isSelected = idx === selectedIndex;
+                  return (
+                    <div
+                      key={`${item.label}-${idx}`}
+                      role="option"
+                      aria-selected={isSelected}
+                      data-testid={`completion-item-${item.label}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        acceptCompletion(item);
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        acceptCompletion(item);
+                      }}
+                      // Only a real mouse move selects: a list opening (or scrolling) under a still
+                      // pointer keeps the keyboard's selection, as in VS Code and Colab
+                      onMouseMove={() => {
+                        if (idx === selectedIndex) return;
+                        userNavigatedRef.current = true;
+                        setSelectedIndex(idx);
+                      }}
                       style={{
-                        color: isSelected ? 'var(--dropdown-item-selected-text)' : 'var(--text-main)',
-                        fontWeight: isSelected ? 600 : 400,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '6px 10px',
+                        backgroundColor: isSelected ? 'var(--dropdown-item-selected)' : 'transparent',
+                        cursor: 'pointer',
+                        fontSize: '12.5px',
+                        fontFamily: CODE_FONT_FAMILY,
+                        borderBottom: '1px solid var(--border-main)',
+                        transition: 'background-color 0.05s ease',
                       }}
                     >
-                      {item.label}
-                    </span>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      color: isSelected ? 'var(--dropdown-item-selected-text)' : 'var(--text-muted)',
-                      flexShrink: 0,
-                      marginLeft: '8px',
-                    }}
-                  >
-                    {item.type === 'column' ? item.detail || 'column' : item.type}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                        {renderItemIcon(item.type)}
+                        <span
+                          style={{
+                            color: isSelected ? 'var(--dropdown-item-selected-text)' : 'var(--text-main)',
+                            fontWeight: isSelected ? 600 : 400,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {item.label}
+                        </span>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          color: isSelected ? 'var(--dropdown-item-selected-text)' : 'var(--text-muted)',
+                          flexShrink: 0,
+                          marginLeft: '8px',
+                        }}
+                      >
+                        {item.type === 'column' ? item.detail || 'column' : item.type}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
 
-          {/* Selected item documentation: structured when available, else the plain description */}
-          {detailDoc ? (
-            <div className="completion-details" data-testid="completion-details">
-              <DocView doc={detailDoc} compact />
+              {/* Narrow screens: the documentation shares the box, under the list */}
+              {doc && dropdownPos.docSide === 'inside' && (
+                <div className="completion-details completion-details--inside" data-testid="completion-details">
+                  {doc}
+                </div>
+              )}
             </div>
-          ) : completions[selectedIndex]?.documentation && (
-            <div
-              style={{
-                padding: '6px 10px',
-                backgroundColor: 'var(--dropdown-header-bg)',
-                borderTop: '1px solid var(--border-main)',
-                fontSize: '11px',
-                color: 'var(--text-secondary)',
-                maxHeight: '60px',
-                overflowY: 'auto',
-                whiteSpace: 'pre-wrap',
-                overscrollBehavior: 'contain',
-              }}
-            >
-              {completions[selectedIndex].documentation}
-            </div>
-          )}
-        </div>
+
+            {/* The selected suggestion's documentation, beside the list (never over it) */}
+            {doc && dropdownPos.docSide !== 'inside' && (
+              <div
+                ref={docPanelRef}
+                className="completion-details completion-details--panel"
+                data-testid="completion-details"
+                data-side={dropdownPos.docSide}
+                role="note"
+                aria-label="Documentation"
+                style={{ ...anchor, left: `${dropdownPos.docLeft}px`, width: `${dropdownPos.docWidth}px` }}
+              >
+                {doc}
+              </div>
+            )}
+          </>
+        );
+      })()}
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -2152,7 +2377,10 @@ export const PythonCellEditor = React.memo(PythonCellEditorInner, (prev, next) =
     prev.readOnly !== next.readOnly ||
     prev.sessionId !== next.sessionId ||
     prev.placeholder !== next.placeholder ||
-    prev.isActive !== next.isActive
+    prev.isActive !== next.isActive ||
+    prev.runtimeError?.line !== next.runtimeError?.line ||
+    prev.runtimeError?.ename !== next.runtimeError?.ename ||
+    prev.runtimeError?.evalue !== next.runtimeError?.evalue
   ) {
     return false;
   }

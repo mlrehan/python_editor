@@ -21,9 +21,13 @@ import { NotebookCell, KernelOutput, PendingInput } from '../types';
 import { applyTextareaEdit } from '../utils/textareaEdit';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from './Modal';
 import { PythonCellEditor } from './PythonCellEditor';
+import { MarkdownCellEditor } from './MarkdownCellEditor';
+import { MarkdownView } from './MarkdownView';
+import { applyTabIndent } from '../utils/indentation';
 import { DataTableView } from './DataTableView';
 import { OutputFrame } from './OutputFrame';
 import { renderAnsi } from '../utils/ansi';
+import { errorLineInCell, parseTraceback, TracebackLocation } from '../utils/traceback';
 
 // nbformat may store multi-line strings as arrays of lines (notebooks saved by Jupyter)
 const mimeText = (value: unknown): string => (Array.isArray(value) ? value.join('') : typeof value === 'string' ? value : value == null ? '' : String(value));
@@ -37,6 +41,8 @@ interface NotebookEditorProps {
   onRunCellsAbove?: (cellId: string) => void;
   onRunCellsBelow?: (cellId: string) => void;
   onChangeCellType?: (cellId: string, cellType: 'code' | 'markdown') => void;
+  /** Opens a workspace file at a line (traceback links) */
+  onOpenFileAtLine?: (path: string, line: number) => void;
   onMoveCell: (cellId: string, direction: 'up' | 'down') => void;
   onDuplicateCell: (cellId: string) => void;
   onClearCellOutput: (cellId: string) => void;
@@ -91,7 +97,22 @@ const SHORTCUT_SECTIONS: Array<{ title: string; rows: ShortcutRow[] }> = [
       { action: 'Comment / uncomment the current or selected lines', keys: ['Ctrl + /'], macKeys: ['⌘ + /'] },
       { action: 'Indent: insert 4 spaces, or indent the selected lines', keys: ['Tab'] },
       { action: 'Outdent the current or selected lines', keys: ['Shift + Tab'] },
-      { action: 'New line keeping indentation (one level deeper after ":")', keys: ['Enter'] },
+      { action: 'New line with Python indentation (deeper after ":", inside brackets; back after return, pass, break)', keys: ['Enter'] },
+      { action: 'Delete back to the previous indentation level (in leading spaces)', keys: ['Backspace'] },
+    ],
+  },
+  {
+    title: 'Text cells (formatting)',
+    rows: [
+      { action: 'Edit a text cell / show it formatted', keys: ['Double-click', 'Esc'] },
+      { action: 'Bold / italic', keys: ['Ctrl + B', 'Ctrl + I'], macKeys: ['⌘ + B', '⌘ + I'] },
+      { action: 'Strikethrough / highlight', keys: ['Ctrl + Shift + S', 'Ctrl + Shift + H'], macKeys: ['⌘ + Shift + S', '⌘ + Shift + H'] },
+      { action: 'Inline code', keys: ['Ctrl + E'], macKeys: ['⌘ + E'] },
+      { action: 'Insert or edit a link', keys: ['Ctrl + K'], macKeys: ['⌘ + K'] },
+      { action: 'Numbered / bulleted list / checklist', keys: ['Ctrl + Shift + 7', 'Ctrl + Shift + 8', 'Ctrl + Shift + 9'], macKeys: ['⌘ + Shift + 7', '⌘ + Shift + 8', '⌘ + Shift + 9'] },
+      { action: 'Heading 1-3 / normal text', keys: ['Ctrl + Alt + 1…3', 'Ctrl + Alt + 0'], macKeys: ['⌘ + ⌥ + 1…3', '⌘ + ⌥ + 0'] },
+      { action: 'Nest / un-nest a list item', keys: ['Tab', 'Shift + Tab'] },
+      { action: 'Undo / redo', keys: ['Ctrl + Z', 'Ctrl + Shift + Z'], macKeys: ['⌘ + Z', '⌘ + Shift + Z'] },
     ],
   },
   {
@@ -134,7 +155,7 @@ const StdinPrompt: React.FC<{ prompt: string; password: boolean; onSubmit: (valu
         alignItems: 'center',
         gap: '6px',
         margin: '4px 0',
-        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+        fontFamily: 'var(--code-font-family)',
         fontSize: '13px',
         color: 'var(--text-main)',
       }}
@@ -190,6 +211,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
   onRunCellsAbove,
   onRunCellsBelow,
   onChangeCellType,
+  onOpenFileAtLine,
   sessionId,
   onUpdateCellMetadata,
   pendingInput,
@@ -224,9 +246,42 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
     typeof navigator !== 'undefined' &&
     /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent || navigator.platform);
 
-  const toggleMarkdownPreview = (cellId: string) => {
-    setMarkdownPreviews((prev) => ({ ...prev, [cellId]: !prev[cellId] }));
+  // Text cells are shown formatted, and open for editing on double-click / Enter / Edit (as in Colab).
+  // A cell with no text yet starts in the editor.
+  const isMarkdownRendered = (cell: NotebookCell) =>
+    cell.cell_type === 'markdown' && (markdownPreviews[cell.id] ?? cell.source.trim() !== '');
+
+  const editMarkdownCell = (cellId: string) => {
+    setMarkdownPreviews((prev) => ({ ...prev, [cellId]: false }));
+    setMode('edit');
+    onSelectCell(cellId);
+    focusRequestRef.current = 'edit';
+    requestAnimationFrame(() => textareaRefs.current[cellId]?.focus());
   };
+
+  const toggleMarkdownPreview = (cellId: string) => {
+    const cell = cells.find((c) => c.id === cellId);
+    if (cell && isMarkdownRendered(cell)) editMarkdownCell(cellId);
+    else setMarkdownPreviews((prev) => ({ ...prev, [cellId]: true }));
+  };
+
+  // Live preview beside the text while editing (remembered in this browser)
+  const [mdLivePreview, setMdLivePreview] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('pcs_md_live_preview') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const toggleMdLivePreview = () =>
+    setMdLivePreview((prev) => {
+      try {
+        localStorage.setItem('pcs_md_live_preview', prev ? '0' : '1');
+      } catch {
+        /* the choice lasts for this page */
+      }
+      return !prev;
+    });
 
   // Colab/Jupyter modes: 'edit' while a cell's editor has the keyboard, 'command' when the cell itself
   // is selected (Esc / Enter switch). Focus only ever moves because of the user's own action.
@@ -250,6 +305,50 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
       wrapper.scrollIntoView({ block: 'nearest' });
     }
   }, []);
+
+  // The error the cell's last run raised, at its line in this cell (marked in the code like a diagnostic)
+  const runtimeErrorOf = (cell: NotebookCell) => {
+    const err = cell.outputs?.find((o) => o.output_type === 'error');
+    if (!err || cell.is_running) return null;
+    const line = errorLineInCell(parseTraceback(err.traceback ?? []), cell.execution_count);
+    return line ? { line, ename: err.ename ?? 'Error', evalue: err.evalue ?? '' } : null;
+  };
+
+  // Leaving a text cell (Esc, Shift+Enter, selecting another cell) shows it formatted again
+  useEffect(() => {
+    setMarkdownPreviews((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const c of cells) {
+        if (c.cell_type !== 'markdown' || prev[c.id] !== false) continue;
+        if (c.id === activeCellId && mode === 'edit') continue;
+        next[c.id] = true;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCellId, mode]);
+
+  // Traceback link: puts the caret on a line of the cell that ran as In[executionCount]
+  const goToCellLine = (executionCount: number, line: number) => {
+    const target = [...cells].reverse().find((c) => c.cell_type === 'code' && c.execution_count === executionCount);
+    if (!target) return;
+    onSelectCell(target.id);
+    setMode('edit');
+    requestAnimationFrame(() => {
+      const editor = textareaRefs.current[target.id];
+      if (!editor) return;
+      const lines = editor.value.split('\n');
+      let offset = 0;
+      for (let i = 0; i < Math.min(line - 1, lines.length - 1); i++) offset += lines[i].length + 1;
+      const text = lines[Math.min(line - 1, lines.length - 1)] ?? '';
+      const indent = text.length - text.trimStart().length;
+      editor.focus();
+      editor.setSelectionRange(offset + indent, offset + text.length);
+      cellRefs.current[target.id]?.scrollIntoView({ block: 'nearest' });
+    });
+  };
 
   // A new selection takes the keyboard only if the user is working in the notebook (or asked for
   // it): page load, background saves and outputs never steal focus or move the caret
@@ -296,10 +395,8 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
       case 'Enter':
         if (e.shiftKey) return; // Shift+Enter runs (global shortcut)
         e.preventDefault();
-        if (cell.cell_type === 'markdown' && markdownPreviews[cell.id]) {
-          setMarkdownPreviews((prev) => ({ ...prev, [cell.id]: false }));
-          focusRequestRef.current = 'edit';
-          requestAnimationFrame(() => focusCell(cell.id, 'edit'));
+        if (cell.cell_type === 'markdown' && isMarkdownRendered(cell)) {
+          editMarkdownCell(cell.id);
         } else {
           focusCell(cell.id, 'edit');
         }
@@ -476,63 +573,57 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
       return;
     }
 
-    // 2. Tab key handling: Insert 4 spaces instead of losing focus
-    if (e.key === 'Tab') {
+    // 2. Tab / Shift+Tab: indent or outdent (list items are nested by the text toolbar's handler)
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-      const val = target.value;
-      const updated = val.substring(0, start) + '    ' + val.substring(end);
+      const edit = applyTabIndent(target.value, target.selectionStart, target.selectionEnd, e.shiftKey);
       // Native editing history keeps Ctrl+Z / Ctrl+Shift+Z working
-      applyTextareaEdit(target, updated, start + 4);
-      onUpdateCellSource(cell.id, target.value);
-      return;
+      if (!applyTextareaEdit(target, edit.value, edit.selectionStart, edit.selectionEnd)) onUpdateCellSource(cell.id, edit.value);
     }
-
-    // 3. Auto-indent on Enter
-    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      const start = target.selectionStart;
-      const val = target.value;
-      const currentLine = val.substring(0, start).split('\n').pop() || '';
-      const leadingSpaces = currentLine.match(/^\s*/)?.[0] || '';
-      const extraIndent = currentLine.trimEnd().endsWith(':') ? '    ' : '';
-      const indent = leadingSpaces + extraIndent;
-
-      if (indent.length > 0) {
-        e.preventDefault();
-        const updated = val.substring(0, start) + '\n' + indent + val.substring(target.selectionEnd);
-        applyTextareaEdit(target, updated, start + 1 + indent.length);
-        onUpdateCellSource(cell.id, target.value);
-        return;
-      }
-    }
-
-    // 4. Bracket & Quote pairing
-    const pairs: Record<string, string> = {
-      '(': ')',
-      '[': ']',
-      '{': '}',
-      '"': '"',
-      "'": "'",
-    };
-    if (pairs[e.key] && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-      const val = target.value;
-      if (start === end) {
-        e.preventDefault();
-        const closing = pairs[e.key];
-        const updated = val.substring(0, start) + e.key + closing + val.substring(end);
-        onUpdateCellSource(cell.id, updated);
-        requestAnimationFrame(() => {
-          target.selectionStart = target.selectionEnd = start + 1;
-        });
-        return;
-      }
-    }
+    // Text cells hold prose: no automatic brackets, quotes or code indentation ("don't" stays "don't")
   };
 
-  const renderOutput = (output: KernelOutput, idx: number) => {
+  // The places a traceback points at (cells of this notebook and workspace files), as links
+  const renderErrorLocations = (output: KernelOutput, cell: NotebookCell) => {
+    const locations = parseTraceback(output.traceback ?? []).filter(
+      (l) => (l.kind === 'cell' && l.executionCount != null) || (l.kind === 'file' && l.path)
+    );
+    if (!locations.length) return null;
+    const seen = new Set<string>();
+    const unique = locations.filter((l) => {
+      const key = `${l.kind}:${l.executionCount ?? l.path}:${l.line}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const label = (l: TracebackLocation) =>
+      l.kind === 'cell'
+        ? `${l.executionCount === cell.execution_count ? 'This cell' : `Cell [${l.executionCount}]`}, line ${l.line}`
+        : `${l.path}, line ${l.line}`;
+    return (
+      <div className="error-locations" data-testid="error-locations">
+        <span className="error-locations-title">Where:</span>
+        {unique.map((l, i) => (
+          <button
+            key={i}
+            type="button"
+            className="error-location-link"
+            data-testid="error-location-link"
+            title={l.kind === 'cell' ? 'Go to this line in the notebook' : `Open ${l.path} at line ${l.line}`}
+            onClick={() => {
+              if (l.kind === 'cell' && l.executionCount != null) goToCellLine(l.executionCount, l.line);
+              else if (l.path) onOpenFileAtLine?.(l.path, l.line);
+            }}
+          >
+            {label(l)}
+            {l.scope && l.scope !== '<module>' ? ` in ${l.scope}()` : ''}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderOutput = (output: KernelOutput, idx: number, cell: NotebookCell) => {
     if (output.output_type === 'clear_output' || output.output_type === 'update_display_data') return null;
 
     if (output.output_type === 'stream') {
@@ -544,7 +635,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
           style={{
             color: isErr ? '#f87171' : 'var(--text-main)',
             fontSize: '13px',
-            fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+            fontFamily: 'var(--code-font-family)',
             lineHeight: 1.5,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
@@ -666,7 +757,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             style={{
               color: 'var(--text-main)',
               fontSize: '13px',
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+              fontFamily: 'var(--code-font-family)',
               lineHeight: 1.5,
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
@@ -704,6 +795,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
             <AlertTriangle size={15} />
             {output.ename}: {output.evalue}
           </div>
+          {renderErrorLocations(output, cell)}
           {output.traceback && output.traceback.length > 0 && (
             <pre
               style={{
@@ -712,7 +804,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 marginTop: '8px',
                 whiteSpace: 'pre-wrap',
                 overflowX: 'auto',
-                fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                fontFamily: 'var(--code-font-family)',
               }}
             >
               {renderAnsi(output.traceback.join('\n'))}
@@ -884,7 +976,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
         {/* Cells List */}
         {cells.map((cell, index) => {
           const isActive = cell.id === activeCellId;
-          const isMarkdownPreview = cell.cell_type === 'markdown' && !!markdownPreviews[cell.id];
+          const isMarkdownPreview = isMarkdownRendered(cell);
           const hasOutputs = cell.outputs && cell.outputs.length > 0;
           const cellInput = pendingInput && pendingInput.cellId === cell.id ? pendingInput : null;
 
@@ -925,7 +1017,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 overflow: isActive ? 'visible' : 'hidden',
                 zIndex: isActive ? 40 : 1,
                 outline: 'none',
-                boxShadow: isActive && mode === 'edit' ? '0 0 0 1px var(--border-accent)' : isActive ? 'inset 4px 0 0 var(--border-accent)' : 'none',
+                boxShadow: isActive && mode === 'edit' ? '0 0 0 1px var(--border-accent)' : 'none',
                 transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
                 position: 'relative',
               }}
@@ -950,7 +1042,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                         fontSize: '11px',
                         fontWeight: 600,
                         color: cell.is_running ? '#f59e0b' : 'var(--border-accent)',
-                        fontFamily: "'JetBrains Mono', monospace",
+                        fontFamily: 'var(--code-font-family)',
                       }}
                     >
                       {cell.is_running ? '[*]' : cell.execution_count ? `[${cell.execution_count}]` : '[ ]'}
@@ -985,7 +1077,8 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                         gap: '4px',
                       }}
                       className="cell-hdr-btn cell-hdr-btn--labelled"
-                      title="Toggle Preview / Edit"
+                      title={isMarkdownPreview ? 'Edit this text (double-click or Enter)' : 'Show the formatted text (Shift+Enter)'}
+                      data-testid="markdown-toggle"
                     >
                       {isMarkdownPreview ? <><Edit3 size={11} /> Edit</> : <><Eye size={11} /> Preview</>}
                     </button>
@@ -1267,33 +1360,20 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                 {/* Editor Body */}
                 <div style={{ flex: 1, minWidth: 0, padding: cell.cell_type === 'code' ? '0' : '10px var(--nb-md-pad-x, 14px)' }}>
                   {cell.cell_type === 'markdown' && isMarkdownPreview ? (
-                    <div
-                      style={{
-                        color: 'var(--text-main)',
-                        fontSize: '14px',
-                        lineHeight: 1.6,
-                        minHeight: '36px',
-                        cursor: 'pointer',
-                      }}
-                      onDoubleClick={() => toggleMarkdownPreview(cell.id)}
-                      title="Double click to edit Markdown"
-                    >
-                      {cell.source.split('\n').map((line, i) => {
-                        if (line.startsWith('# '))
-                          return <h1 key={i} style={{ fontSize: '20px', fontWeight: 700, margin: '8px 0', color: 'var(--border-accent)' }}>{line.slice(2)}</h1>;
-                        if (line.startsWith('## '))
-                          return <h2 key={i} style={{ fontSize: '17px', fontWeight: 600, margin: '6px 0', color: 'var(--border-accent)' }}>{line.slice(3)}</h2>;
-                        if (line.startsWith('### '))
-                          return <h3 key={i} style={{ fontSize: '15px', fontWeight: 600, margin: '4px 0', color: 'var(--text-main)' }}>{line.slice(4)}</h3>;
-                        return <p key={i} style={{ margin: '4px 0' }}>{line || '\u00A0'}</p>;
-                      })}
-                    </div>
+                    <MarkdownView
+                      source={cell.source}
+                      testId="markdown-rendered"
+                      emptyText="Empty text cell. Double-click (or press Enter) to write."
+                      onDoubleClick={() => editMarkdownCell(cell.id)}
+                      title="Double-click to edit"
+                    />
                   ) : cell.cell_type === 'code' ? (
                     <PythonCellEditor
                       cellId={cell.id}
                       code={cell.source}
                       isActive={isActive}
                       customHeight={cell.metadata?.custom_height}
+                      runtimeError={runtimeErrorOf(cell)}
                       onHeightChange={(id, height) => onUpdateCellMetadata && onUpdateCellMetadata(id, { custom_height: height })}
                       onChange={(newCode) => onUpdateCellSource(cell.id, newCode)}
                       onRunCurrentCell={(id, codeVal) => onRunCurrentCell(id, codeVal)}
@@ -1313,37 +1393,20 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                       }}
                     />
                   ) : (
-                    <textarea
-                      ref={(el) => {
+                    <MarkdownCellEditor
+                      source={cell.source}
+                      editorRef={(el) => {
                         textareaRefs.current[cell.id] = el;
                       }}
-                      data-testid="markdown-cell-editor"
-                      className="code-font markdown-cell-editor"
-                      value={cell.source}
                       onFocus={() => {
                         setMode('edit');
                         onSelectCell(cell.id);
+                        setMarkdownPreviews((prev) => (prev[cell.id] === false ? prev : { ...prev, [cell.id]: false }));
                       }}
-                      onChange={(e) => onUpdateCellSource(cell.id, e.target.value)}
+                      onChange={(value) => onUpdateCellSource(cell.id, value)}
                       onKeyDown={(e) => handleEditorKeyDown(e, cell)}
-                      placeholder="Write Markdown text here..."
-                      spellCheck={false}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      data-gramm="false"
-                      style={{
-                        width: '100%',
-                        minHeight: '64px',
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        outline: 'none',
-                        color: 'var(--code-text)',
-                        fontSize: '13.5px',
-                        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-                        lineHeight: 1.6,
-                        resize: 'vertical',
-                      }}
+                      livePreview={mdLivePreview}
+                      onToggleLivePreview={toggleMdLivePreview}
                     />
                   )}
                 </div>
@@ -1360,7 +1423,7 @@ export const NotebookEditor: React.FC<NotebookEditorProps> = ({
                     borderTop: '1px solid var(--border-main)',
                   }}
                 >
-                  {cell.outputs.map((out, oIdx) => renderOutput(out, oIdx))}
+                  {cell.outputs.map((out, oIdx) => renderOutput(out, oIdx, cell))}
                   {cellInput && onSubmitInput && (
                     <StdinPrompt
                       prompt={cellInput.prompt}

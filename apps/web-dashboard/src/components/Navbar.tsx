@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { KernelStatus, UserProfile } from '../types';
 import { useTheme } from '../context/ThemeContext';
+import { DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE, setEditorFontSize, useEditorFont } from '../editorSettings';
 
 interface NavbarProps {
   title: string;
@@ -145,6 +146,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleRightSidebar,
 }) => {
   const { themeMode, setThemeMode } = useTheme();
+  const { fontSize: editorFontSize } = useEditorFont();
   const headerRef = useRef<HTMLElement>(null);
   const [tier, setTier] = useState<Tier>(() =>
     typeof window !== 'undefined' ? tierForWidth(window.innerWidth) : 'lg'
@@ -268,6 +270,48 @@ export const Navbar: React.FC<NavbarProps> = ({
       </a>
     );
   }
+
+  // Code font size for notebook cells and the file editor (remembered in this browser)
+  if (moreItems.length) moreItems.push(<div key="sep-font" className="tb-menu-sep" role="separator" />);
+  moreItems.push(
+    <div key="font-size" className="tb-font-size" role="group" aria-label="Editor font size" data-testid="editor-font-size">
+      <span className="tb-font-size-label" title="Code font size in cells and files">Font size</span>
+      <button
+        type="button"
+        className="tb-font-size-btn"
+        aria-label="Smaller editor font"
+        title="Smaller"
+        disabled={editorFontSize <= MIN_FONT_SIZE}
+        onClick={() => setEditorFontSize(editorFontSize - 1)}
+        data-testid="editor-font-smaller"
+      >
+        −
+      </button>
+      <span className="tb-font-size-value" data-testid="editor-font-size-value">{editorFontSize}px</span>
+      <button
+        type="button"
+        className="tb-font-size-btn"
+        aria-label="Larger editor font"
+        title="Larger"
+        disabled={editorFontSize >= MAX_FONT_SIZE}
+        onClick={() => setEditorFontSize(editorFontSize + 1)}
+        data-testid="editor-font-larger"
+      >
+        +
+      </button>
+      {editorFontSize !== DEFAULT_FONT_SIZE && (
+        <button
+          type="button"
+          className="tb-font-size-reset"
+          onClick={() => setEditorFontSize(DEFAULT_FONT_SIZE)}
+          title={`Back to ${DEFAULT_FONT_SIZE}px`}
+          aria-label={`Reset font size to ${DEFAULT_FONT_SIZE}px`}
+        >
+          ↺
+        </button>
+      )}
+    </div>
+  );
 
   if (!themeInBar) {
     moreItems.push(

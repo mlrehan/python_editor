@@ -340,7 +340,8 @@ async def test_syntax_colors_follow_edits_ctrl_slash_and_undo():
         # The textarea's own text is invisible; the layer draws it with the same metrics
         assert await editor.evaluate("el => getComputedStyle(el).color") == "rgba(0, 0, 0, 0)"
         line_tops = await layer.evaluate("l => [...l.children].map(d => d.offsetTop)")
-        assert line_tops[:3] == [10, 31, 52], line_tops
+        line_h = await editor.evaluate("el => parseFloat(getComputedStyle(el).lineHeight)")
+        assert line_tops[:3] == [10, 10 + line_h, 10 + 2 * line_h], (line_tops, line_h)
 
         # Ctrl+/ comments line 3: it is coloured as a comment immediately, and undo restores the colours
         await editor.evaluate("el => { el.focus(); const p = el.value.lastIndexOf('print'); el.setSelectionRange(p, p); }")
